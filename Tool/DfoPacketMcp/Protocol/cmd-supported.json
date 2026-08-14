@@ -1,0 +1,1892 @@
+﻿[
+    {
+        "type":  1,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:300",
+                            "expression":  "0x0001"
+                        }
+                    ]
+    },
+    {
+        "type":  3,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:821",
+                            "expression":  "0x0003"
+                        }
+                    ]
+    },
+    {
+        "type":  4,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:305",
+                            "expression":  "0x0004"
+                        }
+                    ]
+    },
+    {
+        "type":  5,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:307",
+                            "expression":  "0x0005"
+                        }
+                    ]
+    },
+    {
+        "type":  6,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:308",
+                            "expression":  "0x0006"
+                        }
+                    ]
+    },
+    {
+        "type":  7,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:309",
+                            "expression":  "0x0007"
+                        }
+                    ]
+    },
+    {
+        "type":  8,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:311",
+                            "expression":  "0x0008"
+                        }
+                    ]
+    },
+    {
+        "type":  9,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:314",
+                            "expression":  "0x0009"
+                        }
+                    ]
+    },
+    {
+        "type":  10,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:334",
+                            "expression":  "0x000A"
+                        }
+                    ]
+    },
+    {
+        "type":  11,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:335",
+                            "expression":  "0x000B"
+                        }
+                    ]
+    },
+    {
+        "type":  12,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:323",
+                            "expression":  "0x000C"
+                        }
+                    ]
+    },
+    {
+        "type":  13,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:324",
+                            "expression":  "0x000D"
+                        }
+                    ]
+    },
+    {
+        "type":  14,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:333",
+                            "expression":  "0x000E"
+                        }
+                    ]
+    },
+    {
+        "type":  15,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:601",
+                            "expression":  "0x000F"
+                        }
+                    ]
+    },
+    {
+        "type":  16,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:602",
+                            "expression":  "0x0010"
+                        }
+                    ]
+    },
+    {
+        "type":  17,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:321",
+                            "expression":  "(ushort)CmdPacketType.SEND_MESSAGE"
+                        }
+                    ]
+    },
+    {
+        "type":  18,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:384",
+                            "expression":  "0x0012"
+                        }
+                    ]
+    },
+    {
+        "type":  19,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:390",
+                            "expression":  "0x0013"
+                        }
+                    ]
+    },
+    {
+        "type":  20,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:398",
+                            "expression":  "0x0014"
+                        }
+                    ]
+    },
+    {
+        "type":  21,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:404",
+                            "expression":  "0x0015"
+                        }
+                    ]
+    },
+    {
+        "type":  22,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:405",
+                            "expression":  "0x0016"
+                        }
+                    ]
+    },
+    {
+        "type":  23,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:406",
+                            "expression":  "0x0017"
+                        }
+                    ]
+    },
+    {
+        "type":  25,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:407",
+                            "expression":  "0x0019"
+                        }
+                    ]
+    },
+    {
+        "type":  26,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:408",
+                            "expression":  "0x001A"
+                        }
+                    ]
+    },
+    {
+        "type":  27,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:410",
+                            "expression":  "0x001B"
+                        }
+                    ]
+    },
+    {
+        "type":  28,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:651",
+                            "expression":  "0x001C"
+                        }
+                    ]
+    },
+    {
+        "type":  29,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:652",
+                            "expression":  "0x001D"
+                        }
+                    ]
+    },
+    {
+        "type":  30,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:411",
+                            "expression":  "(ushort)CmdPacketType.INCREASE_STATUS"
+                        }
+                    ]
+    },
+    {
+        "type":  31,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:701",
+                            "expression":  "0x001F"
+                        }
+                    ]
+    },
+    {
+        "type":  32,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:709",
+                            "expression":  "0x0020"
+                        }
+                    ]
+    },
+    {
+        "type":  33,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:717",
+                            "expression":  "0x0021"
+                        }
+                    ]
+    },
+    {
+        "type":  34,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:736",
+                            "expression":  "0x0022"
+                        }
+                    ]
+    },
+    {
+        "type":  35,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:663",
+                            "expression":  "0x0023"
+                        }
+                    ]
+    },
+    {
+        "type":  36,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:664",
+                            "expression":  "0x0024"
+                        }
+                    ]
+    },
+    {
+        "type":  37,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:671",
+                            "expression":  "0x0025"
+                        }
+                    ]
+    },
+    {
+        "type":  39,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:603",
+                            "expression":  "0x0027"
+                        }
+                    ]
+    },
+    {
+        "type":  40,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:604",
+                            "expression":  "0x0028"
+                        }
+                    ]
+    },
+    {
+        "type":  41,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:605",
+                            "expression":  "0x0029"
+                        }
+                    ]
+    },
+    {
+        "type":  42,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:672",
+                            "expression":  "0x002A"
+                        }
+                    ]
+    },
+    {
+        "type":  43,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:606",
+                            "expression":  "0x002B"
+                        }
+                    ]
+    },
+    {
+        "type":  44,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:455",
+                            "expression":  "0x002C"
+                        }
+                    ]
+    },
+    {
+        "type":  45,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:607",
+                            "expression":  "0x002D"
+                        }
+                    ]
+    },
+    {
+        "type":  46,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:608",
+                            "expression":  "0x002E"
+                        }
+                    ]
+    },
+    {
+        "type":  47,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:609",
+                            "expression":  "0x002F"
+                        }
+                    ]
+    },
+    {
+        "type":  49,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:345",
+                            "expression":  "0x0031"
+                        }
+                    ]
+    },
+    {
+        "type":  50,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:835",
+                            "expression":  "PvpRoomHandler.MakeRoomCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  51,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:837",
+                            "expression":  "PvpRoomHandler.EnterRoomCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  52,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:839",
+                            "expression":  "PvpRoomHandler.SetSeatStateCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  53,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:841",
+                            "expression":  "PvpRoomHandler.SetReadyStateCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  54,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:843",
+                            "expression":  "PvpRoomHandler.SetTeamModeCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  55,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:845",
+                            "expression":  "PvpRoomHandler.DiePvpCharacterCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  56,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:847",
+                            "expression":  "PvpRoomHandler.PvpTimeOutCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  57,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:849",
+                            "expression":  "PvpRoomHandler.EndPvpResultCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  58,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:851",
+                            "expression":  "PvpRoomHandler.PvpRankResponseCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  64,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:823",
+                            "expression":  "0x0040"
+                        }
+                    ]
+    },
+    {
+        "type":  65,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:824",
+                            "expression":  "(ushort)CmdPacketType.GEN_CERATICKET"
+                        }
+                    ]
+    },
+    {
+        "type":  69,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:610",
+                            "expression":  "0x0045"
+                        }
+                    ]
+    },
+    {
+        "type":  71,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:611",
+                            "expression":  "0x0047"
+                        }
+                    ]
+    },
+    {
+        "type":  72,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:612",
+                            "expression":  "0x0048"
+                        }
+                    ]
+    },
+    {
+        "type":  80,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:418",
+                            "expression":  "0x0050"
+                        }
+                    ]
+    },
+    {
+        "type":  81,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:420",
+                            "expression":  "0x0051"
+                        }
+                    ]
+    },
+    {
+        "type":  94,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:796",
+                            "expression":  "0x005E"
+                        }
+                    ]
+    },
+    {
+        "type":  95,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:797",
+                            "expression":  "0x005F"
+                        }
+                    ]
+    },
+    {
+        "type":  96,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:798",
+                            "expression":  "0x0060"
+                        }
+                    ]
+    },
+    {
+        "type":  97,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:344",
+                            "expression":  "0x0061"
+                        }
+                    ]
+    },
+    {
+        "type":  99,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:436",
+                            "expression":  "0x0063"
+                        }
+                    ]
+    },
+    {
+        "type":  100,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:466",
+                            "expression":  "0x0064"
+                        }
+                    ]
+    },
+    {
+        "type":  102,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:467",
+                            "expression":  "0x0066"
+                        }
+                    ]
+    },
+    {
+        "type":  112,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:857",
+                            "expression":  "PvpRoomHandler.PvpRequestFightCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  117,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:613",
+                            "expression":  "0x0075"
+                        }
+                    ]
+    },
+    {
+        "type":  121,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:341",
+                            "expression":  "0x0079"
+                        }
+                    ]
+    },
+    {
+        "type":  122,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:468",
+                            "expression":  "0x007A"
+                        }
+                    ]
+    },
+    {
+        "type":  123,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:614",
+                            "expression":  "0x007B"
+                        }
+                    ]
+    },
+    {
+        "type":  132,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:673",
+                            "expression":  "0x0084"
+                        }
+                    ]
+    },
+    {
+        "type":  134,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:799",
+                            "expression":  "0x0086"
+                        }
+                    ]
+    },
+    {
+        "type":  143,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:615",
+                            "expression":  "0x008F"
+                        }
+                    ]
+    },
+    {
+        "type":  159,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:644",
+                            "expression":  "0x009F"
+                        }
+                    ]
+    },
+    {
+        "type":  160,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:421",
+                            "expression":  "0x00A0"
+                        }
+                    ]
+    },
+    {
+        "type":  166,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:340",
+                            "expression":  "0x00A6"
+                        }
+                    ]
+    },
+    {
+        "type":  173,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:469",
+                            "expression":  "0x00AD"
+                        }
+                    ]
+    },
+    {
+        "type":  174,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:470",
+                            "expression":  "0x00AE"
+                        }
+                    ]
+    },
+    {
+        "type":  191,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:616",
+                            "expression":  "0x00BF"
+                        }
+                    ]
+    },
+    {
+        "type":  195,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:833",
+                            "expression":  "PvpChannelInfoHandler.CommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  197,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:681",
+                            "expression":  "0x00C5"
+                        }
+                    ]
+    },
+    {
+        "type":  198,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:682",
+                            "expression":  "0x00C6"
+                        }
+                    ]
+    },
+    {
+        "type":  201,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:504",
+                            "expression":  "0x00C9"
+                        }
+                    ]
+    },
+    {
+        "type":  202,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:409",
+                            "expression":  "0x00CA"
+                        }
+                    ]
+    },
+    {
+        "type":  204,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:412",
+                            "expression":  "0x00CC"
+                        }
+                    ]
+    },
+    {
+        "type":  205,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:413",
+                            "expression":  "0x00CD"
+                        }
+                    ]
+    },
+    {
+        "type":  206,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:499",
+                            "expression":  "0x00CE"
+                        }
+                    ]
+    },
+    {
+        "type":  208,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:414",
+                            "expression":  "0x00D0"
+                        }
+                    ]
+    },
+    {
+        "type":  217,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:363",
+                            "expression":  "0x00D9"
+                        }
+                    ]
+    },
+    {
+        "type":  235,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:869",
+                            "expression":  "(ushort)CmdPacketType.REQUEST_DISJOINT_ITEM"
+                        }
+                    ]
+    },
+    {
+        "type":  236,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:867",
+                            "expression":  "(ushort)CmdPacketType.REPAIR_DISJOINT_MACHINE"
+                        }
+                    ]
+    },
+    {
+        "type":  237,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:674",
+                            "expression":  "0x00ED"
+                        }
+                    ]
+    },
+    {
+        "type":  238,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:873",
+                            "expression":  "(ushort)CmdPacketType.COMPOUND_ITEM_BY_EXPERT_JOB"
+                        }
+                    ]
+    },
+    {
+        "type":  239,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:863",
+                            "expression":  "(ushort)CmdPacketType.GIVEUP_EXPERT_JOB"
+                        }
+                    ]
+    },
+    {
+        "type":  240,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:868",
+                            "expression":  "(ushort)CmdPacketType.UPGRADE_DISJOINT_MACHINE"
+                        }
+                    ]
+    },
+    {
+        "type":  254,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:684",
+                            "expression":  "0x00FE"
+                        }
+                    ]
+    },
+    {
+        "type":  255,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:632",
+                            "expression":  "(ushort)CmdPacketType.DIE_BLOOD_MONSTER"
+                        }
+                    ]
+    },
+    {
+        "type":  256,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:437",
+                            "expression":  "0x0100"
+                        }
+                    ]
+    },
+    {
+        "type":  258,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:630",
+                            "expression":  "(ushort)CmdPacketType.BLOOD_ROUND_UI_PREPARE_FINISH_"
+                        }
+                    ]
+    },
+    {
+        "type":  260,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:653",
+                            "expression":  "0x0104"
+                        }
+                    ]
+    },
+    {
+        "type":  267,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:482",
+                            "expression":  "0x010B"
+                        }
+                    ]
+    },
+    {
+        "type":  268,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:483",
+                            "expression":  "0x010C"
+                        }
+                    ]
+    },
+    {
+        "type":  269,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:484",
+                            "expression":  "0x010D"
+                        }
+                    ]
+    },
+    {
+        "type":  271,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:422",
+                            "expression":  "(ushort)CmdPacketType.UPGRADE_CHRONICLE"
+                        }
+                    ]
+    },
+    {
+        "type":  272,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:424",
+                            "expression":  "0x0110"
+                        }
+                    ]
+    },
+    {
+        "type":  295,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:316",
+                            "expression":  "0x0127"
+                        }
+                    ]
+    },
+    {
+        "type":  296,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:617",
+                            "expression":  "0x0128"
+                        }
+                    ]
+    },
+    {
+        "type":  297,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:618",
+                            "expression":  "0x0129"
+                        }
+                    ]
+    },
+    {
+        "type":  298,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:853",
+                            "expression":  "PvpRoomHandler.CompleteLoadPvpCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  299,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:855",
+                            "expression":  "PvpRoomHandler.ConnectP2pPvpCommandType"
+                        }
+                    ]
+    },
+    {
+        "type":  305,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:440",
+                            "expression":  "0x0131"
+                        }
+                    ]
+    },
+    {
+        "type":  306,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:441",
+                            "expression":  "0x0132"
+                        }
+                    ]
+    },
+    {
+        "type":  307,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:442",
+                            "expression":  "0x0133"
+                        }
+                    ]
+    },
+    {
+        "type":  308,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:443",
+                            "expression":  "0x0134"
+                        }
+                    ]
+    },
+    {
+        "type":  315,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:800",
+                            "expression":  "0x013B"
+                        }
+                    ]
+    },
+    {
+        "type":  316,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:619",
+                            "expression":  "0x013C"
+                        }
+                    ]
+    },
+    {
+        "type":  317,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:634",
+                            "expression":  "(ushort)CmdPacketType.SELECT_ULTIMATE_DIFFICULTY"
+                        }
+                    ]
+    },
+    {
+        "type":  324,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:801",
+                            "expression":  "0x0144"
+                        }
+                    ]
+    },
+    {
+        "type":  329,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:338",
+                            "expression":  "(ushort)CmdPacketType.ONE_TO_ONE_CHAT_STATE"
+                        }
+                    ]
+    },
+    {
+        "type":  331,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:654",
+                            "expression":  "0x014B"
+                        }
+                    ]
+    },
+    {
+        "type":  332,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:655",
+                            "expression":  "0x014C"
+                        }
+                    ]
+    },
+    {
+        "type":  338,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:446",
+                            "expression":  "(ushort)CmdPacketType.USE_LIMIT_CUBE"
+                        }
+                    ]
+    },
+    {
+        "type":  368,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:683",
+                            "expression":  "0x0170"
+                        }
+                    ]
+    },
+    {
+        "type":  370,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:423",
+                            "expression":  "(ushort)CmdPacketType.ENCHANT_3RD_CHRONICLE_ITEM"
+                        }
+                    ]
+    },
+    {
+        "type":  401,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:425",
+                            "expression":  "0x0191"
+                        }
+                    ]
+    },
+    {
+        "type":  407,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:426",
+                            "expression":  "0x0197"
+                        }
+                    ]
+    },
+    {
+        "type":  408,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:444",
+                            "expression":  "0x0198"
+                        }
+                    ]
+    },
+    {
+        "type":  412,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:427",
+                            "expression":  "0x019C"
+                        }
+                    ]
+    },
+    {
+        "type":  413,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:429",
+                            "expression":  "0x019D"
+                        }
+                    ]
+    },
+    {
+        "type":  414,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:430",
+                            "expression":  "0x019E"
+                        }
+                    ]
+    },
+    {
+        "type":  416,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:870",
+                            "expression":  "(ushort)CmdPacketType.EXPERT_EXTRACTION"
+                        }
+                    ]
+    },
+    {
+        "type":  417,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:825",
+                            "expression":  "0x01A1"
+                        }
+                    ]
+    },
+    {
+        "type":  419,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:337",
+                            "expression":  "0x01A3"
+                        }
+                    ]
+    },
+    {
+        "type":  424,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:312",
+                            "expression":  "0x01A8"
+                        }
+                    ]
+    },
+    {
+        "type":  435,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:675",
+                            "expression":  "(ushort)CmdPacketType.PARTY_TELEPORT"
+                        }
+                    ]
+    },
+    {
+        "type":  438,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:428",
+                            "expression":  "0x01B6"
+                        }
+                    ]
+    },
+    {
+        "type":  439,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:419",
+                            "expression":  "(ushort)CmdPacketType.UPGRADE_ITEM_SEPARATE"
+                        }
+                    ]
+    },
+    {
+        "type":  441,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:813",
+                            "expression":  "MercenaryExpeditionHandler.ReturnCommand"
+                        }
+                    ]
+    },
+    {
+        "type":  442,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:814",
+                            "expression":  "MercenaryExpeditionHandler.InfoCommand"
+                        }
+                    ]
+    },
+    {
+        "type":  443,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:815",
+                            "expression":  "MercenaryExpeditionHandler.CompetitionCommand"
+                        }
+                    ]
+    },
+    {
+        "type":  448,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:685",
+                            "expression":  "0x01C0"
+                        }
+                    ]
+    },
+    {
+        "type":  458,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:626",
+                            "expression":  "(ushort)CmdPacketType.TOURNAMENT_REWARD_SELECT_STATE"
+                        }
+                    ]
+    },
+    {
+        "type":  459,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:628",
+                            "expression":  "(ushort)CmdPacketType.TOURNAMENT_REWARD_SELECT"
+                        }
+                    ]
+    },
+    {
+        "type":  460,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:445",
+                            "expression":  "0x01CC"
+                        }
+                    ]
+    },
+    {
+        "type":  476,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:690",
+                            "expression":  "(ushort)CmdPacketType.IMAGE_COMMUNICATION_EQUIPMENT_USE"
+                        }
+                    ]
+    },
+    {
+        "type":  478,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:826",
+                            "expression":  "0x01DE"
+                        }
+                    ]
+    },
+    {
+        "type":  479,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:346",
+                            "expression":  "0x01DF"
+                        }
+                    ]
+    },
+    {
+        "type":  480,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:471",
+                            "expression":  "0x01E0"
+                        }
+                    ]
+    },
+    {
+        "type":  484,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:620",
+                            "expression":  "0x01E4"
+                        }
+                    ]
+    },
+    {
+        "type":  485,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:816",
+                            "expression":  "0x01E5"
+                        }
+                    ]
+    },
+    {
+        "type":  486,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:416",
+                            "expression":  "(ushort)CmdPacketType.CRANE_START_USE"
+                        }
+                    ]
+    },
+    {
+        "type":  487,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:417",
+                            "expression":  "(ushort)CmdPacketType.CRANE_PICKUP"
+                        }
+                    ]
+    },
+    {
+        "type":  492,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:656",
+                            "expression":  "0x01EC"
+                        }
+                    ]
+    },
+    {
+        "type":  507,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:744",
+                            "expression":  "0x01FB"
+                        }
+                    ]
+    },
+    {
+        "type":  509,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:657",
+                            "expression":  "0x01FD"
+                        }
+                    ]
+    },
+    {
+        "type":  511,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:658",
+                            "expression":  "0x01FF"
+                        }
+                    ]
+    },
+    {
+        "type":  519,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:432",
+                            "expression":  "0x0207"
+                        }
+                    ]
+    },
+    {
+        "type":  529,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:621",
+                            "expression":  "0x0211"
+                        }
+                    ]
+    },
+    {
+        "type":  536,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:433",
+                            "expression":  "0x0218"
+                        }
+                    ]
+    },
+    {
+        "type":  569,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:434",
+                            "expression":  "0x0239"
+                        }
+                    ]
+    },
+    {
+        "type":  595,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:622",
+                            "expression":  "0x0253"
+                        }
+                    ]
+    },
+    {
+        "type":  599,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:864",
+                            "expression":  "(ushort)CmdPacketType.CREATE_EXPERT_JOB_STORE"
+                        }
+                    ]
+    },
+    {
+        "type":  600,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:865",
+                            "expression":  "(ushort)CmdPacketType.ENTER_EXPERT_JOB_STORE"
+                        }
+                    ]
+    },
+    {
+        "type":  601,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:866",
+                            "expression":  "(ushort)CmdPacketType.CLOSE_EXPERT_JOB_STORE"
+                        }
+                    ]
+    },
+    {
+        "type":  602,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:872",
+                            "expression":  "(ushort)CmdPacketType.USE_ENCHANT_STORE"
+                        }
+                    ]
+    },
+    {
+        "type":  603,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:831",
+                            "expression":  "(ushort)CmdPacketType.GET_EXPAND_EXP_GAGE_REWARD"
+                        }
+                    ]
+    },
+    {
+        "type":  604,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:431",
+                            "expression":  "0x025C"
+                        }
+                    ]
+    },
+    {
+        "type":  612,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:871",
+                            "expression":  "(ushort)CmdPacketType.REPAIR_EXPERT_JOB_STORE"
+                        }
+                    ]
+    },
+    {
+        "type":  619,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:623",
+                            "expression":  "0x026B"
+                        }
+                    ]
+    },
+    {
+        "type":  621,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:624",
+                            "expression":  "0x026D"
+                        }
+                    ]
+    },
+    {
+        "type":  624,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:625",
+                            "expression":  "0x0270"
+                        }
+                    ]
+    },
+    {
+        "type":  659,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:352",
+                            "expression":  "(ushort)CmdPacketType.RAID_ENTRY_COST_INFO"
+                        }
+                    ]
+    },
+    {
+        "type":  660,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:357",
+                            "expression":  "(ushort)CmdPacketType.RAID_MOVIE_SKIP"
+                        }
+                    ]
+    },
+    {
+        "type":  661,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:358",
+                            "expression":  "(ushort)CmdPacketType.SELECT_RAID_REWARD_CARD"
+                        }
+                    ]
+    },
+    {
+        "type":  662,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:359",
+                            "expression":  "(ushort)CmdPacketType.RAID_DO_BEHAVIOR"
+                        }
+                    ]
+    },
+    {
+        "type":  663,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:360",
+                            "expression":  "(ushort)CmdPacketType.RAID_SET_SYMBOL"
+                        }
+                    ]
+    },
+    {
+        "type":  665,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:351",
+                            "expression":  "(ushort)CmdPacketType.CREATE_RAID"
+                        }
+                    ]
+    },
+    {
+        "type":  666,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:355",
+                            "expression":  "(ushort)CmdPacketType.LEAVE_RAID"
+                        }
+                    ]
+    },
+    {
+        "type":  667,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:356",
+                            "expression":  "(ushort)CmdPacketType.START_RAID"
+                        }
+                    ]
+    },
+    {
+        "type":  670,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:361",
+                            "expression":  "(ushort)CmdPacketType.RAID_MANAGER_WORK"
+                        }
+                    ]
+    },
+    {
+        "type":  671,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:362",
+                            "expression":  "(ushort)CmdPacketType.MODIFY_RAID_INFO"
+                        }
+                    ]
+    },
+    {
+        "type":  680,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:827",
+                            "expression":  "0x02A8"
+                        }
+                    ]
+    },
+    {
+        "type":  693,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:315",
+                            "expression":  "0x02B5"
+                        }
+                    ]
+    },
+    {
+        "type":  695,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:353",
+                            "expression":  "(ushort)CmdPacketType.RAID_BUFF_SYSTEM"
+                        }
+                    ]
+    },
+    {
+        "type":  696,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:354",
+                            "expression":  "(ushort)CmdPacketType.RAID_MONSTER_HP"
+                        }
+                    ]
+    },
+    {
+        "type":  700,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:749",
+                            "expression":  "0x02BC"
+                        }
+                    ]
+    },
+    {
+        "type":  714,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:476",
+                            "expression":  "0x02CA"
+                        }
+                    ]
+    },
+    {
+        "type":  715,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:477",
+                            "expression":  "0x02CB"
+                        }
+                    ]
+    },
+    {
+        "type":  727,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:645",
+                            "expression":  "0x02D7"
+                        }
+                    ]
+    },
+    {
+        "type":  728,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:646",
+                            "expression":  "0x02D8"
+                        }
+                    ]
+    },
+    {
+        "type":  786,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:636",
+                            "expression":  "0x0312"
+                        }
+                    ]
+    },
+    {
+        "type":  796,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:494",
+                            "expression":  "0x031C"
+                        }
+                    ]
+    },
+    {
+        "type":  797,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:489",
+                            "expression":  "0x031D"
+                        }
+                    ]
+    },
+    {
+        "type":  834,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:439",
+                            "expression":  "0x0342"
+                        }
+                    ]
+    },
+    {
+        "type":  849,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:343",
+                            "expression":  "0x0351"
+                        }
+                    ]
+    },
+    {
+        "type":  851,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:448",
+                            "expression":  "(ushort)CmdPacketType.USE_TITLE_CHANGE_ITEM"
+                        }
+                    ]
+    },
+    {
+        "type":  861,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:832",
+                            "expression":  "(ushort)CmdPacketType.UPGRADE_CARRY_GOLD"
+                        }
+                    ]
+    },
+    {
+        "type":  882,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:829",
+                            "expression":  "0x0372"
+                        }
+                    ]
+    },
+    {
+        "type":  883,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:830",
+                            "expression":  "0x0373"
+                        }
+                    ]
+    },
+    {
+        "type":  904,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:806",
+                            "expression":  "0x0388"
+                        }
+                    ]
+    },
+    {
+        "type":  905,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:807",
+                            "expression":  "0x0389"
+                        }
+                    ]
+    },
+    {
+        "type":  906,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:808",
+                            "expression":  "0x038A"
+                        }
+                    ]
+    },
+    {
+        "type":  939,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:643",
+                            "expression":  "0x03AB"
+                        }
+                    ]
+    },
+    {
+        "type":  950,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:642",
+                            "expression":  "0x03B6"
+                        }
+                    ]
+    },
+    {
+        "type":  1002,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:438",
+                            "expression":  "0x03EA"
+                        }
+                    ]
+    },
+    {
+        "type":  1011,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:435",
+                            "expression":  "0x03F3"
+                        }
+                    ]
+    },
+    {
+        "type":  1014,
+        "sources":  [
+                        {
+                            "location":  "Server/DfoServer/Network/Protocol/GameProtocolHandler.cs:415",
+                            "expression":  "0x03F6"
+                        }
+                    ]
+    }
+]

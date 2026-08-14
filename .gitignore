@@ -1,0 +1,34 @@
+# Build output (never commit local builds)
+[Bb]in/
+[Oo]bj/
+[Dd]ist/
+[Pp]ublish/
+out/
+
+# IDE / editor (may contain absolute paths)
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# MSBuild / NuGet intermediates (contain machine-specific paths)
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nuget.props
+*.nuget.targets
+
+# Runtime data (PVF is supplied by the client/runtime and is never committed)
+**/Script.pvf
+*.pvf
+*.db
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store
+Thumbs.db

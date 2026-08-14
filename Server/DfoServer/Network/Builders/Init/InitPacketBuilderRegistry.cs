@@ -1,0 +1,130 @@
+using DfoServer.Game.Inventory;
+using DfoServer.Game.SelectCharacter;
+using DfoServer.Infrastructure;
+using System;
+using System.Collections.Generic;
+
+namespace DfoServer.Network.Builders
+{
+    public sealed class InitPacketBuilderRegistry
+    {
+        private readonly Dictionary<ushort, IInitPacketBuilder> _builders = new Dictionary<ushort, IInitPacketBuilder>();
+        private readonly IGameDatabase _database;
+
+        public InitPacketBuilderRegistry()
+            : this(GameDatabase.CreateDefault())
+        {
+        }
+
+        public InitPacketBuilderRegistry(IGameDatabase database)
+        {
+            _database = database ?? throw new ArgumentNullException(nameof(database));
+            var collectBoxProgressRepository = new CollectBoxProgressRepository(
+                _database);
+
+            Register(new SkillInfoBodyBuilder());              
+            Register(new DarkKnightComboSkillInfoBodyBuilder());
+            Register(new QuestListBodyBuilder());              
+            Register(new UserInfoBodyBuilder());               
+            Register(new CreatureListBodyBuilder());           
+            Register(new ExpertJobInfoBodyBuilder());          
+            Register(new ItemLockListBodyBuilder());           
+            Register(new ItemValueListBodyBuilder(0x00AC));    
+            Register(new ItemValueListBodyBuilder(0x00AE));    
+            Register(new AchievementListBodyBuilder());    
+            Register(new TitleBookListBodyBuilder());   
+            Register(new ChampionBreakSystemBodyBuilder());    
+            Register(new DailyScheduleBodyBuilder());             
+            Register(new BuyRestrictItemListBodyBuilder());             
+
+            
+            Register(new SimpleByteBodyBuilder(0x00B1, s => s.ShopCoinEventFlag));  // 复活币当日领取标记(character_daily_reset)
+            Register(new SimpleByteBodyBuilder(0x01A8, s => s.PcRoomPlayTimeState));
+            Register(new SimpleByteBodyBuilder(0x0331, s => s.GoldLimitUpgradeLevel));
+
+            
+            Register(new EmptyBodyBuilder(0x007C));
+
+            
+            Register(new BossTowerBodyBuilder());                                       
+            Register(new MailboxBodyBuilder(_database));                                
+            Register(new GrowthWeaponBodyBuilder());                                     
+            Register(new ShowEffectBodyBuilder());                                       
+            Register(new PvpMissionBodyBuilder());                                       
+            Register(new DungeonPermissionBodyBuilder());                                
+
+            
+            Register(new EventInfoBodyBuilder());                                       
+            Register(new HotkeyConfigBodyBuilder());                                    
+            Register(new CharacterOptionBodyBuilder());
+
+            
+            Register(new GameOptionBodyBuilder());                                      
+            Register(new ClearQuestListBodyBuilder());                            
+            Register(new DailyChallengeBodyBuilder());                                   
+
+            
+            Register(new SkillPointSlotBodyBuilder());                                  
+            Register(new CollectionBoxBodyBuilder(collectBoxProgressRepository));
+            Register(new RentalInfoBodyBuilder());                                      
+            Register(new LotteryBufferBodyBuilder(_database));                          
+            Register(new CubeInfoBodyBuilder());                                        
+            Register(new LuckyStarInfoBodyBuilder());                                        
+            Register(new FatigueAccelBodyBuilder());                                    
+
+            
+            
+            
+            Register(new UserPositionBodyBuilder());
+            Register(new CeraBodyBuilder());
+            Register(new PetCreatureWelcomeMessageBodyBuilder());
+            Register(new UnitedServerFriendInfoBodyBuilder());
+            Register(new StrikerSupportTagCharacterBodyBuilder(_database));
+
+            
+            
+        }
+
+        public bool TryBuild(ushort notiType, SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
+        {
+            if (_builders.TryGetValue(notiType, out var builder))
+                return builder.TryBuild(snapshot, occurrenceIndex, out body);
+            body = null;
+            return false;
+        }
+
+        public bool TryBuildCmd(ushort cmdType, SelectCharacterDataSnapshot snapshot, out byte[] body)
+        {
+            
+            if (cmdType == 0x0004)
+            {
+                if (SelectCharacterAckBodyBuilder.TryBuild(
+                        snapshot,
+                        _database.ConnectionString,
+                        out body))
+                    return true;
+            }
+            
+            if (cmdType == 0x0312)
+            {
+                var initSnap = snapshot.InitializationSnapshot;
+                if (initSnap.PremiumServiceData != null)
+                {
+                    var writer = new GamePacketWriter();
+                    writer.WriteByte(1); 
+                    writer.WriteUInt16(initSnap.PremiumServiceType);
+                    writer.WriteBytes(initSnap.PremiumServiceData);
+                    body = writer.ToArray();
+                    return true;
+                }
+            }
+            body = null;
+            return false;
+        }
+
+        private void Register(IInitPacketBuilder builder)
+        {
+            _builders[builder.NotiType] = builder;
+        }
+    }
+}

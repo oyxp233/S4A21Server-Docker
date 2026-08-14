@@ -1,0 +1,1052 @@
+﻿[
+    {
+        "line":  300,
+        "type":  1,
+        "statement":  "d[0x0001] = _loginHandler.Handle_ENUM_CMDPACKET_LOGIN;"
+    },
+    {
+        "line":  305,
+        "type":  4,
+        "statement":  "d[0x0004] = _characterSessionLifecycle.HandleSelectCharacterAsync;"
+    },
+    {
+        "line":  307,
+        "type":  5,
+        "statement":  "d[0x0005] = _characterSelectHandler.Handle_ENUM_CMDPACKET_CREATE_CHARACTER;"
+    },
+    {
+        "line":  308,
+        "type":  6,
+        "statement":  "d[0x0006] = _characterSelectHandler.Handle_ENUM_CMDPACKET_DELETE_CHARACTER;"
+    },
+    {
+        "line":  309,
+        "type":  7,
+        "statement":  "d[0x0007] = _characterSessionLifecycle .HandleReturnSelectCharacterAsync;"
+    },
+    {
+        "line":  311,
+        "type":  8,
+        "statement":  "d[0x0008] = _characterSelectHandler.Handle_ENUM_CMDPACKET_GET_USERINFO;"
+    },
+    {
+        "line":  312,
+        "type":  424,
+        "statement":  "d[0x01A8] = _characterSelectHandler .Handle_ENUM_CMDPACKET_OTHER_USER_TITLE_BOOK_LIST;"
+    },
+    {
+        "line":  314,
+        "type":  9,
+        "statement":  "d[0x0009] = _staminaHandler.Handle_ENUM_CMDPACKET_RECOVER_STAMINA;"
+    },
+    {
+        "line":  315,
+        "type":  693,
+        "statement":  "d[0x02B5] = _characterSelectHandler.Handle_ENUM_CMDPACKET_CHECK_DOUBLE_CHARACTER_NAME;"
+    },
+    {
+        "line":  316,
+        "type":  295,
+        "statement":  "d[0x0127] = _characterSelectHandler.Handle_CHANGE_CHARAC_SLOT;"
+    },
+    {
+        "line":  321,
+        "type":  17,
+        "statement":  "d[(ushort)CmdPacketType.SEND_MESSAGE] = _chatHandler.Handle_SEND_MESSAGE;"
+    },
+    {
+        "line":  323,
+        "type":  12,
+        "statement":  "d[0x000C] = _partyHandler.Handle_SET_PARTY_INFO;        // 12 鍒涘缓/鏇存柊闃熶紞"
+    },
+    {
+        "line":  324,
+        "type":  13,
+        "statement":  "d[0x000D] = async (s, h, b) =\u003e { var userId = s?.Player?.UserId ?? (ushort)0; var wasInParty = userId != 0 \u0026\u0026 _partyManager.GetPartyByUser(userId) != null; await _partyHandler.Handle_LEAVE_PARTY(s, h, b); if (wasInParty \u0026\u0026 _partyManager.GetPartyByUser(userId) == null) await _raidHandler.HandleNormalPartyLeftAsync(userId); };                                                      // 13 leave party"
+    },
+    {
+        "line":  333,
+        "type":  14,
+        "statement":  "d[0x000E] = _partyHandler.Handle_WALKOUT_PARTY_MEMBER;  // 14 韪汉"
+    },
+    {
+        "line":  334,
+        "type":  10,
+        "statement":  "d[0x000A] = _partyHandler.Handle_REQUEST_PEER;          // 10 鍙抽敭鍚屽睆鐜╁鈫掔粍闃?浜ゆ槗閭€璇?鎸塽id)鈫掔粰鐩爣鍙?SC 0x0007 寮规"
+    },
+    {
+        "line":  335,
+        "type":  11,
+        "statement":  "d[0x000B] = _partyHandler.Handle_RES_PEER;              // 11 琚個璇疯€呭簲绛?body=閭€璇疯€卽id+reqType)鈫掔粍闃熷苟骞挎挱 PARTY_INFO"
+    },
+    {
+        "line":  337,
+        "type":  419,
+        "statement":  "d[0x01A3] = _chatHandler.Handle_CREATE_GROUP;"
+    },
+    {
+        "line":  338,
+        "type":  329,
+        "statement":  "d[(ushort)CmdPacketType.ONE_TO_ONE_CHAT_STATE] = _chatHandler.Handle_ONE_TO_ONE_CHAT_STATE;"
+    },
+    {
+        "line":  340,
+        "type":  166,
+        "statement":  "d[0x00A6] = _partyHandler.Handle_CALL_PARTY_MEMBER_REALTIME_INFO;  // 166 璇锋眰鎴愬憳瀹炴椂淇℃伅(HP%)"
+    },
+    {
+        "line":  341,
+        "type":  121,
+        "statement":  "d[0x0079] = _partyHandler.Handle_CHANGE_HOST;           // 121 濮旀墭闃熼暱(body=1瀛楄妭妲戒綅)"
+    },
+    {
+        "line":  343,
+        "type":  849,
+        "statement":  "d[0x0351] = (s, h, b) =\u003e Task.CompletedTask;            // P2P_HOLE_PUNCHING_SUCCESS_RATE"
+    },
+    {
+        "line":  344,
+        "type":  97,
+        "statement":  "d[0x0061] = (s, h, b) =\u003e Task.CompletedTask;            // PEER_CONNECT_RESULT"
+    },
+    {
+        "line":  345,
+        "type":  49,
+        "statement":  "d[0x0031] = (s, h, b) =\u003e Task.CompletedTask;            // REPORT_BAD_P2P_USER"
+    },
+    {
+        "line":  346,
+        "type":  479,
+        "statement":  "d[0x01DF] = (s, h, b) =\u003e Task.CompletedTask;            // P2P_STATISTICS"
+    },
+    {
+        "line":  351,
+        "type":  665,
+        "statement":  "d[(ushort)CmdPacketType.CREATE_RAID] = _raidHandler.HandleCreateRaid;"
+    },
+    {
+        "line":  352,
+        "type":  659,
+        "statement":  "d[(ushort)CmdPacketType.RAID_ENTRY_COST_INFO] = _raidHandler.HandleEntryCostInfo;"
+    },
+    {
+        "line":  353,
+        "type":  695,
+        "statement":  "d[(ushort)CmdPacketType.RAID_BUFF_SYSTEM] = _raidHandler.HandleRaidBuffSystem;"
+    },
+    {
+        "line":  354,
+        "type":  696,
+        "statement":  "d[(ushort)CmdPacketType.RAID_MONSTER_HP] = _raidHandler.HandleRaidMonsterHp;"
+    },
+    {
+        "line":  355,
+        "type":  666,
+        "statement":  "d[(ushort)CmdPacketType.LEAVE_RAID] = _raidHandler.HandleLeaveRaid;"
+    },
+    {
+        "line":  356,
+        "type":  667,
+        "statement":  "d[(ushort)CmdPacketType.START_RAID] = _raidHandler.HandleStartRaid;"
+    },
+    {
+        "line":  357,
+        "type":  660,
+        "statement":  "d[(ushort)CmdPacketType.RAID_MOVIE_SKIP] = _raidHandler.HandleRaidMovieSkip;"
+    },
+    {
+        "line":  358,
+        "type":  661,
+        "statement":  "d[(ushort)CmdPacketType.SELECT_RAID_REWARD_CARD] = _raidHandler.HandleSelectRaidRewardCard;"
+    },
+    {
+        "line":  359,
+        "type":  662,
+        "statement":  "d[(ushort)CmdPacketType.RAID_DO_BEHAVIOR] = _raidHandler.HandleRaidDoBehavior;"
+    },
+    {
+        "line":  360,
+        "type":  663,
+        "statement":  "d[(ushort)CmdPacketType.RAID_SET_SYMBOL] = _raidHandler.HandleRaidSetSymbol;"
+    },
+    {
+        "line":  361,
+        "type":  670,
+        "statement":  "d[(ushort)CmdPacketType.RAID_MANAGER_WORK] = _raidHandler.HandleRaidManagerWork;"
+    },
+    {
+        "line":  362,
+        "type":  671,
+        "statement":  "d[(ushort)CmdPacketType.MODIFY_RAID_INFO] = _raidHandler.HandleModifyRaidInfo;"
+    },
+    {
+        "line":  363,
+        "type":  217,
+        "statement":  "d[0x00D9] = async (s, h, b) =\u003e { if (await _raidHandler.TryHandleCreatePopupClose(s, h, b)) return; await _lotteryItemHandler.HandleOverflowInfo(s, h, b); };"
+    },
+    {
+        "line":  384,
+        "type":  18,
+        "statement":  "d[0x0012] = async (s, h, b) =\u003e { if (await _dungeonHandler.TryHandleDeathTowerDeleteItem(s, h, b)) return; await _inventoryHandler.Handle_ENUM_CMDPACKET_DELETE_ITEM(s, h, b); };                                                                    //18"
+    },
+    {
+        "line":  390,
+        "type":  19,
+        "statement":  "d[0x0013] = async (s, h, b) =\u003e { if (await _dungeonHandler.TryHandleDeathTowerMoveItem(s, h, b)) return; if (await _knightShieldHandler.TryHandleMoveItemSpace(s, h, b)) return; await _inventoryHandler.Handle_ENUM_CMDPACKET_MOVE_ITEMSPACE(s, h, b); };                                                                    //19"
+    },
+    {
+        "line":  398,
+        "type":  20,
+        "statement":  "d[0x0014] = async (s, h, b) =\u003e { if (await _dungeonHandler.TryHandleDeathTowerSortItem(s, h, b)) return; await _inventoryHandler.Handle_ENUM_CMDPACKET_SORT_ITEM(s, h, b); };                                                                    //20"
+    },
+    {
+        "line":  404,
+        "type":  21,
+        "statement":  "d[0x0015] = _inventoryHandler.Handle_ENUM_CMDPACKET_BUY_ITEM;          //21"
+    },
+    {
+        "line":  405,
+        "type":  22,
+        "statement":  "d[0x0016] = _inventoryHandler.Handle_ENUM_CMDPACKET_SELL_ITEM;         //22"
+    },
+    {
+        "line":  406,
+        "type":  23,
+        "statement":  "d[0x0017] = _inventoryHandler.Handle_ENUM_CMDPACKET_REPAIR_EQUIPMENT;  //23 瑁呭淇悊"
+    },
+    {
+        "line":  407,
+        "type":  25,
+        "statement":  "d[0x0019] = _inventoryHandler.Handle_ENUM_CMDPACKET_COMPOUND_ITEM;     //25 compound item / recipe"
+    },
+    {
+        "line":  408,
+        "type":  26,
+        "statement":  "d[0x001A] = _inventoryHandler.Handle_ENUM_CMDPACKET_DISJOINT_ITEM;     //26 绯荤粺鍒嗚В"
+    },
+    {
+        "line":  409,
+        "type":  202,
+        "statement":  "d[0x00CA] = _inventoryHandler.Handle_DISJOINT_AVATAR;                  //202 鏃惰鍒嗚В"
+    },
+    {
+        "line":  410,
+        "type":  27,
+        "statement":  "d[0x001B] = _lotteryItemHandler.HandleUseLotteryItem;                 //27"
+    },
+    {
+        "line":  411,
+        "type":  30,
+        "statement":  "d[(ushort)CmdPacketType.INCREASE_STATUS] = _inventoryHandler.Handle_ENUM_CMDPACKET_INCREASE_STATUS;"
+    },
+    {
+        "line":  412,
+        "type":  204,
+        "statement":  "d[0x00CC] = _inventoryHandler.Handle_ENUM_CMDPACKET_PURIFY_ITEM;"
+    },
+    {
+        "line":  413,
+        "type":  205,
+        "statement":  "d[0x00CD] = _inventoryHandler.Handle_ENUM_CMDPACKET_INVEST_ITEM_AMPLIFY_OPTION;"
+    },
+    {
+        "line":  414,
+        "type":  208,
+        "statement":  "d[0x00D0] = _inventoryHandler.Handle_OPEN_MAGIC_BOX_SINGLE;"
+    },
+    {
+        "line":  415,
+        "type":  1014,
+        "statement":  "d[0x03F6] = _lotteryItemHandler.HandleIncreaseChanceLotteryReset;"
+    },
+    {
+        "line":  416,
+        "type":  486,
+        "statement":  "d[(ushort)CmdPacketType.CRANE_START_USE] = _craneMiniGameHandler.HandleStartUse;"
+    },
+    {
+        "line":  417,
+        "type":  487,
+        "statement":  "d[(ushort)CmdPacketType.CRANE_PICKUP] = _craneMiniGameHandler.HandlePickup;"
+    },
+    {
+        "line":  418,
+        "type":  80,
+        "statement":  "d[0x0050] = _inventoryHandler.Handle_ENUM_CMDPACKET_UPGRADE_ITEM;      //80"
+    },
+    {
+        "line":  419,
+        "type":  439,
+        "statement":  "d[(ushort)CmdPacketType.UPGRADE_ITEM_SEPARATE] = _inventoryHandler.Handle_UPGRADE_ITEM_SEPARATE;"
+    },
+    {
+        "line":  420,
+        "type":  81,
+        "statement":  "d[0x0051] = _inventoryHandler.Handle_ENUM_CMDPACKET_RESET_ITEM_ATTR;   //81 瑁呭鍝佺骇璋冩暣绠?涓囪姳闀?"
+    },
+    {
+        "line":  421,
+        "type":  160,
+        "statement":  "d[0x00A0] = _inventoryHandler.Handle_OPEN_SELECTABLE_PACKAGE;"
+    },
+    {
+        "line":  422,
+        "type":  271,
+        "statement":  "d[(ushort)CmdPacketType.UPGRADE_CHRONICLE] = _inventoryHandler.Handle_UPGRADE_CHRONICLE;"
+    },
+    {
+        "line":  423,
+        "type":  370,
+        "statement":  "d[(ushort)CmdPacketType.ENCHANT_3RD_CHRONICLE_ITEM] = _inventoryHandler.Handle_ENCHANT_3RD_CHRONICLE_ITEM;"
+    },
+    {
+        "line":  424,
+        "type":  272,
+        "statement":  "d[0x0110] = _inventoryHandler.Handle_ENUM_CMDPACKET_ENCHANT_BY_BEAD;   //272"
+    },
+    {
+        "line":  425,
+        "type":  401,
+        "statement":  "d[0x0191] = _inventoryHandler.Handle_UNSEAL_RANDOM_OPTION;             //401"
+    },
+    {
+        "line":  426,
+        "type":  407,
+        "statement":  "d[0x0197] = _inventoryHandler.Handle_REGENERATION_RANDOM_OPTION;       //407 equipment compound"
+    },
+    {
+        "line":  427,
+        "type":  412,
+        "statement":  "d[0x019C] = _inventoryHandler.Handle_TITLE_BOOK;                       //412"
+    },
+    {
+        "line":  428,
+        "type":  438,
+        "statement":  "d[0x01B6] = _inventoryHandler.Handle_CHANGE_RANDOM_OPTION;             //438"
+    },
+    {
+        "line":  429,
+        "type":  413,
+        "statement":  "d[0x019D] = _inventoryHandler.Handle_TITLE_BOOK;                       //413"
+    },
+    {
+        "line":  430,
+        "type":  414,
+        "statement":  "d[0x019E] = _inventoryHandler.Handle_ENUM_CMDPACKET_MONSTERCARD_BIND;  //414 monster card synthesis"
+    },
+    {
+        "line":  431,
+        "type":  604,
+        "statement":  "d[0x025C] = _inventoryHandler.Handle_UPGRADE_CARD;                     //604 monster card upgrade"
+    },
+    {
+        "line":  432,
+        "type":  519,
+        "statement":  "d[0x0207] = _inventoryHandler.Handle_OPEN_AVATAR_PACKAGE;"
+    },
+    {
+        "line":  433,
+        "type":  536,
+        "statement":  "d[0x0218] = _inventoryHandler.Handle_USE_BOOSTER_ITEM;"
+    },
+    {
+        "line":  434,
+        "type":  569,
+        "statement":  "d[0x0239] = _inventoryHandler.Handle_SET_CLONE_TITLE;                  //569"
+    },
+    {
+        "line":  435,
+        "type":  1011,
+        "statement":  "d[0x03F3] = _inventoryHandler.Handle_OPEN_MAGIC_BOX;"
+    },
+    {
+        "line":  436,
+        "type":  99,
+        "statement":  "d[0x0063] = _inventoryHandler.Handle_COMPOUND_AVATAR;                  //99 鍚堝苟瑁呮壆(鏃惰鍚堟垚)"
+    },
+    {
+        "line":  437,
+        "type":  256,
+        "statement":  "d[0x0100] = _inventoryHandler.Handle_COMPOUND_EMBLEM;                  //256 寰界珷鍚堟垚"
+    },
+    {
+        "line":  438,
+        "type":  1002,
+        "statement":  "d[0x03EA] = _inventoryHandler.Handle_COMPOUND_AVATAR_SET;              //1002 8浠堕珮绾ц鎵?00%鍚堟垚绋€鏈夎鎵?鍏嬮殕瑁呮壆鍚堟垚鍣?"
+    },
+    {
+        "line":  439,
+        "type":  834,
+        "statement":  "d[0x0342] = _inventoryHandler.Handle_ADD_EQUIPMENT_EFFECT;             //834 姝﹀櫒鐗规晥绗︽枃娣诲姞"
+    },
+    {
+        "line":  440,
+        "type":  305,
+        "statement":  "d[0x0131] = _inventoryHandler.Handle_CREATE_ACCOUNT_CARGO;               //305 寮€閫氶噾搴?"
+    },
+    {
+        "line":  441,
+        "type":  306,
+        "statement":  "d[0x0132] = _inventoryHandler.Handle_UPGRADE_ACCOUNT_CARGO;             //306 鎵╁閲戝簱"
+    },
+    {
+        "line":  442,
+        "type":  307,
+        "statement":  "d[0x0133] = _inventoryHandler.Handle_DEPOSIT_MONEY;                    //307 閲戝簱瀛橀噾甯?"
+    },
+    {
+        "line":  443,
+        "type":  308,
+        "statement":  "d[0x0134] = _inventoryHandler.Handle_WITHDRAW_MONEY;                   //308 閲戝簱鍙栭噾甯?"
+    },
+    {
+        "line":  444,
+        "type":  408,
+        "statement":  "d[0x0198] = _inventoryHandler.Handle_UPGRADE_CARGO;                    //408 鎵╁涓汉浠撳簱"
+    },
+    {
+        "line":  445,
+        "type":  460,
+        "statement":  "d[0x01CC] = _inventoryHandler.Handle_AVATAR_OPTION_CHANGE;             //460 鏃惰灞炴€ц皟鏁寸"
+    },
+    {
+        "line":  446,
+        "type":  338,
+        "statement":  "d[(ushort)CmdPacketType.USE_LIMIT_CUBE] = _inventoryHandler.Handle_USE_LIMIT_CUBE;"
+    },
+    {
+        "line":  448,
+        "type":  851,
+        "statement":  "d[(ushort)CmdPacketType.USE_TITLE_CHANGE_ITEM] = _inventoryHandler.Handle_USE_TITLE_CHANGE_ITEM;"
+    },
+    {
+        "line":  455,
+        "type":  44,
+        "statement":  "d[0x002C] = async (s, h, b) =\u003e { if (await _dungeonHandler.TryHandleDeathTowerUseStackable(s, h, b)) return; if (await _inventoryHandler.TryHandleDungeonUseStackable(s, h, b)) return; if (await _petCreatureHandler.TryHandleUseStackable(s, h, b)) return;  await _inventoryHandler.Handle_ENUM_CMDPACKET_USE_STACKABLE(s, h, b); };"
+    },
+    {
+        "line":  466,
+        "type":  100,
+        "statement":  "d[0x0064] = _petCreatureHandler.HandleRenameCreature;"
+    },
+    {
+        "line":  467,
+        "type":  102,
+        "statement":  "d[0x0066] = _petCreatureHandler.HandleHatchCreatureEgg;"
+    },
+    {
+        "line":  468,
+        "type":  122,
+        "statement":  "d[0x007A] = _petCreatureHandler.HandleCreatureScriptMessage;"
+    },
+    {
+        "line":  469,
+        "type":  173,
+        "statement":  "d[0x00AD] = _petCreatureHandler.HandleHatchCreatureEgg;"
+    },
+    {
+        "line":  470,
+        "type":  174,
+        "statement":  "d[0x00AE] = _petCreatureHandler.HandleRequestHatchedCreature;"
+    },
+    {
+        "line":  471,
+        "type":  480,
+        "statement":  "d[0x01E0] = _petCreatureHandler.HandleVerifyCreatureQuest;"
+    },
+    {
+        "line":  476,
+        "type":  714,
+        "statement":  "d[0x02CA] = _inventoryHandler.Handle_ENUM_CMDPACKET_TOGGLE_SORT_ITEM_LOCK;"
+    },
+    {
+        "line":  477,
+        "type":  715,
+        "statement":  "d[0x02CB] = _inventoryHandler.Handle_ENUM_CMDPACKET_UNLOCK_SORT_ITEM_LOCK;"
+    },
+    {
+        "line":  482,
+        "type":  267,
+        "statement":  "d[0x010B] = _inventoryHandler.Handle_ENUM_CMDPACKET_REQUEST_ITEM_LOCK;"
+    },
+    {
+        "line":  483,
+        "type":  268,
+        "statement":  "d[0x010C] = _inventoryHandler.Handle_ENUM_CMDPACKET_REQUEST_ITEM_UNLOCK;"
+    },
+    {
+        "line":  484,
+        "type":  269,
+        "statement":  "d[0x010D] = _inventoryHandler.Handle_ENUM_CMDPACKET_REQUEST_ITEM_UNLOCK_CANCEL;"
+    },
+    {
+        "line":  489,
+        "type":  797,
+        "statement":  "d[0x031D] = _inventoryHandler.Handle_EQUIPMENT_SOCKET_OPEN;"
+    },
+    {
+        "line":  494,
+        "type":  796,
+        "statement":  "d[0x031C] = _inventoryHandler.Handle_EQUIPMENT_EMBLEM_ATTACH;"
+    },
+    {
+        "line":  499,
+        "type":  206,
+        "statement":  "d[0x00CE] = _inventoryHandler.Handle_AVATAR_SOCKET_OPEN;"
+    },
+    {
+        "line":  504,
+        "type":  201,
+        "statement":  "d[0x00C9] = _inventoryHandler.Handle_AVATAR_EMBLEM_ATTACH;"
+    },
+    {
+        "line":  601,
+        "type":  15,
+        "statement":  "d[0x000F] = _dungeonHandler.Handle_ENUM_CMDPACKET_ENTER_SELECT_DUNGEON;"
+    },
+    {
+        "line":  602,
+        "type":  16,
+        "statement":  "d[0x0010] = _dungeonHandler.Handle_ENUM_CMDPACKET_SELECT_DUNGEON;"
+    },
+    {
+        "line":  603,
+        "type":  39,
+        "statement":  "d[0x0027] = _dungeonHandler.Handle_ENUM_CMDPACKET_DIE_MONSTER;"
+    },
+    {
+        "line":  604,
+        "type":  40,
+        "statement":  "d[0x0028] = HandleRaidAwareCharacterDeath;       //40"
+    },
+    {
+        "line":  605,
+        "type":  41,
+        "statement":  "d[0x0029] = HandleRaidAwareUseCoin;"
+    },
+    {
+        "line":  606,
+        "type":  43,
+        "statement":  "d[0x002B] = _dungeonHandler.Handle_ENUM_CMDPACKET_GET_ITEM;"
+    },
+    {
+        "line":  607,
+        "type":  45,
+        "statement":  "d[0x002D] = _dungeonHandler.Handle_ENUM_CMDPACKET_MOVE_MAP;"
+    },
+    {
+        "line":  608,
+        "type":  46,
+        "statement":  "d[0x002E] = HandleRaidAwareSetPlayResult;                    //46"
+    },
+    {
+        "line":  609,
+        "type":  47,
+        "statement":  "d[0x002F] = _dungeonHandler.Handle_ENUM_CMDPACKET_DROP_ITEM;"
+    },
+    {
+        "line":  610,
+        "type":  69,
+        "statement":  "d[0x0045] = _dungeonHandler.Handle_CARD_START_REQUEST;"
+    },
+    {
+        "line":  611,
+        "type":  71,
+        "statement":  "d[0x0047] = _dungeonHandler.Handle_ENUM_CMDPACKET_SELECT_CARD;"
+    },
+    {
+        "line":  612,
+        "type":  72,
+        "statement":  "d[0x0048] = (s, h, b) =\u003e HandleRaidAwareDungeonExit(s, h, b, _dungeonHandler.Handle_ENUM_CMDPACKET_EPLP_COMMAND, \"eplp\");"
+    },
+    {
+        "line":  613,
+        "type":  117,
+        "statement":  "d[0x0075] = _dungeonHandler.Handle_BOSS_DIE_CHECK;"
+    },
+    {
+        "line":  614,
+        "type":  123,
+        "statement":  "d[0x007B] = (s, h, b) =\u003e HandleRaidAwareDungeonExit(s, h, b, _dungeonHandler.Handle_ENUM_CMDPACKET_DEATH_RESPAWN, \"death-respawn\");       //123"
+    },
+    {
+        "line":  615,
+        "type":  143,
+        "statement":  "d[0x008F] = _dungeonHandler.Handle_ENUM_CMDPACKET_CHANGE_TUTORIAL_FLAG; //143"
+    },
+    {
+        "line":  616,
+        "type":  191,
+        "statement":  "d[0x00BF] = _dungeonHandler.Handle_ENUM_CMDPACKET_DUNGEON_EVENT_STORY_PAUSE; //191"
+    },
+    {
+        "line":  617,
+        "type":  296,
+        "statement":  "d[0x0128] = _secretShopHandler.HandleBuyRequest;"
+    },
+    {
+        "line":  618,
+        "type":  297,
+        "statement":  "d[0x0129] = _secretShopHandler.HandleOpenClose;"
+    },
+    {
+        "line":  619,
+        "type":  316,
+        "statement":  "d[0x013C] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  620,
+        "type":  484,
+        "statement":  "d[0x01E4] = _dungeonHandler.Handle_ENUM_CMDPACKET_TUTORIAL_LEVEL_UP;   //484"
+    },
+    {
+        "line":  621,
+        "type":  529,
+        "statement":  "d[0x0211] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  622,
+        "type":  595,
+        "statement":  "d[0x0253] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  623,
+        "type":  619,
+        "statement":  "d[0x026B] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  624,
+        "type":  621,
+        "statement":  "d[0x026D] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  625,
+        "type":  624,
+        "statement":  "d[0x0270] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  626,
+        "type":  458,
+        "statement":  "d[(ushort)CmdPacketType.TOURNAMENT_REWARD_SELECT_STATE] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  628,
+        "type":  459,
+        "statement":  "d[(ushort)CmdPacketType.TOURNAMENT_REWARD_SELECT] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  630,
+        "type":  258,
+        "statement":  "d[(ushort)CmdPacketType.BLOOD_ROUND_UI_PREPARE_FINISH_] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  632,
+        "type":  255,
+        "statement":  "d[(ushort)CmdPacketType.DIE_BLOOD_MONSTER] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  634,
+        "type":  317,
+        "statement":  "d[(ushort)CmdPacketType.SELECT_ULTIMATE_DIFFICULTY] = _dungeonHandler.HandleDungeonMechanismCommand;"
+    },
+    {
+        "line":  636,
+        "type":  786,
+        "statement":  "d[0x0312] = (session, header, body) =\u003e PremiumQueryHandler.Handle_PREMIUM_SERVICE( session, header, body, _database);                                                   //786"
+    },
+    {
+        "line":  642,
+        "type":  950,
+        "statement":  "d[0x03B6] = _dungeonHandler.Handle_ENUM_CMDPACKET_GORGEOUS_CHALLENGE_TOGGLE;"
+    },
+    {
+        "line":  643,
+        "type":  939,
+        "statement":  "d[0x03AB] = _dungeonHandler.HandleDungeonMechanismCommand;             //939"
+    },
+    {
+        "line":  644,
+        "type":  159,
+        "statement":  "d[0x009F] = _dungeonHandler.Handle_ENUM_CMDPACKET_DEATH_TOWER_STAGE_CMD; // 159"
+    },
+    {
+        "line":  645,
+        "type":  727,
+        "statement":  "d[0x02D7] = _dungeonRejoin.HandleRejoinAsync;"
+    },
+    {
+        "line":  646,
+        "type":  728,
+        "statement":  "d[0x02D8] = _dungeonRejoin.HandleCancelAsync;"
+    },
+    {
+        "line":  651,
+        "type":  28,
+        "statement":  "d[0x001C] = _skillHandler.Handle_CHANGE_SKILLSLOT;                     //28"
+    },
+    {
+        "line":  652,
+        "type":  29,
+        "statement":  "d[0x001D] = _skillHandler.Handle_BUY_SKILL;                            //29"
+    },
+    {
+        "line":  653,
+        "type":  260,
+        "statement":  "d[0x0104] = _skillHandler.Handle_CHANGE_ANOTHER_SKILL_TREE;            //260"
+    },
+    {
+        "line":  654,
+        "type":  331,
+        "statement":  "d[0x014B] = _skillHandler.Handle_CHANGE_SKILL_COMMAND;                 //331"
+    },
+    {
+        "line":  655,
+        "type":  332,
+        "statement":  "d[0x014C] = _skillHandler.Handle_RESET_ALL_SKILL_COMMANDS;             //332"
+    },
+    {
+        "line":  656,
+        "type":  492,
+        "statement":  "d[0x01EC] = _skillHandler.Handle_SKILL_INIT;                           //492"
+    },
+    {
+        "line":  657,
+        "type":  509,
+        "statement":  "d[0x01FD] = _skillHandler.Handle_COMBO_SKILL_INFO;                     //509"
+    },
+    {
+        "line":  658,
+        "type":  511,
+        "statement":  "d[0x01FF] = _skillHandler.Handle_COMBO_SKILL_EXTENSION_QUICK_SLOT_RESET; //511"
+    },
+    {
+        "line":  663,
+        "type":  35,
+        "statement":  "d[0x0023] = _townHandler.Handle_ENUM_CMDPACKET_SET_USER_POSITION;"
+    },
+    {
+        "line":  664,
+        "type":  36,
+        "statement":  "d[0x0024] = async (s, h, b) =\u003e { if (b != null \u0026\u0026 b.Length \u003e= 6) await _expertJobStoreHandler.CloseSessionAsync(s, includeOwner: true); await _townHandler.Handle_ENUM_CMDPACKET_SET_USER_AREA(s, h, b); await _expertJobStoreHandler.SendAreaStoresToAsync(s); };"
+    },
+    {
+        "line":  671,
+        "type":  37,
+        "statement":  "d[0x0025] = HandleRaidAwareFinishLoading;"
+    },
+    {
+        "line":  672,
+        "type":  42,
+        "statement":  "d[0x002A] = (s, h, b) =\u003e HandleRaidAwareDungeonExit(s, h, b, _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME, \"giveup\");"
+    },
+    {
+        "line":  673,
+        "type":  132,
+        "statement":  "d[0x0084] = (s, h, b) =\u003e HandleRaidAwareDungeonExit(s, h, b, _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME, \"back-to-village\");"
+    },
+    {
+        "line":  674,
+        "type":  237,
+        "statement":  "d[0x00ED] = _townHandler.Handle_ENUM_CMDPACKET_TELEPORT;"
+    },
+    {
+        "line":  675,
+        "type":  435,
+        "statement":  "d[(ushort)CmdPacketType.PARTY_TELEPORT] = _townHandler.Handle_ENUM_CMDPACKET_PARTY_TELEPORT;"
+    },
+    {
+        "line":  681,
+        "type":  197,
+        "statement":  "d[0x00C5] = _settingsHandler.Handle_SAVE_GAME_OPTION_1;"
+    },
+    {
+        "line":  682,
+        "type":  198,
+        "statement":  "d[0x00C6] = (s, h, b) =\u003e { _settingsHandler.Handle_SAVE_GAME_OPTION_2(s, h, b); return Task.CompletedTask; };"
+    },
+    {
+        "line":  683,
+        "type":  368,
+        "statement":  "d[0x0170] = (s, h, b) =\u003e { _settingsHandler.Handle_SAVE_QUICKCHAT(s, h, b); return Task.CompletedTask; };"
+    },
+    {
+        "line":  684,
+        "type":  254,
+        "statement":  "d[0x00FE] = _settingsHandler.Handle_CHANGE_EMOTION;"
+    },
+    {
+        "line":  685,
+        "type":  448,
+        "statement":  "d[0x01C0] = (s, h, b) =\u003e { _settingsHandler.Handle_SAVE_CHARACTER_OPTION(s, h, b); return Task.CompletedTask; };"
+    },
+    {
+        "line":  690,
+        "type":  476,
+        "statement":  "d[(ushort)CmdPacketType.IMAGE_COMMUNICATION_EQUIPMENT_USE] = async (s, h, b) =\u003e { if (s.GameSession != null) { await s.GameSession.QuestManager .HandleImageCommunicationEquipmentUseAsync( h.type, b); } };"
+    },
+    {
+        "line":  701,
+        "type":  31,
+        "statement":  "d[0x001F] = async (s, h, b) =\u003e //31 { if (s.GameSession != null) await s.GameSession.QuestManager.HandleAcceptQuestAsync( h.type, b, s.SessionId); };"
+    },
+    {
+        "line":  709,
+        "type":  32,
+        "statement":  "d[0x0020] = async (s, h, b) =\u003e //32 { if (s.GameSession != null) await s.GameSession.QuestManager.HandleGiveupQuestAsync( h.type, b, s.SessionId); };"
+    },
+    {
+        "line":  717,
+        "type":  33,
+        "statement":  "d[0x0021] = async (s, h, b) =\u003e //33 { if (s.GameSession != null) { var sourceRun = s.Player?.CurrentRun; var sourceEvent = sourceRun != null ? DungeonEventEnvelope.Create( sourceRun, s.Player.CharacterId, \"client quest set-trigger\") : null; var result = await s.GameSession.QuestManager .HandleSetTriggerAsync(h.type, b, s.SessionId); await _dungeonHandler.HandleQuestSetTriggerResultAsync( s, result, sourceEvent); } };"
+    },
+    {
+        "line":  736,
+        "type":  34,
+        "statement":  "d[0x0022] = async (s, h, b) =\u003e //34 { if (s.GameSession != null) await s.GameSession.QuestManager.HandleFinishQuestAsync( h.type, b, s.SessionId); };"
+    },
+    {
+        "line":  744,
+        "type":  507,
+        "statement":  "d[0x01FB] = (s, h, b) =\u003e { s.GameSession?.QuestManager.HandleSaveQuestNotify(b); return Task.CompletedTask; };"
+    },
+    {
+        "line":  749,
+        "type":  700,
+        "statement":  "d[0x02BC] = async (s, h, b) =\u003e { if (s.GameSession == null) return;  var result = s.GameSession.QuestManager.HandleDailyChallengeReward( s.SessionId, b); await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build( 0x01, h.type, DailyChallengeRewardAckBuilder.Build(result)));  if (result?.GrantedReward == true \u0026\u0026 result.Changes.HasChanges) { var slotsByList = new Dictionary\u003cInventoryListType, List\u003cshort\u003e\u003e(); foreach (var change in result.Changes.Slots) { if (!slotsByList.TryGetValue(change.ListType, out var slots)) { slots = new List\u003cshort\u003e(); slotsByList[change.ListType] = slots; } slots.Add(change.SlotIndex); }  foreach (var pair in slotsByList) await _inventoryRefreshSender.SendUpdateItemList(s, pair.Key, pair.Value); }  if (result?.Snapshot != null) { await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build( 0x00, 0x0286, DailyChallengeBodyBuilder.Build(result.Snapshot))); }  FileLogger.Log( $\"[GameProtocol] DAILY_CHALLENGE_REWARD cid={s.Player?.CharacterId ?? 0} \" + $\"group={result?.GroupIndex ?? -1} status={result?.Status.ToString() ?? \"null\"} \" + $\"item={result?.ItemId ?? 0} count={result?.ItemCount ?? 0}\"); };"
+    },
+    {
+        "line":  796,
+        "type":  94,
+        "statement":  "d[0x005E] = _mailboxHandler.HandleSendMailbox;"
+    },
+    {
+        "line":  797,
+        "type":  95,
+        "statement":  "d[0x005F] = _mailboxHandler.HandleClaimMailbox;"
+    },
+    {
+        "line":  798,
+        "type":  96,
+        "statement":  "d[0x0060] = _mailboxHandler.HandleOpenMailbox;"
+    },
+    {
+        "line":  799,
+        "type":  134,
+        "statement":  "d[0x0086] = _mailboxHandler.HandleChangeLetterStatMailbox;"
+    },
+    {
+        "line":  800,
+        "type":  315,
+        "statement":  "d[0x013B] = _mailboxHandler.HandleSendMultiMailbox;"
+    },
+    {
+        "line":  801,
+        "type":  324,
+        "statement":  "d[0x0144] = _mailboxHandler.HandleQueryCharacterInfoMailbox;"
+    },
+    {
+        "line":  806,
+        "type":  904,
+        "statement":  "d[0x0388] = _collectionBoxHandler.HandleQueryCollectionBox;"
+    },
+    {
+        "line":  807,
+        "type":  905,
+        "statement":  "d[0x0389] = _collectionBoxHandler.HandleInsertCollectBoxItem;"
+    },
+    {
+        "line":  808,
+        "type":  906,
+        "statement":  "d[0x038A] = _collectionBoxHandler.HandleRemoveCollectBoxItem;"
+    },
+    {
+        "line":  813,
+        "type":  441,
+        "statement":  "d[MercenaryExpeditionHandler.ReturnCommand] = _mercenaryExpeditionHandler.HandleReturn;"
+    },
+    {
+        "line":  814,
+        "type":  442,
+        "statement":  "d[MercenaryExpeditionHandler.InfoCommand] = _mercenaryExpeditionHandler.HandleInfo;"
+    },
+    {
+        "line":  815,
+        "type":  443,
+        "statement":  "d[MercenaryExpeditionHandler.CompetitionCommand] = _mercenaryExpeditionHandler.HandleCompetition;"
+    },
+    {
+        "line":  816,
+        "type":  485,
+        "statement":  "d[0x01E5] = _mercenaryHandler.HandleMercenaryRequest;                  //485 鏀彺鍏垫妧鑳藉垪琛?            d[0x01E8] = _mercenaryHandler.HandleMercenaryRequest;                  //488 鏀彺鍏甸€夋嫨"
+    },
+    {
+        "line":  821,
+        "type":  3,
+        "statement":  "d[0x0003] = (s, h, b) =\u003e s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0003, CommonPacketBodyBuilder.BuildSuccessAck()));"
+    },
+    {
+        "line":  823,
+        "type":  64,
+        "statement":  "d[0x0040] = _ceraShopHandler.HandleCeraShopPurchase;                   //64"
+    },
+    {
+        "line":  824,
+        "type":  65,
+        "statement":  "d[(ushort)CmdPacketType.GEN_CERATICKET] = _ceraShopHandler.HandleGenCeraTicket;"
+    },
+    {
+        "line":  825,
+        "type":  417,
+        "statement":  "d[0x01A1] = _inventoryHandler.Handle_ACHIEVEMENT_TRIGGER;              //417"
+    },
+    {
+        "line":  826,
+        "type":  478,
+        "statement":  "d[0x01DE] = _dungeonHandler.HandleDungeonSceneUniqueIdReport;           //478"
+    },
+    {
+        "line":  827,
+        "type":  680,
+        "statement":  "d[0x02A8] = (s, h, b) =\u003e s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x02A8, new byte[] { 0x00, 0x00 }));"
+    },
+    {
+        "line":  829,
+        "type":  882,
+        "statement":  "d[0x0372] = _rentalHandler.HandleRentWeapon;"
+    },
+    {
+        "line":  830,
+        "type":  883,
+        "statement":  "d[0x0373] = _luckyStarHandler.HandleShopPurchasePacket;"
+    },
+    {
+        "line":  831,
+        "type":  603,
+        "statement":  "d[(ushort)CmdPacketType.GET_EXPAND_EXP_GAGE_REWARD] = _growthCapsuleHandler.HandleClaimAsync;"
+    },
+    {
+        "line":  832,
+        "type":  861,
+        "statement":  "d[(ushort)CmdPacketType.UPGRADE_CARRY_GOLD] = _goldLimitHandler.HandleUpgradeAsync;"
+    },
+    {
+        "line":  833,
+        "type":  195,
+        "statement":  "d[PvpChannelInfoHandler.CommandType] = _pvpChannelInfoHandler.HandlePvpChannelInfo;"
+    },
+    {
+        "line":  835,
+        "type":  50,
+        "statement":  "d[PvpRoomHandler.MakeRoomCommandType] = _pvpRoomHandler.HandleMakeRoom;"
+    },
+    {
+        "line":  837,
+        "type":  51,
+        "statement":  "d[PvpRoomHandler.EnterRoomCommandType] = _pvpRoomHandler.HandleEnterRoom;"
+    },
+    {
+        "line":  839,
+        "type":  52,
+        "statement":  "d[PvpRoomHandler.SetSeatStateCommandType] = _pvpRoomHandler.HandleSetSeatState;"
+    },
+    {
+        "line":  841,
+        "type":  53,
+        "statement":  "d[PvpRoomHandler.SetReadyStateCommandType] = _pvpRoomHandler.HandleSetReadyState;"
+    },
+    {
+        "line":  843,
+        "type":  54,
+        "statement":  "d[PvpRoomHandler.SetTeamModeCommandType] = _pvpRoomHandler.HandleSetTeamMode;"
+    },
+    {
+        "line":  845,
+        "type":  55,
+        "statement":  "d[PvpRoomHandler.DiePvpCharacterCommandType] = _pvpRoomHandler.HandleDiePvpCharacter;"
+    },
+    {
+        "line":  847,
+        "type":  56,
+        "statement":  "d[PvpRoomHandler.PvpTimeOutCommandType] = _pvpRoomHandler.HandlePvpTimeOut;"
+    },
+    {
+        "line":  849,
+        "type":  57,
+        "statement":  "d[PvpRoomHandler.EndPvpResultCommandType] = _pvpRoomHandler.HandleEndPvpResult;"
+    },
+    {
+        "line":  851,
+        "type":  58,
+        "statement":  "d[PvpRoomHandler.PvpRankResponseCommandType] = _pvpRoomHandler.HandlePvpRankResponse;"
+    },
+    {
+        "line":  853,
+        "type":  298,
+        "statement":  "d[PvpRoomHandler.CompleteLoadPvpCommandType] = _pvpRoomHandler.HandleCompleteLoadPvp;"
+    },
+    {
+        "line":  855,
+        "type":  299,
+        "statement":  "d[PvpRoomHandler.ConnectP2pPvpCommandType] = _pvpRoomHandler.HandleConnectP2pPvp;"
+    },
+    {
+        "line":  857,
+        "type":  112,
+        "statement":  "d[PvpRoomHandler.PvpRequestFightCommandType] = _pvpRoomHandler.HandlePvpRequestFight;"
+    },
+    {
+        "line":  863,
+        "type":  239,
+        "statement":  "d[(ushort)CmdPacketType.GIVEUP_EXPERT_JOB] = _expertJobGiveupHandler.Handle;"
+    },
+    {
+        "line":  864,
+        "type":  599,
+        "statement":  "d[(ushort)CmdPacketType.CREATE_EXPERT_JOB_STORE] = _expertJobStoreHandler.HandleCreate;"
+    },
+    {
+        "line":  865,
+        "type":  600,
+        "statement":  "d[(ushort)CmdPacketType.ENTER_EXPERT_JOB_STORE] = _expertJobStoreHandler.HandleEnter;"
+    },
+    {
+        "line":  866,
+        "type":  601,
+        "statement":  "d[(ushort)CmdPacketType.CLOSE_EXPERT_JOB_STORE] = _expertJobStoreHandler.HandleClose;"
+    },
+    {
+        "line":  867,
+        "type":  236,
+        "statement":  "d[(ushort)CmdPacketType.REPAIR_DISJOINT_MACHINE] = _expertJobStoreHandler.HandleRepair;"
+    },
+    {
+        "line":  868,
+        "type":  240,
+        "statement":  "d[(ushort)CmdPacketType.UPGRADE_DISJOINT_MACHINE] = _expertJobStoreHandler.HandleUpgrade;"
+    },
+    {
+        "line":  869,
+        "type":  235,
+        "statement":  "d[(ushort)CmdPacketType.REQUEST_DISJOINT_ITEM] = HandleSharedDisjointOrHellParty;"
+    },
+    {
+        "line":  870,
+        "type":  416,
+        "statement":  "d[(ushort)CmdPacketType.EXPERT_EXTRACTION] = _expertJobExtractionHandler.Handle;"
+    },
+    {
+        "line":  871,
+        "type":  612,
+        "statement":  "d[(ushort)CmdPacketType.REPAIR_EXPERT_JOB_STORE] = _enchanterHandler.HandleRepair;"
+    },
+    {
+        "line":  872,
+        "type":  602,
+        "statement":  "d[(ushort)CmdPacketType.USE_ENCHANT_STORE] = _expertJobStoreHandler.HandleEnchant;"
+    },
+    {
+        "line":  873,
+        "type":  238,
+        "statement":  "d[(ushort)CmdPacketType.COMPOUND_ITEM_BY_EXPERT_JOB] = _expertJobCompoundHandler.Handle;"
+    }
+]
