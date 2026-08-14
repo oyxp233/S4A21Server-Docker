@@ -28,6 +28,9 @@ remove_dir "$ROOT/Server/DfoServer/bin"
 remove_dir "$ROOT/Server/DfoServer/obj"
 remove_dir "$ROOT/Tool/PvfLib/bin"
 remove_dir "$ROOT/Tool/PvfLib/obj"
+remove_dir "$ROOT/Tool/DfoPacketMcp/bin"
+remove_dir "$ROOT/Tool/DfoPacketMcp/obj"
+remove_dir "$ROOT/Tool/DfoPacketMcp/publish"
 
 find "$ROOT/Server" "$ROOT/Tool" -type f \( -name 'server.log' -o -name 'packet_log.txt' \) -delete 2>/dev/null || true
 
