@@ -109,7 +109,7 @@ namespace DfoServer.Network.Handlers
             _settlement.ConfigureBloodAltarPresentation(
                 _bloodAltar.OnParticipantClearedAsync,
                 _bloodAltar.TryHandleEplpCommandAsync);
-            _tutorial = new DungeonTutorialHandler(_services, _settlement);
+            _tutorial = new DungeonTutorialHandler(_services, _settlement, _entry);
         }
 
         public static async Task ResetDungeonStateAsync(EnhancedClientSession session)

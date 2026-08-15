@@ -198,6 +198,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                             created,
                             questSnapshot,
                             expectedSelection.ReturnAnchor,
+                            expectedSelection.IsA21TutorialEntry,
                             experienceBonusSnapshot);
                         created.TryBeginSelecting();
                         return created;
@@ -243,6 +244,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                             created,
                             questSnapshot,
                             expectedSelection.ReturnAnchor,
+                            expectedSelection.IsA21TutorialEntry,
                             experienceBonusSnapshot);
                         created.Tower = tower;
                         return created;
@@ -260,6 +262,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             DungeonRun run,
             QuestRunSnapshot questSnapshot,
             DungeonTownReturnAnchor returnAnchor,
+            bool isA21TutorialEntry,
             DungeonParticipantExperienceBonusSnapshot?
                 experienceBonusSnapshot)
         {
@@ -277,6 +280,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                         session.Player.GrowType);
             run.QuestSnapshot = questSnapshot;
             run.TownReturnAnchor = returnAnchor;
+            run.IsA21TutorialEntry = isA21TutorialEntry;
         }
 
         private static bool FinalizeNormalRunStart(
@@ -463,7 +467,10 @@ namespace DfoServer.Network.Handlers.Dungeon
             player.CurPosX = returnAnchor.X;
             player.CurPosY = returnAnchor.Y;
             player.CurDirection = returnAnchor.Direction;
-            player.CurAreaState = returnAnchor.AreaState;
+            // A21 town USER_AREA/AREA_USERS return samples end with state=0.
+            // Preserve the anchor's coordinates and direction, but normalize
+            // the town projection state instead of carrying the old A12 value 3.
+            player.CurAreaState = 0x00;
         }
 
         private static async Task<bool> EndRunToTownCoreAsync(

@@ -8,7 +8,7 @@ namespace DfoServer.Game.Inventory
 {
     internal sealed class Noti2InventoryProjectionBuilder
     {
-        private const byte TitleAppearanceSlot = 12;
+        private const byte TitleAppearanceSlot = (byte)EquipmentType.TitleName;
 
         internal UserInfoAdditionSnapshot BuildUserInfoAddition(InventoryService inventory)
         {
@@ -37,7 +37,9 @@ namespace DfoServer.Game.Inventory
                 if (item == null)
                     continue;
 
-                entries.Add(new KeyValuePair<short, ItemCore>(item.SlotIndex, item.Core));
+                entries.Add(new KeyValuePair<short, ItemCore>(
+                    (short)EquipmentTypeInfo.ToA21AppearanceSlot(item.SlotIndex),
+                    item.Core));
             }
 
             return BuildUserInfoAddition(
@@ -58,7 +60,7 @@ namespace DfoServer.Game.Inventory
 
             return new EquippedEntrySnapshot
             {
-                Slot = slotIndex,
+                Slot = (short)EquipmentTypeInfo.ToA21AppearanceSlot(slotIndex),
                 Core = core.Copy(),
             };
         }
@@ -86,7 +88,9 @@ namespace DfoServer.Game.Inventory
                 if (item == null)
                     continue;
 
-                entries.Add(new KeyValuePair<short, ItemCore>(item.SlotIndex, item.Core));
+                entries.Add(new KeyValuePair<short, ItemCore>(
+                    (short)EquipmentTypeInfo.ToA21AppearanceSlot(item.SlotIndex),
+                    item.Core));
             }
 
             return BuildAppearanceEntries(entries, core => ResolveAvatarDetail(avatarDetails, core));
@@ -105,7 +109,8 @@ namespace DfoServer.Game.Inventory
             {
                 var slotIndex = pair.Key;
                 var core = pair.Value;
-                if (core == null || !ShouldEmitAppearanceSlot(slotIndex))
+                var appearanceSlot = EquipmentTypeInfo.ToA21AppearanceSlot(slotIndex);
+                if (core == null || !ShouldEmitAppearanceSlot(appearanceSlot))
                     continue;
 
                 var avatarDetail = resolveAvatarDetail?.Invoke(core);
@@ -117,12 +122,12 @@ namespace DfoServer.Game.Inventory
                     continue;
 
                 result.Add(new CharacterAppearanceEntry(
-                    (byte)slotIndex,
+                    (byte)appearanceSlot,
                     displayItemId,
                     4,
                     BuildAppearanceExpansionData(core, avatarDetail),
                     BuildAppearanceState(core),
-                    0,
+                    ResolveAppearanceLinkItemId(core, avatarDetail),
                     0u,
                     core.EnchantUpgradeCount));
             }
@@ -172,10 +177,17 @@ namespace DfoServer.Game.Inventory
 
             ApplyNameTagFields(inventory, snapshot);
 
-            if (inventory.TryGetItem(InventoryListType.Equipment, 11, out var weapon) && weapon != null)
+            if (inventory.TryGetItem(
+                    InventoryListType.Equipment,
+                    (short)EquipmentType.Weapon,
+                    out var weapon)
+                && weapon != null)
                 snapshot.Forging = weapon.GenuineUpgrade;
 
-            if (!inventory.TryGetItem(InventoryListType.Equipment, 24, out var creature)
+            if (!inventory.TryGetItem(
+                    InventoryListType.Equipment,
+                    (short)EquipmentType.Creature,
+                    out var creature)
                 || creature == null
                 || creature.ItemId <= 0)
                 return;
@@ -239,16 +251,33 @@ namespace DfoServer.Game.Inventory
             return core.ItemId;
         }
 
+        internal static int ResolveAppearanceLinkItemId(
+            ItemCore core,
+            AvatarDetail avatarDetail)
+        {
+            if (core != null
+                && core.ItemKind == ItemCore.KindAvatar
+                && avatarDetail != null
+                && avatarDetail.ClearAvatarId != 0)
+            {
+                return core.ItemId;
+            }
+
+            return 0;
+        }
+
         internal byte BuildAppearanceState(ItemCore core)
         {
             var upgrade = core.Attr & 0x1F;
             return unchecked((byte)(upgrade * 2 + (core.AmplifyType != 0 ? 1 : 0)));
         }
 
-        private static bool ShouldEmitAppearanceSlot(short slotIndex)
+        private static bool ShouldEmitAppearanceSlot(int slotIndex)
         {
-            return slotIndex <= TitleAppearanceSlot
-                || slotIndex == (short)EquipmentType.SupportWeapon;
+            return slotIndex >= 0
+                && slotIndex <= byte.MaxValue
+                && (slotIndex <= TitleAppearanceSlot
+                    || slotIndex == (int)EquipmentType.SupportWeapon);
         }
 
         private static byte[] BuildAppearanceExpansionData(ItemCore core, AvatarDetail avatarDetail)

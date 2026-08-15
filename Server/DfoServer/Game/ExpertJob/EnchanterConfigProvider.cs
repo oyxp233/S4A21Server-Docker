@@ -328,6 +328,9 @@ namespace DfoServer.Game.ExpertJob
                 {
                     var cardItemId = ParseInt(baseResults[index]);
                     var beadItemId = ParseInt(baseResults[index + 1]);
+                    // A21 keeps legacy/cross-event result IDs in the table; the
+                    // explicit [base result] pair is authoritative even when
+                    // one side is not present in the current item LST.
                     DfoServer.Game.Inventory.ItemMetadataResolver.TryLoadStackableFile(
                         cardItemId,
                         out var card);
@@ -336,9 +339,7 @@ namespace DfoServer.Game.ExpertJob
                         out var bead);
                     if (cardItemId <= 0
                         || beadItemId <= 0
-                        || config.BeadItemIdByCardItemId.ContainsKey(cardItemId)
-                        || (ItemMetadataResolver.IsMonsterCardBead(bead)
-                            && !BeadContainsCardId(bead, cardItemId)))
+                        || config.BeadItemIdByCardItemId.ContainsKey(cardItemId))
                     {
                         throw new InvalidOperationException(
                             $"PVF {PvfPath} has an invalid card bead result " +
@@ -355,23 +356,6 @@ namespace DfoServer.Game.ExpertJob
                 }
             }
 
-        }
-
-        private static bool BeadContainsCardId(StackableItemFile bead, int cardItemId)
-        {
-            if (bead == null || cardItemId <= 0)
-                return false;
-
-            if (bead.MonsterCardIds != null)
-            {
-                foreach (var beadCardId in bead.MonsterCardIds)
-                {
-                    if (beadCardId == cardItemId)
-                        return true;
-                }
-            }
-
-            return bead.MonsterCardId == cardItemId;
         }
 
         private static IReadOnlyList<InventoryMaterialRequirement> ParseMaterialRequirements(

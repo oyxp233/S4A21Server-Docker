@@ -12,9 +12,10 @@ namespace DfoServer.Network
 
             buffer.Add(command);
             buffer.AddRange(BitConverter.GetBytes(type));
+            // Server-to-client A21 packets use the 15-byte inbound envelope.
             buffer.AddRange(BitConverter.GetBytes(bodySize + 15));
-            buffer.AddRange(new byte[4]); 
-            buffer.AddRange(new byte[4]); 
+            buffer.AddRange(new byte[4]);
+            buffer.AddRange(new byte[4]);
 
             if (body != null && body.Length > 0)
                 buffer.AddRange(body);

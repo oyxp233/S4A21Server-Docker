@@ -79,9 +79,9 @@ namespace DfoServer.SelfTests
                         SpawnMode = 1,
                     },
                 });
-            Check("START_MAP writes randomized object spawn mode at record +16",
-                passiveObjectStartMap.Length == 42
-                && BitConverter.ToInt32(passiveObjectStartMap, 37) == 1,
+            Check("START_MAP writes randomized object spawn mode at A21 record +16",
+                passiveObjectStartMap.Length == 44
+                && BitConverter.ToInt32(passiveObjectStartMap, 39) == 1,
                 ref failures);
             var raidClock = 0L;
             var raidManager = new RaidManager(() => raidClock);

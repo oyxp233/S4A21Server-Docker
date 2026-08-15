@@ -1,4 +1,5 @@
 using System;
+using DfoServer.Game.ItemUpgrade;
 
 namespace DfoServer.Game.Inventory
 {
@@ -268,7 +269,8 @@ namespace DfoServer.Game.Inventory
 
         private static bool TryGetBodyItemKindBySlot(short slotIndex, out byte itemKind)
         {
-            if (slotIndex >= 0 && slotIndex <= 10)
+            if (slotIndex >= (short)EquipmentType.HatAvatar
+                && slotIndex <= (short)EquipmentType.AuroraIllusionAvatar)
             {
                 itemKind = ItemCore.KindAvatar;
                 return true;
@@ -286,7 +288,9 @@ namespace DfoServer.Game.Inventory
                 return true;
             }
 
-            if ((slotIndex >= 11 && slotIndex <= 23) || slotIndex == 29)
+            if ((slotIndex >= (short)EquipmentType.Weapon
+                    && slotIndex <= (short)EquipmentType.SupportWeapon)
+                || slotIndex == (short)EquipmentType.Charm)
             {
                 itemKind = ItemCore.KindEquipment;
                 return true;

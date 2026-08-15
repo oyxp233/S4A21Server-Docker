@@ -63,11 +63,27 @@ namespace DfoServer.SelfTests
 
             if (relogSnapshot != null)
             {
-                var body = UserInfoSubtype1Builder.BuildFromSnapshot(
+                var subtype1WithSource = UserInfoSubtype1Builder.BuildFromSnapshot(
                     relogSnapshot,
                     new SkillInfoSnapshot());
-                Check("subtype1 wire carries one 13502 source",
-                    ReadSpecialRewardQuestIds(body, relogSnapshot.SpecialRewardQuestIds.Count)
+                relogSnapshot.SpecialRewardQuestIds.Clear();
+                var subtype1WithoutSource = UserInfoSubtype1Builder.BuildFromSnapshot(
+                    relogSnapshot,
+                    new SkillInfoSnapshot());
+                Check("A21 subtype1 omits the legacy variable special-reward source list",
+                    subtype1WithSource.SequenceEqual(subtype1WithoutSource),
+                    ref failures);
+
+                relogSnapshot.SpecialRewardQuestIds.Add(SpecialRewardQuestId);
+                var subtype3 = UserInfoSubtype3Builder.BuildNotificationBody(
+                    1,
+                    relogSnapshot,
+                    new SkillInfoSnapshot(),
+                    new CharacterRecord());
+                Check("subtype3 wire carries one 13502 source",
+                    ReadSubtype3SpecialRewardQuestIds(
+                            subtype3,
+                            relogSnapshot.SpecialRewardQuestIds.Count)
                         .SequenceEqual(new[] { (uint)SpecialRewardQuestId }),
                     ref failures);
             }
@@ -76,9 +92,11 @@ namespace DfoServer.SelfTests
             return failures == 0 ? 0 : 1;
         }
 
-        private static uint[] ReadSpecialRewardQuestIds(byte[] body, int expectedCount)
+        private static uint[] ReadSubtype3SpecialRewardQuestIds(
+            byte[] body,
+            int expectedCount)
         {
-            const int fixedTailLength = 1 + 4 + 4 + 2 + 4 + 4;
+            const int fixedTailLength = 2 + 1;
             int countOffset = body.Length - fixedTailLength - 4 - expectedCount * 4;
             if (countOffset < 0)
                 return Array.Empty<uint>();

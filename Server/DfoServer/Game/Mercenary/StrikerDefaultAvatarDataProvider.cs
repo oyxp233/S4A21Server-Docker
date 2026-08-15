@@ -13,7 +13,6 @@ namespace DfoServer.Game.Mercenary
     {
         private const int HeaderFieldCount = 2;
         private const int AvatarSlotCount = 11;
-        private const int RowFieldCount = 2 + AvatarSlotCount;
 
         private static readonly Lazy<IReadOnlyDictionary<(int Job, int Grow), IReadOnlyList<int>>> Rows
             = new Lazy<IReadOnlyDictionary<(int Job, int Grow), IReadOnlyList<int>>>(LoadRows);
@@ -57,20 +56,29 @@ namespace DfoServer.Game.Mercenary
 
                 var declaredJobCount = tokens[0];
                 var rowCount = tokens[1];
-                var expectedTokenCount = HeaderFieldCount + rowCount * RowFieldCount;
-                if (declaredJobCount <= 0 || rowCount < 0 || tokens.Count != expectedTokenCount)
+                if (declaredJobCount <= 0 || rowCount <= 0)
+                    throw new InvalidOperationException($"默认外观表为空: {path}");
+
+                var payload = tokens.Count - HeaderFieldCount;
+                if (payload % rowCount != 0)
                     throw new InvalidOperationException(
-                        $"默认外观表结构错误: {path}, rows={rowCount}, tokens={tokens.Count}, expected={expectedTokenCount}");
+                        $"默认外观表结构错误: {path}, rows={rowCount}, tokens={tokens.Count}");
+
+                var fieldsPerRow = payload / rowCount;
+                var slotCount = fieldsPerRow - 2;
+                if (slotCount < AvatarSlotCount)
+                    throw new InvalidOperationException(
+                        $"默认外观表槽位数不足: {path}, slots={slotCount}, min={AvatarSlotCount}");
 
                 for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
                 {
-                    var offset = HeaderFieldCount + rowIndex * RowFieldCount;
+                    var offset = HeaderFieldCount + rowIndex * fieldsPerRow;
                     var key = (tokens[offset], tokens[offset + 1]);
                     if (key.Item1 < 0 || key.Item1 > byte.MaxValue
                         || key.Item2 < 0 || key.Item2 > 0x0F)
                         throw new InvalidOperationException(
                             $"默认外观表键越界: {path}, row={rowIndex}, job={key.Item1}, grow={key.Item2}");
-                    var values = new int[AvatarSlotCount];
+                    var values = new int[slotCount];
                     for (var slot = 0; slot < values.Length; slot++)
                         values[slot] = tokens[offset + 2 + slot];
                     if (!candidates.TryGetValue(key, out var rows))
@@ -81,13 +89,6 @@ namespace DfoServer.Game.Mercenary
                     rows.Add(values);
                 }
 
-                var parsedJobCount = Enumerable.Range(0, rowCount)
-                    .Select(rowIndex => tokens[HeaderFieldCount + rowIndex * RowFieldCount])
-                    .Distinct()
-                    .Count();
-                if (parsedJobCount != declaredJobCount)
-                    throw new InvalidOperationException(
-                        $"默认外观表职业数不匹配: {path}, declared={declaredJobCount}, parsed={parsedJobCount}");
             }
 
             var result = new Dictionary<(int Job, int Grow), IReadOnlyList<int>>();

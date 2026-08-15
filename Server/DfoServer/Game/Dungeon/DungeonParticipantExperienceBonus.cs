@@ -122,7 +122,7 @@ namespace DfoServer.Game.Dungeon
 
             var hasEquippedAvatar = false;
             for (var slot = (short)EquipmentType.HatAvatar;
-                 slot <= (short)EquipmentType.WeaponAvatar;
+                 slot <= (short)EquipmentType.AuroraIllusionAvatar;
                  slot++)
             {
                 var item = inventory.GetItem(

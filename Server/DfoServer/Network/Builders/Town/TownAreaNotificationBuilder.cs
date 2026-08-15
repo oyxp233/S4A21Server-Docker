@@ -65,16 +65,21 @@ namespace DfoServer.Network.Builders
 
         /// <summary>
         /// USER_POSITION(0x0016) NOTI: 把某玩家的移动广播给同区域其它人。
-        /// ⚠️ 字节布局为推测(参照 AREA_USERS 的 per-user 块: userId+x+y+dir+state), 需真机抓包校验。
+        /// A21 body: userId + x + y + direction + uint16 motion state.
         /// </summary>
         public static byte[] BuildUserPosition(TownUserSnapshot snapshot)
+            => BuildUserPosition(snapshot, 0x0064);
+
+        public static byte[] BuildUserPosition(
+            TownUserSnapshot snapshot,
+            ushort motionState)
         {
             var writer = new GamePacketWriter();
             writer.WriteUInt16(snapshot.UserId);
             writer.WriteInt16(snapshot.PosX);
             writer.WriteInt16(snapshot.PosY);
             writer.WriteByte(snapshot.Direction);
-            writer.WriteByte(snapshot.State);
+            writer.WriteUInt16(motionState);
             return writer.ToArray();
         }
 

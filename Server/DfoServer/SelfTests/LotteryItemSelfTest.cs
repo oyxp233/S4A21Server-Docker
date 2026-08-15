@@ -204,7 +204,9 @@ namespace DfoServer.SelfTests
                 3,
                 avatarReward,
                 new AvatarDetail { AvatarUid = 1, JewelSocket = new byte[30] });
-            Check("avatar result body length", avatarBody.Length == 129, ref failures);
+            Check("avatar result body length",
+                avatarBody.Length == 3 + ItemListProtocolWriter.AvatarEntrySize,
+                ref failures);
             Check("avatar result success", avatarBody[0] == 1
                 && BitConverter.ToInt16(avatarBody, 1) == LotterySlot, ref failures);
 

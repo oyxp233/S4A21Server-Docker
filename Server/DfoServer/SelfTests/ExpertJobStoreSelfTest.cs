@@ -419,6 +419,8 @@ namespace DfoServer.SelfTests
                     material => material.ItemTemplateId == 3166 && material.Count == 20)
                 && enchanterConfig.CardsByItemId[3619].Qualification == 0
                 && enchanterConfig.BeadItemIdByCardItemId[3619] == 2600313
+                && enchanterConfig.CardsByItemId[10094604].Qualification == 3
+                && enchanterConfig.BeadItemIdByCardItemId[10094604] == 490000456
                 && enchanterConfig.CardsByItemId[10015144].Qualification == 4
                 && enchanterConfig.BeadItemIdByCardItemId[10015144] == 10015170
                 && enchanterConfig.CardExperienceRulesByLevel[1].SuccessRates[0] == 100

@@ -28,6 +28,22 @@ artifacts/
 *.db
 *.db-wal
 *.db-shm
+*.log
+*.dmp
+*.DMP
+*.i64
+
+# Local diagnostics and protocol-analysis material
+Docs/Correction/
+Docs/A12-A21创建角色到教程封包时序与Body字段对照.md
+Docs/A21创建角色到19级Packets完整包序与CMD-NOTI梳理.md
+Docs/A21创建角色到19级封包流程梳理.md
+Docs/A21客户端业务与协议适配规范.md
+服务端业务框架与数据库重构草案.md
+服务端重构纠错与版本日志.md
+
+# Machine-local launch profiles
+**/Properties/launchSettings.json
 
 # OS
 .DS_Store

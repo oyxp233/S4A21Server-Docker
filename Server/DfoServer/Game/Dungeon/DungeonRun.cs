@@ -215,6 +215,27 @@ namespace DfoServer.Game.Dungeon
         internal string TimeSpiralHiddenBossSource { get => Mechanisms.TimeSpiralHiddenBossSource; set => Mechanisms.TimeSpiralHiddenBossSource = value; }
 
         public bool HellMode { get => Selection.HellMode; set => Selection.HellMode = value; }
+        internal bool TutorialEntryProjectionPending
+        {
+            get => Selection.TutorialEntryProjectionPending;
+            set => Selection.TutorialEntryProjectionPending = value;
+        }
+        internal bool TutorialEntryProjectionSent
+        {
+            get => Selection.TutorialEntryProjectionSent;
+            set => Selection.TutorialEntryProjectionSent = value;
+        }
+        internal bool TutorialEntryUsesInitialLayout
+        {
+            get => Selection.TutorialEntryUsesInitialLayout;
+            set => Selection.TutorialEntryUsesInitialLayout = value;
+        }
+
+        internal bool IsA21TutorialEntry
+        {
+            get => Selection.IsA21TutorialEntry;
+            set => Selection.IsA21TutorialEntry = value;
+        }
         public byte HellPartyMode { get => Selection.HellPartyMode; set => Selection.HellPartyMode = value; }
         public bool VeryDifficultHell { get => Selection.VeryDifficultHell; set => Selection.VeryDifficultHell = value; }
         public bool HellGorgeousChallenge { get => Selection.HellGorgeousChallenge; set => Selection.HellGorgeousChallenge = value; }

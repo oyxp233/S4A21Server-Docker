@@ -17,19 +17,43 @@ namespace DfoServer.Network.Handlers.Dungeon
     {
         private readonly DungeonSharedServices _svc;
         private readonly DungeonSettlementHandler _settlement;
+        private readonly DungeonEntryHandler _entry;
 
         // df_game_r=59; FBS new0610 tested TUTORIAL_LEVEL_UP only levels to Lv2
         private const byte TutorialTargetLevel = 2;
 
-        internal DungeonTutorialHandler(DungeonSharedServices svc, DungeonSettlementHandler settlement)
+        internal DungeonTutorialHandler(
+            DungeonSharedServices svc,
+            DungeonSettlementHandler settlement,
+            DungeonEntryHandler entry)
         {
             _svc = svc;
             _settlement = settlement;
+            _entry = entry;
         }
 
         internal async Task HandleStoryPause(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
             if (body.Length < 2) return;
+
+            if (session?.Player?.CurrentRun == null
+                && session.A21TutorialReturnNeedsVillageObjectList)
+            {
+                session.A21TutorialReturnNeedsVillageObjectList = false;
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    0x00CA,
+                    new byte[] { 0x00 }));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    0x00BF,
+                    new byte[6]));
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    "town STORY_PAUSE: sent A21 VILLAGE_OBJECT_LIST and CMD response");
+                return;
+            }
+
             byte pauseFlag = body[0];
             byte requestType = body[1];
 
@@ -49,17 +73,29 @@ namespace DfoServer.Network.Handlers.Dungeon
         }
 
         // CMD 0x008F (wire 143) CHANGE_TUTORIAL_FLAG
-        // body: u32 flagIndex + u8 rewardFlag (5B, df_game_r get_int+get_byte verified, 86JP capture 1F-00-00-00-01 matches)
+        // A21 body: leading mode byte + u32 flagIndex + u8 rewardFlag. The
+        // client may append nine reserved bytes (15B capture layout), but the
+        // live client also sends the compact 6B form.
+        // The first tutorial capture is:
+        // 00 1E 00 00 00 01 00 00 00 00 00 00 00 00 00.
         // df_game_r: setCurCharacTutorialFlag(flagIndex), if rewardFlag -> RewardTutorial(flagIndex)
         //            flagIndex==31 + in dungeon -> giveup_game (tutorial complete, return to town)
         //            flagIndex==77 -> set ALL flags 0-77
         internal async Task HandleChangeTutorialFlag(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
-            if (body.Length < 5) return;
+            if (!Network.Parsers.Dungeon.ChangeTutorialFlagRequest.TryParse(
+                    body,
+                    out var request))
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"CHANGE_TUTORIAL_FLAG rejected A21 body length={body?.Length ?? 0} (expected >=6B)");
+                return;
+            }
             var tutorialRun = session.Player.CurrentRun;
             var tutorialRunIdentity = tutorialRun?.CaptureIdentity() ?? default;
-            uint flagIndex = BitConverter.ToUInt32(body, 0);
-            byte rewardFlag = body[4];
+            uint flagIndex = request.FlagIndex;
+            byte rewardFlag = request.RewardFlag;
             var activeCharacterId = session.Player.CharacterId;
             var tutorialCharacterId = activeCharacterId > 0
                 ? activeCharacterId
@@ -103,6 +139,19 @@ namespace DfoServer.Network.Handlers.Dungeon
                         }
                     }
                 }
+            }
+
+            // A21 first-tutorial order is SELECT_DUNGEON -> CHANGE_TUTORIAL_FLAG
+            // -> CMD 15/NOTI 27/DUNGEON_INFO/START_MAP -> CHANGE flag ACK.
+            // Complete the pending projection before writing the flag ACK so the
+            // client sees the same order as the capture.
+            if (flagIndex == 30
+                && tutorialRun != null
+                && session.Player.IsCurrentDungeonRun(tutorialRunIdentity))
+            {
+                await _entry.CompletePendingTutorialEntryAsync(session);
+                if (!session.Player.IsCurrentDungeonRun(tutorialRunIdentity))
+                    return;
             }
 
             // ACK: resultCode=1 + u8 count + count x { u16 slot, u32 itemId, u32 count }
@@ -242,11 +291,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 new byte[] { 0x00 }));
             if (run != null && !DungeonRunLifecycle.CanProjectTownState(session, runIdentity))
                 return;
-            await _svc.ProgressNotifications.SendUserInfoSubtype0Broadcast(session);
-            if (run != null && !DungeonRunLifecycle.CanProjectTownState(session, runIdentity))
-                return;
 
-            FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] ReturnToVillage: town state + subtype0 sent");
+            FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] ReturnToVillage: A21 town response sequence sent");
         }
 
         private bool TryGrantTutorialReward(

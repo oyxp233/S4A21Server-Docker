@@ -298,6 +298,7 @@ namespace DfoServer.Network
         private void RegisterLoginHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
         {
             d[0x0001] = _loginHandler.Handle_ENUM_CMDPACKET_LOGIN;
+            d[0x04DD] = _loginHandler.Handle_ENUM_CMDPACKET_CHECK_USER_CONNECTION;
         }
 
         private void RegisterCharacterHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
@@ -377,6 +378,19 @@ namespace DfoServer.Network
             var current = session?.Player?.ReportedUdpEndpoint;
             if (current != null && !ReferenceEquals(previous, current))
                 await _pvpRoomHandler.HandleReportedUdpEndpointChanged(session);
+        }
+
+        // A21 sends SECURITY_STATUS during dungeon loading. The response is
+        // a fixed six-byte zero body; it does not alter gameplay state.
+        private Task HandleSecurityStatus(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            byte[] body)
+        {
+            return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                (ushort)CmdPacketType.SECURITY_STATUS,
+                new byte[6]));
         }
 
         private void RegisterInventoryHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
@@ -672,6 +686,8 @@ namespace DfoServer.Network
             d[0x002A] = (s, h, b) => HandleRaidAwareDungeonExit(s, h, b, _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME, "giveup");
             d[0x0084] = (s, h, b) => HandleRaidAwareDungeonExit(s, h, b, _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME, "back-to-village");
             d[0x00ED] = _townHandler.Handle_ENUM_CMDPACKET_TELEPORT;
+            d[(ushort)CmdPacketTypeA21.GET_PCROOM_TIME_POINT_ITEM] =
+                _townHandler.Handle_ENUM_CMDPACKET_GET_PCROOM_TIME_POINT_ITEM;
             d[(ushort)CmdPacketType.PARTY_TELEPORT] =
                 _townHandler.Handle_ENUM_CMDPACKET_PARTY_TELEPORT;
         }
@@ -857,6 +873,7 @@ namespace DfoServer.Network
                 _pvpRoomHandler.HandleConnectP2pPvp;
             d[PvpRoomHandler.PvpRequestFightCommandType] =
                 _pvpRoomHandler.HandlePvpRequestFight;
+            d[(ushort)CmdPacketType.SECURITY_STATUS] = HandleSecurityStatus;
         }
 
         private void RegisterExpertJobHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)

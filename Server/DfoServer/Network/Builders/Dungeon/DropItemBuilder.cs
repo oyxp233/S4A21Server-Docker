@@ -1,7 +1,16 @@
+using System;
+
 namespace DfoServer.Network.Builders
 {
     public static class DropItemBuilder
     {
+        // A21 GET_ITEM 的金币通知固定为 117B；模板来自当前 A21 教程抓包。
+        // 运行时只覆盖场景槽、拾取者和金币数量，其他字段保持客户端期望的布局。
+        private static readonly byte[] A21PickupGoldTemplate = Hex(
+            "660039040001080000000100000000000000000100000000010000000000000000" +
+            "010000000001000000000000000001000000000100000000000000000100000000" +
+            "010000000000000000010000000001000000000000000001000000000100000000" +
+            "000000000100000000010000000000000000");
         
         
         public static byte[] BuildDrop(
@@ -74,6 +83,11 @@ namespace DfoServer.Network.Builders
             return w.ToArray();
         }
 
+        public static byte[] BuildGetItemSuccessAck()
+        {
+            return new byte[] { 0x01 };
+        }
+
         public static byte[] BuildPickupItem(ushort srcSlot, ushort pickerActorId, ushort dstInvSlot, byte moveFlag)
         {
             var w = new GamePacketWriter();
@@ -81,12 +95,13 @@ namespace DfoServer.Network.Builders
             w.WriteUInt16(srcSlot);
             w.WriteUInt16(pickerActorId);
 
-            for (int i = 0; i < 8; i++)
-                w.WriteByte(0);
-
-            w.WriteUInt16(pickerActorId);  
+            // A21: flag + two dwords + picker + destination slot + reserved byte.
+            w.WriteByte(1);
+            w.WriteInt32(0);
+            w.WriteInt32(0);
+            w.WriteUInt16(pickerActorId);
             w.WriteUInt16(dstInvSlot);
-            w.WriteByte(moveFlag);
+            w.WriteByte(0);
 
             return w.ToArray();
         }
@@ -96,25 +111,33 @@ namespace DfoServer.Network.Builders
         
         public static byte[] BuildPickupGold(ushort srcSlot, ushort pickerActorId, int goldAmount, int extraGold = 0)
         {
-            var w = new GamePacketWriter();
+            var body = (byte[])A21PickupGoldTemplate.Clone();
+            WriteUInt16(body, 0, srcSlot);
+            WriteUInt16(body, 2, pickerActorId);
+            WriteInt32(body, 6, goldAmount > 0 ? goldAmount : 1);
+            return body;
+        }
 
-            w.WriteUInt16(srcSlot);            
-            w.WriteUInt16(pickerActorId);      
+        private static void WriteUInt16(byte[] destination, int offset, ushort value)
+        {
+            destination[offset] = (byte)value;
+            destination[offset + 1] = (byte)(value >> 8);
+        }
 
-            // Valid gold slots carry the pickup effect flag and extra/tax gold fields.
-            w.WriteByte(1);                    
-            w.WriteUInt32((uint)goldAmount);   
-            w.WriteByte(1);
-            w.WriteUInt32((uint)extraGold);
-            w.WriteUInt32(0);
+        private static void WriteInt32(byte[] destination, int offset, int value)
+        {
+            destination[offset] = (byte)value;
+            destination[offset + 1] = (byte)(value >> 8);
+            destination[offset + 2] = (byte)(value >> 16);
+            destination[offset + 3] = (byte)(value >> 24);
+        }
 
-            for (int i = 1; i < 8; i++)
-            {
-                w.WriteByte(0);                
-                w.WriteUInt32(0);              
-            }
-
-            return w.ToArray();
+        private static byte[] Hex(string hex)
+        {
+            var bytes = new byte[hex.Length / 2];
+            for (var index = 0; index < bytes.Length; index++)
+                bytes[index] = Convert.ToByte(hex.Substring(index * 2, 2), 16);
+            return bytes;
         }
     }
 }

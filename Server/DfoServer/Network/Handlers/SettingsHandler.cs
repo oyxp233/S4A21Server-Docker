@@ -81,6 +81,7 @@ namespace DfoServer.Network.Handlers
             }
 
             FileLogger.Log($"[GameProtocol] SAVE_GAME_OPTION_1: character={characterId} account={accountId} len={len} visibilityChanged={visibilityChanged}");
+            await LoginHandler.TryCompletePendingLoginSuccessAsync(session);
         }
 
         public void Handle_SAVE_GAME_OPTION_2(EnhancedClientSession session, GamePacketHeader header, byte[] body)

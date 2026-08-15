@@ -16,7 +16,7 @@ namespace DfoServer.Game.Appearance
 {
     public static class AppearanceService
     {
-        private const byte TitleAppearanceSlot = 12;
+        private const byte TitleAppearanceSlot = (byte)EquipmentType.TitleName;
 
         public static byte[] UpdateAndBroadcast(
             PlayerContext player,
@@ -134,16 +134,53 @@ namespace DfoServer.Game.Appearance
                 lock (lease.SyncRoot)
                     entries = projectionBuilder.BuildAppearanceEntries(lease.Inventory);
 
-                return ApplyKnightShieldAppearance(
+                var projected = ApplyKnightShieldAppearance(
                     entries,
                     characterId,
                     job,
                     growType,
                     knightShieldDeck,
                     database ?? lease.Inventory.Database);
+                if (projected.Length > 0)
+                    return projected;
+
+                return LoadCharacterAppearanceFromDb(
+                    new CharacterRecord
+                    {
+                        CharacterId = characterId,
+                        Job = job,
+                        GrowType = (byte)growType,
+                    },
+                    database ?? GameDatabase.CreateDefault());
             }
 
-            return Array.Empty<CharacterAppearanceEntry>();
+            return LoadCharacterAppearanceFromDb(
+                new CharacterRecord
+                {
+                    CharacterId = characterId,
+                    Job = job,
+                    GrowType = (byte)growType,
+                },
+                database ?? GameDatabase.CreateDefault());
+        }
+
+        internal static CharacterAppearanceEntry[] DropStaleFashionFromAppearanceBlob(
+            CharacterAppearanceEntry[] blob)
+        {
+            if (blob == null || blob.Length == 0)
+                return Array.Empty<CharacterAppearanceEntry>();
+
+            var result = new List<CharacterAppearanceEntry>(blob.Length);
+            foreach (var entry in blob)
+            {
+                if (entry == null || entry.DisplayItemId <= 0)
+                    continue;
+                if (entry.Slot <= (byte)EquipmentType.AuroraIllusionAvatar)
+                    continue;
+                result.Add(entry);
+            }
+
+            return result.ToArray();
         }
 
         public static CharacterAppearanceEntry[] LoadCharacterAppearanceFromDb(

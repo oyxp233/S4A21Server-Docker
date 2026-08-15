@@ -33,10 +33,14 @@ namespace DfoServer.Network.Builders
                     body = null; return false;
                 }
                 var w = new GamePacketWriter();
-                w.WriteByte(1); w.WriteUInt16(1);
-                w.WriteUInt16((ushort)c.CharacterId);
+                WriteA21Subtype1Prefix(
+                    w,
+                    (ushort)c.CharacterId,
+                    addition.ManageLevel);
                 w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
-                    addition, snapshot.InitializationSnapshot.SkillInfo));
+                    addition,
+                    snapshot.InitializationSnapshot.SkillInfo,
+                    c.Appearance));
                 body = w.ToArray(); return true;
             }
 
@@ -50,6 +54,19 @@ namespace DfoServer.Network.Builders
             DfoServer.FileLogger.Log($"[UserInfoBodyBuilder] ERROR: 不支持的 occurrence {occurrenceIndex} — init 流只有 occ0/1/2。");
             body = null;
             return false;
+        }
+
+        internal static void WriteA21Subtype1Prefix(
+            GamePacketWriter writer,
+            ushort characterId,
+            byte manageLevel)
+        {
+            writer.WriteByte(1);
+            writer.WriteUInt16(1);
+            var prefix = new byte[15];
+            prefix[6] = manageLevel;
+            writer.WriteBytes(prefix);
+            writer.WriteUInt16(characterId);
         }
     }
 }

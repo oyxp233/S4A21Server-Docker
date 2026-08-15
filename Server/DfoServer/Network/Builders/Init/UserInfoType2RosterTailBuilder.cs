@@ -29,5 +29,30 @@ namespace DfoServer.Network.Builders
             writer.WriteByte(0x00); // tail_flag30
             writer.WriteByte(0x00); // tail_flag31
         }
+
+        public static void WriteA21(GamePacketWriter writer, uint cloneTitleItemId)
+        {
+            writer.WriteUInt32(cloneTitleItemId);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteUInt32(0);
+            writer.WriteUInt32(0);
+            writer.WriteByte(0x00);
+            writer.WriteUInt32(0);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0xFF);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteByte(0x00);
+            writer.WriteUInt32(0);
+        }
     }
 }

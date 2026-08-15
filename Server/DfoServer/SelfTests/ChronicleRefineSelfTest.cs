@@ -149,8 +149,8 @@ namespace DfoServer.SelfTests
                 && migrated[0].EquipmentType == (byte)EquipmentType.Coat
                 && migrated[0].OptionNo == 6,
                 "legacy skill-id chronicle entry migrates to aura-id protocol", ref failures);
-            Check(Hex(migratedMiddle) == "01-E8-04-00-00-00-00-00-00-00-00-03-00-0D-00-06-00",
-                "captured coat refine entry matches legacy packet layout", ref failures);
+            Check(Hex(migratedMiddle) == "01-E8-04-00-00-00-00-00-00-00-00-03-00-0E-00-06-00",
+                "coat refine entry uses the A21 equipment-type layout", ref failures);
 
             var unknownOptions = ChronicleRefineService.NormalizeOptions(new[]
             {

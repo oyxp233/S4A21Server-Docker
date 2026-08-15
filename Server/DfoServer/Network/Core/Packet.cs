@@ -71,6 +71,7 @@ namespace DfoServer.Network
         public uint length;        
         public uint checksum;      
         public ushort seq;         
+        public byte extra;
 
         byte[] IPacketHeader.GetBytes()
         {
@@ -103,6 +104,7 @@ namespace DfoServer.Network
                 length = reader.ReadUInt32();
                 checksum = reader.ReadUInt32();
                 seq = reader.ReadUInt16();
+                extra = reader.ReadByte();
             }
         }
     }

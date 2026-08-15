@@ -546,15 +546,50 @@ namespace DfoServer.SelfTests
                     && unknown.BonusRate == 0.0,
                 ref failures);
 
-            var actualSky = ChannelExperienceDefinitionCatalog.Resolve(11, 156);
-            var actualShark = ChannelExperienceDefinitionCatalog.Resolve(11, 161);
-            var actualSainthorn = ChannelExperienceDefinitionCatalog.Resolve(100, 200);
+            var a21Inline = ChannelExperienceDefinitionCatalog.ResolveForTest(
+                @"
+[dungeon]
+`[elven_guard]` `Elven Guard` 1 2
+[/dungeon]
+[dungeon]
+`[granfloris]` `Granfloris` 3 4 5 6 7 8 9 1000
+[/dungeon]
+[server]
+1 1 `Lorraine` 2 `[elven_guard]` 10 0 0 0 0 0 0 0 0 0 0 11 `Granfloris` 0 `[granfloris]` 5 0 0 0 0 0 0 0 0 0 0 0
+[/server]
+[server]
+2 11 `Other` 0 `[granfloris]` 99 0 0 0 0 0 0 0 0 0 0
+[/server]",
+                channelId: 11,
+                dungeonId: 3);
+            var a21Lorraine = ChannelExperienceDefinitionCatalog.ResolveForTest(
+                @"
+[dungeon]
+`[elven_guard]` `Elven Guard` 1 2
+[/dungeon]
+[server]
+1 1 `Lorraine` 2 `[elven_guard]` 10 0 0 0 0 0 0 0 0 0 0
+[/server]",
+                channelId: 1,
+                dungeonId: 1);
             Check(
-                "authoritative channel_info.etc matches CH.11/CH.100 boundaries",
+                "A21 inline group 1 keeps CH.11 5% and ignores later groups",
+                a21Inline.BonusRate == 0.05
+                    && a21Inline.ChannelType == 0
+                    && a21Lorraine.BonusRate == 0.10
+                    && a21Lorraine.ChannelType == 2,
+                ref failures);
+
+            var actualGran = ChannelExperienceDefinitionCatalog.Resolve(11, 3);
+            var actualA12Dungeon = ChannelExperienceDefinitionCatalog.Resolve(11, 156);
+            var actualMissing100 = ChannelExperienceDefinitionCatalog.Resolve(100, 200);
+            Check(
+                "A21 PVF group 1 CH.11 is granfloris 5%, not A12 sky/CH.100",
                 ChannelExperienceDefinitionCatalog.ConfiguredChannelCountForTest() >= 2
-                    && actualSky.BonusRate == 0.05
-                    && actualShark.BonusRate == 0.0
-                    && actualSainthorn.BonusRate == 0.05,
+                    && actualGran.BonusRate == 0.05
+                    && actualGran.ChannelType == 0
+                    && actualA12Dungeon.BonusRate == 0.0
+                    && actualMissing100.BonusRate == 0.0,
                 ref failures);
         }
 
@@ -661,9 +696,9 @@ namespace DfoServer.SelfTests
                 honorLevel: new HonorLevelSummary(),
                 channelBonusExp: 73);
             Check(
-                "0x0025 projects channel kill bonus at +0x4F",
+                "A21 0x0025 projects channel kill bonus at +0x4B",
                 body.Length == ExpNotificationBuilder.BodyLength
-                    && BitConverter.ToUInt32(body, 0x4F) == 73,
+                    && BitConverter.ToUInt32(body, ExpNotificationBuilder.ChannelBonusExpOffset) == 73,
                 ref failures);
         }
 

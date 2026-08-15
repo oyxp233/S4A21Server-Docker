@@ -499,7 +499,10 @@ namespace DfoServer.Network.Handlers.Dungeon
                         run,
                         maze.X,
                         maze.Y);
-                var hellPartyMapMode = run.HellMode ? run.HellPartyMode : (byte)0;
+                // A21 START_MAP offset 7 is the standard-dungeon mode marker.
+                // Normal rooms use 2 even when abyss mode is disabled; zero is
+                // not the A21 standard value and moves the minimap projection.
+                var hellPartyMapMode = run.HellMode ? run.HellPartyMode : (byte)2;
                 var startMapFogFlag = run.HellMode ? (byte)1 : (byte)0;
 
                 startMapBody = Array.Empty<byte>();

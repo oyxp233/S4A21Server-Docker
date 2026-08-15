@@ -20,7 +20,7 @@ namespace DfoServer.Network
                 Directory.CreateDirectory(dir);
             _logPath = Path.Combine(dir, "packet_log.txt");
             File.WriteAllText(_logPath, $"=== DfoServer packet capture started {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\r\n");
-            File.AppendAllText(_logPath, $"=== SEND=15B header, RECV=13B header. Body offset differs accordingly. ===\r\n\r\n");
+            File.AppendAllText(_logPath, $"=== A21 SEND=15B header, RECV=14B header. Body offset differs by direction. ===\r\n\r\n");
         }
 
         public static void Log(string direction, byte[] data)
@@ -31,8 +31,8 @@ namespace DfoServer.Network
             var cmd = data[0];
             var type = (ushort)(data[1] | (data[2] << 8));
 
-            // SEND uses 15-byte envelope, RECV uses 13-byte header
-            int hdrSize = direction == "SEND" ? 15 : 13;
+            // Server SEND is client inbound (15B); client RECV is server inbound (14B).
+            int hdrSize = direction == "SEND" ? 15 : 14;
             int bodyLen = data.Length - hdrSize;
             if (bodyLen < 0) bodyLen = 0;
 

@@ -1,3 +1,4 @@
+using DfoServer.Game.ItemUpgrade;
 using DfoServer.GameWorld;
 using System;
 using System.Collections.Generic;
@@ -16,13 +17,30 @@ namespace DfoServer.Game.SelectCharacter
             = new Dictionary<byte, (short slot, int itemId)[]>();
         private static readonly object _lock = new object();
 
+        // A21 inserts the aurora-illusion appearance slot before weapon. Keep
+        // the PVF token mapping anchored to EquipmentType instead of A12's
+        // hard-coded slot numbers.
         private static readonly Dictionary<string, short> SlotMap = new Dictionary<string, short>(StringComparer.OrdinalIgnoreCase)
         {
-            { "[weapon]", 11 }, { "[coat]", 13 }, { "[pants]", 15 },
-            { "[shoulder]", 14 }, { "[shoes]", 16 }, { "[waist]", 17 },
-            { "[amulet]", 18 }, { "[wrist]", 19 }, { "[ring]", 20 },
-            { "[support]", 21 }, { "[magic stone]", 22 }, { "[earring]", 23 },
+            { "[weapon]", (short)EquipmentType.Weapon },
+            { "[coat]", (short)EquipmentType.Coat },
+            { "[pants]", (short)EquipmentType.Pants },
+            { "[shoulder]", (short)EquipmentType.Shoulder },
+            { "[shoes]", (short)EquipmentType.Shoes },
+            { "[waist]", (short)EquipmentType.Waist },
+            { "[amulet]", (short)EquipmentType.Amulet },
+            { "[wrist]", (short)EquipmentType.Wrist },
+            { "[ring]", (short)EquipmentType.Ring },
+            { "[support]", (short)EquipmentType.Support },
+            { "[magic stone]", (short)EquipmentType.MagicStone },
+            { "[earring]", (short)EquipmentType.SupportWeapon },
+            { "[support weapon]", (short)EquipmentType.SupportWeapon },
         };
+
+        internal static bool TryGetSlotForPvfToken(string token, out short slot)
+        {
+            return SlotMap.TryGetValue(token ?? string.Empty, out slot);
+        }
 
         public static (short slot, int itemId)[] Get(byte job)
         {
@@ -57,7 +75,7 @@ namespace DfoServer.Game.SelectCharacter
                 foreach (Match m in matches)
                 {
                     string slotName = "[" + m.Groups[1].Value.Trim() + "]";
-                    if (SlotMap.TryGetValue(slotName, out short slot) && int.TryParse(m.Groups[2].Value, out int itemId))
+                    if (TryGetSlotForPvfToken(slotName, out short slot) && int.TryParse(m.Groups[2].Value, out int itemId))
                         items.Add((slot, itemId));
                 }
                 return items.Count > 0 ? items.ToArray() : null;

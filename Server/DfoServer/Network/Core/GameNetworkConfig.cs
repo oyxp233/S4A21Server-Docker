@@ -28,10 +28,17 @@ namespace DfoServer.Network
         public const int InitialUdpPort2 = 12312;
         public const int LoginChannelPort = 10128;
         public const int LoginUnknownPort = 17200;
-        public const int CommandPacketCount = 1086;
-        public const int NotificationPacketCount = 1036;
+        public const int CommandPacketCount = 1246;
+        public const int NotificationPacketCount = 1246;
 
         public static string ServerIp { get; private set; } = "127.0.0.1";
+        public static string AdvertisedGameIp =>
+            string.Equals(
+                ServerIp,
+                "127.0.0.1",
+                StringComparison.OrdinalIgnoreCase)
+                ? "127.0.0.2"
+                : ServerIp;
         public static bool PacketCaptureEnabled { get; private set; }
         public static string PacketCaptureDir { get; private set; }
         public static bool ProxyMode { get; private set; }

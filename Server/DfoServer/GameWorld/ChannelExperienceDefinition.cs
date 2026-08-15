@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 
 namespace DfoServer.GameWorld
 {
@@ -116,11 +117,10 @@ namespace DfoServer.GameWorld
         {
             try
             {
-                var path = ServerPaths.ChannelInfoFilePath;
-                var text = File.ReadAllText(path);
+                var text = PvfArchiveAccessor.ReadChannelInfoEtc();
                 var catalog = Parse(text);
                 FileLogger.Log(
-                    $"[ChannelExperienceDefinition] loaded path={path} "
+                    $"[ChannelExperienceDefinition] loaded path=pvf:channel_info.etc "
                     + $"channels={catalog.Definitions.Count} "
                     + $"dungeonGroups={catalog.DungeonGroups.Count}");
                 return catalog;
@@ -128,8 +128,7 @@ namespace DfoServer.GameWorld
             catch (Exception ex)
             {
                 FileLogger.Log(
-                    $"[ChannelExperienceDefinition] failed to load "
-                    + $"{ServerPaths.ChannelInfoFilePath}: {ex.Message}");
+                    $"[ChannelExperienceDefinition] failed to load pvf:channel_info.etc: {ex.Message}");
                 return new ChannelExperienceCatalog();
             }
         }
@@ -143,6 +142,18 @@ namespace DfoServer.GameWorld
 
             foreach (var server in root.GetChildren("server"))
             {
+                var line = string.Join(
+                    " ",
+                    server.DataItems
+                        .Select(item => item.GetContent(text).Trim())
+                        .Where(part => !string.IsNullOrWhiteSpace(part)));
+                var tokens = ScriptValueTokenizer.Tokenize(line);
+                if (LooksLikeA21ServerBlock(tokens))
+                {
+                    ParseA21ServerBlock(tokens, catalog);
+                    continue;
+                }
+
                 foreach (var item in server.DataItems)
                     ParseServerEntry(item.GetContent(text), catalog);
             }
@@ -188,6 +199,111 @@ namespace DfoServer.GameWorld
 
             if (!string.IsNullOrEmpty(classification))
                 catalog.AddDungeonGroup(classification, dungeonIds);
+        }
+
+        // A21 [server] rows contain one group id followed by repeated
+        // channel id/name/type/classification/rate records. ASK and GET_SCRIPT
+        // publish group 1, so the experience whitelist follows that group.
+        private static bool LooksLikeA21ServerBlock(IReadOnlyList<string> tokens)
+        {
+            return tokens != null
+                   && tokens.Count >= 5
+                   && TryParseInt(tokens[0], out var group)
+                   && group > 0
+                   && TryParseInt(tokens[1], out var channelId)
+                   && channelId > 0
+                   && !TryParseInt(tokens[2], out _)
+                   && TryParseInt(tokens[3], out var channelType)
+                   && channelType >= 0;
+        }
+
+        private static void ParseA21ServerBlock(
+            IReadOnlyList<string> tokens,
+            ChannelExperienceCatalog catalog)
+        {
+            if (!TryParseInt(tokens[0], out var group) || group != 1)
+                return;
+
+            var i = 1;
+            while (i + 3 < tokens.Count)
+            {
+                if (!LooksLikeA21ChannelStart(tokens, i)
+                    || !TryParseInt(tokens[i], out var channelId)
+                    || channelId <= 0)
+                {
+                    break;
+                }
+
+                if (!TryParseInt(tokens[i + 2], out var channelType)
+                    || channelType < 0)
+                {
+                    catalog.InvalidateChannel(channelId);
+                    break;
+                }
+
+                var classification = NormalizeClassification(tokens[i + 3]);
+                i += 4;
+                var nums = new List<string>();
+                while (i < tokens.Count
+                       && IsScriptNumber(tokens[i])
+                       && !LooksLikeA21ChannelStart(tokens, i))
+                {
+                    nums.Add(tokens[i]);
+                    i++;
+                }
+
+                if (nums.Count == 0
+                    || !int.TryParse(
+                        nums[0],
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out var percentage)
+                    || percentage < 0
+                    || percentage > 100)
+                {
+                    catalog.InvalidateChannel(channelId);
+                    continue;
+                }
+
+                catalog.AddDefinition(new ChannelExperienceDefinition(
+                    channelId,
+                    channelType,
+                    classification,
+                    percentage / 100.0,
+                    catalog.DungeonGroups.TryGetValue(
+                        classification,
+                        out var dungeonIds)
+                        ? dungeonIds
+                        : Array.Empty<int>()));
+            }
+        }
+
+        private static bool LooksLikeA21ChannelStart(
+            IReadOnlyList<string> tokens,
+            int i)
+        {
+            return i + 3 < tokens.Count
+                   && TryParseInt(tokens[i], out _)
+                   && !IsScriptNumber(tokens[i + 1])
+                   && TryParseInt(tokens[i + 2], out _);
+        }
+
+        private static bool TryParseInt(string token, out int value)
+        {
+            return int.TryParse(
+                token,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out value);
+        }
+
+        private static bool IsScriptNumber(string token)
+        {
+            return double.TryParse(
+                token,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out _);
         }
 
         private static void ParseServerEntry(

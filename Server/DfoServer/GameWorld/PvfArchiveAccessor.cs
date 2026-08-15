@@ -20,6 +20,29 @@ namespace DfoServer.GameWorld
             return content;
         }
 
+        public static string ReadChannelInfoEtc()
+        {
+            foreach (var relativePath in new[]
+            {
+                "etc/channel_info.etc",
+                "Etc/channel_info.etc"
+            })
+            {
+                var content = Archive.Value.GetFileContent(
+                    NormalizeRelativePath(relativePath));
+                if (!string.IsNullOrEmpty(content))
+                    return content;
+            }
+
+            var hits = FindPathsContaining("channel_info");
+            if (hits.Count == 1)
+                return ReadText(hits[0]);
+
+            throw new FileNotFoundException(
+                "PVF 中未找到 channel_info.etc。hits=" +
+                string.Join(",", hits));
+        }
+
         public static IReadOnlyList<string> ReadAllText(string relativePath)
         {
             var normalizedPath = NormalizeRelativePath(relativePath);

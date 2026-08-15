@@ -1080,7 +1080,7 @@ namespace DfoServer.Game.Inventory
         {
             var equipmentType = EquipmentTypeInfo.ParseOrUnknown(metadata?.EquipmentType);
             if (equipmentType >= EquipmentType.HatAvatar
-                && equipmentType <= EquipmentType.WeaponAvatar)
+                && equipmentType <= EquipmentType.AuroraIllusionAvatar)
             {
                 return true;
             }

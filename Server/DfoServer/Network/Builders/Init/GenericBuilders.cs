@@ -38,10 +38,31 @@ namespace DfoServer.Network.Builders
         }
     }
 
+    // A21 USERINFO1 后必须发送：count=1 + cid + town state=0。
+    public sealed class UserStateInitBodyBuilder : IInitPacketBuilder
+    {
+        public ushort NotiType => 0x0003;
 
+        public bool TryBuild(
+            SelectCharacterDataSnapshot snapshot,
+            int occurrenceIndex,
+            out byte[] body)
+        {
+            var character = snapshot.CharacterRecord;
+            if (character == null)
+            {
+                body = null;
+                return false;
+            }
 
-
-
+            var writer = new GamePacketWriter();
+            writer.WriteByte(1);
+            writer.WriteUInt16((ushort)character.CharacterId);
+            writer.WriteByte(0);
+            body = writer.ToArray();
+            return true;
+        }
+    }
     // NOTI 273 (0x0111) 联合服好友信息。客户端有注册 handler(0x00D0DBB0)，
     // 8 字节零是新角色一直在用的空态基线；跨服好友数据对单机服务端无意义，统一发空态。
     public sealed class UnitedServerFriendInfoBodyBuilder : IInitPacketBuilder
@@ -75,6 +96,35 @@ namespace DfoServer.Network.Builders
             w.WriteByte(c.Direction);
             w.WriteUInt16(100);
             body = w.ToArray();
+            return true;
+        }
+    }
+
+    // A21 0245 后必须存在 0465。已有号的完整表尚待实机确认，当前按参考实现发送空态 5B。
+    public sealed class A21UsableCount0465BodyBuilder : IInitPacketBuilder
+    {
+        public ushort NotiType => 0x0465;
+
+        public bool TryBuild(
+            SelectCharacterDataSnapshot snapshot,
+            int occurrenceIndex,
+            out byte[] body)
+        {
+            body = new byte[5];
+            return true;
+        }
+    }
+
+    public sealed class A21UsableCount021EBodyBuilder : IInitPacketBuilder
+    {
+        public ushort NotiType => 0x021E;
+
+        public bool TryBuild(
+            SelectCharacterDataSnapshot snapshot,
+            int occurrenceIndex,
+            out byte[] body)
+        {
+            body = new byte[] { 0 };
             return true;
         }
     }

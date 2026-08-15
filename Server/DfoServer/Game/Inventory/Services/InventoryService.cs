@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DfoServer.Game.Currency;
+using DfoServer.Game.ItemUpgrade;
 using DfoServer.Game.ReviveCoin;
 using DfoServer.Game.TitleBook;
 using DfoServer.Infrastructure;
@@ -34,7 +35,7 @@ namespace DfoServer.Game.Inventory
         public const int MainSlotCount = MainSlotEnd + 1;
 
         public const short BodySlotStart = 0;
-        public const short BodySlotEnd = 29;
+        public const short BodySlotEnd = (short)EquipmentType.Charm;
         public const int BodySlotCount = BodySlotEnd - BodySlotStart + 1;
 
         public const short AvatarSlotStart = 0;
@@ -673,6 +674,9 @@ namespace DfoServer.Game.Inventory
 
         private static bool TryGetArrayIndex(InventoryListType listType, short slotIndex, int slotCount, out int index)
         {
+            if (listType == InventoryListType.Equipment)
+                slotIndex = (short)EquipmentTypeInfo.ToA21AppearanceSlot(slotIndex);
+
             index = slotIndex;
             if (index < 0 || index >= slotCount)
                 return false;

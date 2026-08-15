@@ -38,16 +38,19 @@ namespace DfoServer.Game.Dungeon
         internal DungeonSelectionContext(
             long selectionId,
             long runGeneration,
-            DungeonTownReturnAnchor returnAnchor)
+            DungeonTownReturnAnchor returnAnchor,
+            bool isA21TutorialEntry)
         {
             SelectionId = selectionId;
             RunGeneration = runGeneration;
             ReturnAnchor = returnAnchor;
+            IsA21TutorialEntry = isA21TutorialEntry;
         }
 
         internal long SelectionId { get; }
         internal long RunGeneration { get; }
         internal DungeonTownReturnAnchor ReturnAnchor { get; }
+        internal bool IsA21TutorialEntry { get; }
         internal bool IsReturning => Volatile.Read(ref _returnState) == 1;
 
         internal bool TryBeginReturn() =>

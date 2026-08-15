@@ -99,6 +99,7 @@ namespace DfoServer.Game.SelectCharacter
 
         
         public byte ManageLevel { get; set; }
+        public int ManagePoint { get; set; }
         // Historical field name was "AbuseValues". On the client this slot is
         // a u32 count followed by quest ids used to rebuild QST effects.
         public List<uint> SpecialRewardQuestIds { get; } = new List<uint>();

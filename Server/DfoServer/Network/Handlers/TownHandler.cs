@@ -166,22 +166,59 @@ namespace DfoServer.Network.Handlers
 
         public async Task Handle_ENUM_CMDPACKET_SET_USER_POSITION(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
-            if (body == null || body.Length < 4) return;
+            if (body == null || body.Length < 7) return;
             var gotoPosX = BitConverter.ToInt16(body, 0);
             var gotoPosY = BitConverter.ToInt16(body, 2);
+            var direction = body[4];
+            var motionState = BitConverter.ToUInt16(body, 5);
             session.Player.CurPosX = gotoPosX;
             session.Player.CurPosY = gotoPosY;
+            session.Player.CurDirection = direction;
             PersistPosition(session, forceImmediate: false, source: "set_user_position");
+
+            var snap = TownAreaNotificationBuilder.CreateCurrentSnapshot(session.Player);
+            var positionPacket = GamePacketEnvelopeBuilder.Build(
+                0x00,
+                0x0016,
+                TownAreaNotificationBuilder.BuildUserPosition(snap, motionState));
+
+            // A21 回包会回到发起 SET_USER_POSITION 的客户端本身；单机时
+            // _sessions 没有其它目标，不能只做“给别人广播”。
+            await session.SendPacketAsync(positionPacket);
 
             // 联机同屏: 把移动广播给同区域其它玩家(USER_POSITION 0x0016)。
             if (_sessions != null && session.Player.CharacterId > 0)
             {
-                var snap = TownAreaNotificationBuilder.CreateCurrentSnapshot(session.Player);
                 await _sessions.BroadcastToAreaAsync(
                     session.Player.CurTownId, session.Player.CurAreaId, session.Player.CharacterId,
-                    GamePacketEnvelopeBuilder.Build(0x00, 0x0016, TownAreaNotificationBuilder.BuildUserPosition(snap)));
+                    positionPacket);
             }
         }
+
+        public async Task Handle_ENUM_CMDPACKET_GET_PCROOM_TIME_POINT_ITEM(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            byte[] body)
+        {
+            // A21 capture: request body is 15B and the server returns the same
+            // CMD opcode with a fixed 6B zero body during town-return recovery.
+            if (body == null || body.Length < 15)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] GET_PCROOM_TIME_POINT_ITEM rejected " +
+                    $"bodyLength={body?.Length ?? 0} (expected >=15B)");
+                return;
+            }
+
+            await session.SendPacketAsync(
+                BuildGetPcRoomTimePointItemResponsePacket());
+        }
+
+        internal static byte[] BuildGetPcRoomTimePointItemResponsePacket() =>
+            GamePacketEnvelopeBuilder.Build(
+                0x01,
+                (ushort)CmdPacketTypeA21.GET_PCROOM_TIME_POINT_ITEM,
+                new byte[6]);
 
         public Task Handle_ENUM_CMDPACKET_SET_USER_AREA(
             EnhancedClientSession session,
@@ -234,7 +271,10 @@ namespace DfoServer.Network.Handlers
             session.Player.CurPosX = gotoPosX;
             session.Player.CurPosY = gotoPosY;
             session.Player.CurDirection = 0x05;
-            session.Player.CurAreaState = 0x03;
+            // A21 USER_AREA/AREA_USERS samples use state=0 for town arrival.
+            // The client-provided body has additional fields, but its legacy
+            // state byte is not authoritative for the server projection.
+            session.Player.CurAreaState = 0x00;
 
             var selfSnapshot = TownAreaNotificationBuilder.CreateCurrentSnapshot(session.Player);
 
@@ -399,7 +439,13 @@ namespace DfoServer.Network.Handlers
 
         public async Task Handle_ENUM_CMDPACKET_FINISH_LOADING(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0025, CommonPacketBodyBuilder.BuildSuccessAck()));
+            // A21 dungeon loading has no CMD 37 response; the client consumes
+            // NOTI 30 as the completion notification. Keep the town response
+            // for callers that are not attached to a live DungeonRun.
+            if (session?.Player?.CurrentRun == null)
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0025, CommonPacketBodyBuilder.BuildSuccessAck()));
+            }
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x001E, FinishLoadingBuilder.BuildNotification()));
             await _growthCapsule.SendExpProgressAsync(session, "finish-loading");
         }
@@ -659,7 +705,8 @@ namespace DfoServer.Network.Handlers
                     if (!await ReturnSelectionToTownAsync(
                             session,
                             selection,
-                            selectionGuard))
+                            selectionGuard,
+                            header.type))
                     {
                         selection.CancelReturn();
                         return;
@@ -670,8 +717,6 @@ namespace DfoServer.Network.Handlers
                         selectionGuard);
                     if (!CanContinueTownProjection(session, selectionGuard))
                         return;
-                    await session.SendPacketAsync(
-                        BuildReturnToTownSuccessPacket(header.type));
                     if (CanContinueTownProjection(session, selectionGuard))
                         session.Player.CompleteDungeonSelection(selection);
                     FileLogger.Log(
@@ -689,19 +734,33 @@ namespace DfoServer.Network.Handlers
             }
 
             var sourceRunIdentity = sourceRun.CaptureIdentity();
+            var deferTutorialVillageObjectList = sourceRun.IsA21TutorialEntry;
             var runGuard = TownProjectionGuard.ForEndedRun(sourceRunIdentity);
             if (!await ReturnSelfToTownAsync(
                     session,
                     header,
                     sourceRunIdentity,
-                    sourceRun.TownReturnAnchor))
+                    sourceRun.TownReturnAnchor,
+                    sendCommandResponse: true))
             {
                 return;
             }
-            await SendTownAccountStateAsync(
-                session,
-                "giveup-game",
-                runGuard);
+
+            if (deferTutorialVillageObjectList)
+            {
+                session.A21TutorialReturnNeedsVillageObjectList = true;
+                FileLogger.Log(
+                    $"[{ProtocolName}] A21 tutorial return defers " +
+                    $"VILLAGE_OBJECT_LIST until town STORY_PAUSE cid={session.Player.CharacterId}");
+            }
+            else
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    0x00CA,
+                    new byte[] { 0x00 }));
+            }
+
             // ★跟随退出(item17)只在【通关回城 BACK_2_VILLAGE 0x84】触发: 副本结束队长回城 → 队员跟随。
             //   ⚠️【放弃 GIVEUP_GAME 0x2A = 未完成中途退出】绝不 fan-out:
             //     放弃者独自回城、【留队】; 其余队员【继续留在副本、留队】(真机确认的正确语义)。
@@ -714,10 +773,10 @@ namespace DfoServer.Network.Handlers
             else
                 FileLogger.Log($"[{ProtocolName}] GIVEUP_GAME(type=0x{header.type:X2}): 未完成放弃退出, cid={session.Player?.CharacterId} 独自回城留队, 不拉队员(其余留本)");
 
-            if (!CanContinueTownProjection(session, runGuard))
-                return;
-            await session.SendPacketAsync(
-                BuildReturnToTownSuccessPacket(header.type));
+            // A21 CMD 成功响应已在 USER_STATE 之前发送；回城尾部不再追加
+            // 第二个 ACK 或 subtype0。客户端随后继续发送教程
+            // SYNC_ITEM_SPACE、STORY_PAUSE、GET_PCROOM_TIME_POINT_ITEM
+            // 和 SET_USER_POSITION。
         }
 
         // 把【单个会话】自己拉回城镇(EndRun + 城镇区域同步)。队长/队员复用同一序列。
@@ -725,7 +784,8 @@ namespace DfoServer.Network.Handlers
             EnhancedClientSession session,
             GamePacketHeader header,
             DfoServer.Game.Dungeon.DungeonRunIdentity runIdentity,
-            DungeonTownReturnAnchor returnAnchor)
+            DungeonTownReturnAnchor returnAnchor,
+            bool sendCommandResponse)
         {
             if (!await Dungeon.DungeonRunLifecycle.EndRunAsync(
                     session,
@@ -745,6 +805,32 @@ namespace DfoServer.Network.Handlers
                 returnAnchor,
                 session.ListenerPort);
             session.Player.UserState = 0x00;
+
+            // A21 客户端抓包中，GIVEUP_GAME/BACK_2_VILLAGE 的 CMD 成功响应
+            // body=[01] 位于 USER_STATE 之前。客户端先用 CMD 响应结束副本
+            // 请求状态，再开始消费城镇 USER_STATE/USER_AREA/AREA_USERS。
+            if (sendCommandResponse)
+            {
+                await session.SendPacketAsync(
+                    BuildReturnToTownSuccessPacket(header.type));
+                if (!CanContinueTownProjection(session, projectionGuard))
+                {
+                    return false;
+                }
+            }
+
+            // A21 回城顺序的第一个城镇投影包是 USER_STATE(0x0003)。
+            // 该包不能只更新 PlayerContext 后省略；客户端会以它确认
+            // 角色已离开副本，再消费 USER_AREA/AREA_USERS 的城镇坐标。
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                (ushort)NotiPacketTypeA21.USER_STATE,
+                EnterSelectDungeonStateBuilder.BuildUserState(session.Player)));
+            if (!CanContinueTownProjection(session, projectionGuard))
+            {
+                return false;
+            }
+
             await SetUserAreaCoreAsync(
                 session,
                 BuildTownAreaProjectionBody(session.Player),
@@ -757,7 +843,8 @@ namespace DfoServer.Network.Handlers
         private async Task<bool> ReturnSelectionToTownAsync(
             EnhancedClientSession session,
             DungeonSelectionContext selection,
-            TownProjectionGuard projectionGuard)
+            TownProjectionGuard projectionGuard,
+            ushort responsePacketType)
         {
             if (!CanContinueTownProjection(session, projectionGuard))
                 return false;
@@ -767,6 +854,23 @@ namespace DfoServer.Network.Handlers
                 selection.ReturnAnchor,
                 session.ListenerPort);
             session.Player.UserState = 0x00;
+
+            await session.SendPacketAsync(
+                BuildReturnToTownSuccessPacket(responsePacketType));
+            if (!CanContinueTownProjection(session, projectionGuard))
+            {
+                return false;
+            }
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                (ushort)NotiPacketTypeA21.USER_STATE,
+                EnterSelectDungeonStateBuilder.BuildUserState(session.Player)));
+            if (!CanContinueTownProjection(session, projectionGuard))
+            {
+                return false;
+            }
+
             await SetUserAreaCoreAsync(
                 session,
                 BuildTownAreaProjectionBody(session.Player),
@@ -832,7 +936,8 @@ namespace DfoServer.Network.Handlers
                             bs,
                             header,
                             memberRunIdentity,
-                            memberRun.TownReturnAnchor))
+                            memberRun.TownReturnAnchor,
+                            sendCommandResponse: false))
                     {
                         continue;
                     }

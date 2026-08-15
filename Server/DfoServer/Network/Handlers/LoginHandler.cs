@@ -45,6 +45,19 @@ namespace DfoServer.Network.Handlers
                     session.ListenerPort)));
         }
 
+        public async Task Handle_ENUM_CMDPACKET_CHECK_USER_CONNECTION(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            byte[] body)
+        {
+            FileLogger.Log(
+                $"[{ProtocolName}] CHECK_USER_CONNECTION handshake body={body?.Length ?? 0}");
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                0x04DD,
+                CommonPacketBodyBuilder.BuildSuccessAck()));
+        }
+
         public async Task Handle_ENUM_CMDPACKET_LOGIN(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
             if (!EnsureListenerAdmission(session, "login"))
@@ -83,16 +96,39 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+            await SendSelectScreenGameOptionAsync(session);
+            session.A21LoginSuccessPending = true;
+            session.A21SelectOptionSaveCount = 0;
+            FileLogger.Log(
+                $"[{ProtocolName}] LOGIN 00AD sent, waiting for 2x 00C5 " +
+                $"account={session.Account?.AccountId}");
+        }
+
+        public static Task SendLoginSuccessAsync(EnhancedClientSession session)
+        {
+            session.A21LoginSuccessPending = false;
+            return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x01,
                 0x0001,
                 LoginPacketBuilder.BuildLoginSuccess(
                     session.ListenerPort)));
-            await SendAccountSettingsOnLoginAsync(session);
-            foreach (var packet in AuctionServiceNotificationBuilder.BuildOpenPackets())
-                await session.SendPacketAsync(packet);
-            await _honorLevel.SendInfoAsync(session, ProtocolName, null);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x01A1, CommonPacketBodyBuilder.BuildZeroBytes(1)));
+        }
+
+        public static async Task TryCompletePendingLoginSuccessAsync(
+            EnhancedClientSession session)
+        {
+            if (session == null || !session.A21LoginSuccessPending)
+                return;
+
+            session.A21SelectOptionSaveCount++;
+            FileLogger.Log(
+                $"[GameProtocol] 00C5 toward login success " +
+                $"count={session.A21SelectOptionSaveCount}/2");
+            if (session.A21SelectOptionSaveCount < 2)
+                return;
+
+            await SendLoginSuccessAsync(session);
+            FileLogger.Log("[GameProtocol] LOGIN success after 2x 00C5");
         }
 
         internal static bool IsListenerAdmissionAllowed(
@@ -130,6 +166,30 @@ namespace DfoServer.Network.Handlers
                 await session.SendPacketAsync(packet);
 
             FileLogger.Log($"[{ProtocolName}] LOGIN account settings sent account={accountId}");
+        }
+
+        private async Task SendSelectScreenGameOptionAsync(
+            EnhancedClientSession session)
+        {
+            var accountId = session.Account?.AccountId ?? 0;
+            if (accountId <= 0)
+                return;
+
+            var settings = _settingsRepository.Load(accountId);
+            var body = AccountSettingsPacketBuilder.BuildSelectScreenGameOption(
+                settings,
+                out var persistedMain);
+            if (persistedMain != null)
+                _settingsRepository.SaveMainOption(accountId, persistedMain);
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                0x00AD,
+                body));
+            FileLogger.Log(
+                $"[{ProtocolName}] LOGIN 00AD select-screen " +
+                $"account={accountId} body={body.Length}B " +
+                $"patchedFullAvatar={persistedMain != null}");
         }
     }
 }

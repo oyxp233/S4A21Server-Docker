@@ -21,6 +21,11 @@ namespace DfoServer.Network.Handlers
 {
     public sealed class CharacterSelectHandler
     {
+        internal const byte A21MaxCreateJob = 13;
+
+        internal static bool IsSupportedA21CreateJob(byte job)
+            => job <= A21MaxCreateJob;
+
         private readonly ISelectCharacterDataSource _selectCharacterDataSource;
         private readonly ICharacterRepository _characterRepository;
         private readonly GetUserInfoTemplate _getUserInfoTemplate;
@@ -744,7 +749,7 @@ namespace DfoServer.Network.Handlers
             }
 
             var job = body[0];
-            if (job > 12)
+            if (!IsSupportedA21CreateJob(job))
             {
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0005, new byte[] { 0x04 }));
                 return;
@@ -790,6 +795,7 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            var newCharId = 0;
             try
             {
                 var record = new CharacterRecord
@@ -807,7 +813,7 @@ namespace DfoServer.Network.Handlers
                     AreaState = 3,
                 };
 
-                var newCharId = _characterRepository.Create(record);
+                newCharId = _characterRepository.Create(record);
                 FileLogger.Log($"[{ProtocolName}] CREATE_CHARACTER: created character_id={newCharId} name='{nameStr}' job={job} for account_id={accountId}");
 
                 _selectCharacterDataSource.InitializeNewCharacter(newCharId, accountId, job);
@@ -822,7 +828,21 @@ namespace DfoServer.Network.Handlers
             }
             catch (Exception ex)
             {
-                FileLogger.Log($"[{ProtocolName}] CREATE_CHARACTER failed: {ex.Message}");
+                FileLogger.Log($"[{ProtocolName}] CREATE_CHARACTER failed: {ex}");
+                if (newCharId > 0)
+                {
+                    try
+                    {
+                        _characterRepository.SoftDelete(newCharId);
+                        FileLogger.Log($"[{ProtocolName}] CREATE_CHARACTER: rolled back character_id={newCharId}");
+                    }
+                    catch (Exception rollbackEx)
+                    {
+                        FileLogger.Log(
+                            $"[{ProtocolName}] CREATE_CHARACTER rollback failed "
+                            + $"character_id={newCharId}: {rollbackEx}");
+                    }
+                }
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0005, new byte[] { 0x04 }));
             }
         }

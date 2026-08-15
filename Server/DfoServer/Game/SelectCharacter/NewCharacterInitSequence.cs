@@ -28,33 +28,38 @@ namespace DfoServer.Game.SelectCharacter
                     Command = 0x00, Type = 0x000D, ItemListType = lt
                 });
 
-            
+            // A21 进号主序列：USERINFO0 -> 基础状态 -> USERINFO1 -> 城镇状态
+            // -> 0005 -> ITEM_LIST -> 0245 -> 0465/021E。
             Raw(0x01, 0x0004);                      
-            Item(InventoryListType.Main);           
-            Item(InventoryListType.Avatar);         
-            Item(InventoryListType.PersonalCargo);  
-            Item(InventoryListType.Pet);            
-            Item(InventoryListType.AccountCargo);   
-            Raw(0x00, 0x0069);                      
-            Raw(0x00, 0x0002, 0);                   
-            Raw(0x00, 0x0002, 1);                   
-            Raw(0x00, 0x0245);
-            Raw(0x00, 0x0013);                      
-            Raw(0x00, 0x0015);                      
-            Raw(0x00, 0x0164);                      
-            Raw(0x00, 0x0286);                      
-            Raw(0x00, 0x00AD);                      
-            Raw(0x00, 0x01C7);                      
-            Raw(0x00, 0x006C);                      
-            Raw(0x00, 0x0005);                      
-            Raw(0x00, 0x0187);                      
-            Raw(0x00, 0x01B9);                      
+            Raw(0x00, 0x0002, 0);
             Raw(0x00, 0x0166, 0);                   
             Raw(0x00, 0x0166, 1);                   
             Raw(0x00, 0x0166, 2);                   
             Raw(0x00, 0x0166, 3);                   
             Raw(0x00, 0x0166, 4);                   
-            Raw(0x00, 0x0167);                      
+            Raw(0x00, 0x0167);
+            Raw(0x00, 0x0015);
+            Raw(0x00, 0x0164);
+            Raw(0x00, 0x0013);
+            Raw(0x00, 0x0069);
+            Raw(0x00, 0x0002, 1);
+            Raw(0x00, 0x0003);
+            Raw(0x00, 0x00CA);
+            Raw(0x00, 0x0005);
+            Item(InventoryListType.Main);
+            Item(InventoryListType.Avatar);
+            Item(InventoryListType.PersonalCargo);
+            Item(InventoryListType.Pet);
+            Item(InventoryListType.AccountCargo);
+            Raw(0x00, 0x0245);
+            Raw(0x00, 0x0465);
+            Raw(0x00, 0x021E);
+            Raw(0x00, 0x0286);
+            Raw(0x00, 0x00AD);
+            Raw(0x00, 0x01C7);
+            Raw(0x00, 0x006C);
+            Raw(0x00, 0x0187);
+            Raw(0x00, 0x01B9);
             Raw(0x00, 0x015F);                      
             Raw(0x00, 0x00AC);                      
             Raw(0x00, 0x00AE);                      

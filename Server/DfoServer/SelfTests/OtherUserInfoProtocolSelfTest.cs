@@ -73,7 +73,7 @@ namespace DfoServer.SelfTests
                     && IsEnvelope(mode1[0], 0x0002, 0x5A)
                     && mode1[0][15] == 1
                     && BitConverter.ToUInt16(mode1[0], 16) == 1
-                    && BitConverter.ToUInt16(mode1[0], 18) == UserId
+                    && BitConverter.ToUInt16(mode1[0], 33) == UserId
                     && mode1Error == null
                     && source.LoadCalls == 1,
                     ref failures);
@@ -644,6 +644,7 @@ namespace DfoServer.SelfTests
                         }
 
                         var userInfo = requester.ReadPacket();
+                        var userInfoIdentityOffset = mode == 1 ? 18 : 3;
                         Check(
                             $"GET_USERINFO mode {mode} accepts self uid",
                             prefixValid
@@ -651,7 +652,8 @@ namespace DfoServer.SelfTests
                             && userInfo.Type == 0x0002
                             && userInfo.Body[0] == mode
                             && BitConverter.ToUInt16(
-                                userInfo.Body, 3) == UserId
+                                userInfo.Body,
+                                userInfoIdentityOffset) == UserId
                             && !requester.HasPendingPacket(100),
                             ref failures);
                     }

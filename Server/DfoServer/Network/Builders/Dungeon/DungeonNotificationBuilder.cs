@@ -10,6 +10,9 @@ namespace DfoServer.Network.Builders
     public static class DungeonNotificationBuilder
     {
         // NOTI 28 (0x001C) DUNGEON_INFO
+        // A21 固定 32B 布局。A12 的可变 pair/group 字段不再写入；当前
+        // 客户端抓包显示 offset 6/7 为 boss 坐标，offset 12 为固定 1，
+        // offset 18-21 为深渊房间坐标，尾部保持保留零值。
         public static byte[] BuildDungeonInfo(
             int dungeonId,
             byte difficulty,
@@ -35,41 +38,19 @@ namespace DfoServer.Network.Builders
         {
             var writer = new GamePacketWriter();
 
-            writer.WriteInt16((short)dungeonId);
-            writer.WriteByte(difficulty);
-            writer.WriteByte(modeFlag);
-            writer.WriteByte(bossX);
-            writer.WriteByte(bossY);
-            writer.WriteByte(hellPartyRoomX);
-            writer.WriteByte(hellPartyRoomY);
-            writer.WriteByte(dungeonMode);
-
-            var groupCount = extraPairGroups == null ? 0 : extraPairGroups.Count;
-            writer.WriteByte((byte)groupCount);
-            for (var gi = 0; gi < groupCount; gi++)
-            {
-                var group = extraPairGroups[gi];
-                writer.WriteByte((byte)group.Count);
-                for (var pi = 0; pi < group.Count; pi++)
-                {
-                    var pair = group[pi];
-                    writer.WriteByte(pair.Item1);
-                    writer.WriteByte(pair.Item2);
-                }
-            }
-
-            writer.WriteUInt16(hellPartyEnabled);
-            writer.WriteUInt16(value1);
-            writer.WriteByte(value2);
-            writer.WriteByte(flagA);
-            writer.WriteInt32(unchecked((int)packetSeed));
-            writer.WriteByte(paramA);
-            writer.WriteByte(paramB);
-            writer.WriteByte(paramC);
-            writer.WriteByte(tailFlag0);
-            writer.WriteByte(tailFlag1);
-            writer.WriteByte(tailFlag2);
-            writer.WriteInt32(unchecked((int)tailReserved));
+            writer.WriteInt16((short)dungeonId);       // +0
+            writer.WriteByte(difficulty);              // +2
+            writer.WriteByte(modeFlag);                // +3
+            writer.WriteUInt16(0);                     // +4 reserved
+            writer.WriteByte(bossX);                   // +6
+            writer.WriteByte(bossY);                   // +7
+            writer.WriteInt32(0);                      // +8 reserved
+            writer.WriteInt32(1);                      // +12 A21 fixed state marker
+            writer.WriteUInt16(0);                     // +16 reserved
+            writer.WriteByte(hellPartyRoomX);           // +18
+            writer.WriteByte(hellPartyRoomY);           // +19
+            writer.WriteUInt16(0xFFFF);                 // +20..21 reserved sentinel
+            writer.WriteZeroBytes(10);                 // +22..31 reserved
             return writer.ToArray();
         }
 
@@ -96,7 +77,7 @@ namespace DfoServer.Network.Builders
             ushort firstMonsterSequence,
             int randomSeed = 0,
             byte layeredRoomFlag = 0,
-            byte hellPartyMode = 0,
+            byte hellPartyMode = 2,
             byte unknownAfterHellPartyMode = 0,
             uint roomStateValue = 1,
             byte roomStateFlag = 1,
@@ -117,6 +98,7 @@ namespace DfoServer.Network.Builders
             writer.WriteByte(roomStateFlag);
 
             writer.WriteUInt16((ushort)maze.Index);
+            writer.WriteUInt16(0);                    // A21 reserved field at +16
             writer.WriteByte((byte)maze.Monsters.Count);
 
             int normalIndex = 0;
@@ -138,6 +120,7 @@ namespace DfoServer.Network.Builders
                 writer.WriteByte(monster.Flag0);
                 writer.WriteByte(monster.Flag1);
                 writer.WriteInt32(monster.ExtraState);
+                writer.WriteByte(0);                  // A21 actor record extension
             }
 
             // 预生成建筑掉落，每项 19 字节。
@@ -195,7 +178,7 @@ namespace DfoServer.Network.Builders
             writer.WriteByte((byte)maze.Y);
             writer.WriteByte(0);                      // 分层房间标记
             writer.WriteInt32(unchecked((int)seed));
-            writer.WriteByte(0);                      // 深渊模式
+            writer.WriteByte(2);                      // A21 标准副本模式标记
             writer.WriteByte(0);                      // 深渊模式后续未知字节
             writer.WriteInt32(1);                     // 房间状态值
             writer.WriteByte(0);                      // 房间状态标记，重访为 0
@@ -204,7 +187,7 @@ namespace DfoServer.Network.Builders
             return writer.ToArray();
         }
 
-        // 包体长度 = 3 + dropCount * 39 + 4
+        // A21 NOTI 0x0026 body length = 3 + dropCount * 48 + 4.
         public static byte[] BuildMonsterDie(ushort monsterSeqId, IReadOnlyList<DropInfo> drops, ushort ownerActorId)
         {
             var w = new GamePacketWriter();
@@ -220,17 +203,11 @@ namespace DfoServer.Network.Builders
                 w.WriteUInt32(ResolveTemplateId(d.Core, d.TemplateId));    // +2  templateId (0=gold)
                 w.WriteByte(d.Core != null ? d.Core.Upgrade : d.UpgradeLevel);    // +6  upgradeLevel
                 w.WriteUInt32(ResolveDropValue(d.Core, d.StackCount));    // +7  value/count
-                w.WriteUInt16(ResolveEndurance(d.Core, d.Endurance));     // +11 endurance
-                w.WriteUInt32(0);               // +13 unknown32
-                w.WriteByte(d.Core != null ? d.Core.GenuineUpgrade : (byte)0);                 // +17 refineLevel
-                w.WriteByte(d.Core != null ? d.Core.AmplifyType : (byte)0);                 // +18 amplify type
-                w.WriteUInt16(d.Core != null ? d.Core.AmplifyValue : (ushort)0);               // +19 amplify value
-                w.WriteUInt32(d.Core != null ? unchecked((uint)d.Core.EnchantCardId) : 0);               // +21 enchantCardId
-                w.WriteByte(d.Core != null ? d.Core.EmblemSocketCount : (byte)0);                 // +25 socketCount
-                w.WriteUInt16(0);               // +26 extra16
-                w.WriteByte(0);                 // +28 listCount
-                w.WriteZeroBytes(8);            // +29 tailPadding (8B)
-                w.WriteUInt16(ownerActorId);    // +37 ownerActorId
+                w.WriteZeroBytes(5);            // +11 reserved
+                w.WriteUInt32(0);               // +16 drop instance/reserved
+                w.WriteZeroBytes(24);           // +20 reserved
+                w.WriteUInt16(ownerActorId);    // +44 ownerActorId
+                w.WriteUInt16(0);                // +46 reserved
             }
 
             // 末尾固定 4 字节

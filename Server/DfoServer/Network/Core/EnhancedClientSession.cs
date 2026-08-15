@@ -41,6 +41,15 @@ namespace DfoServer.Network
 
         public int PendingReturnSelectCharacterId { get; set; }
 
+        // A21 首次教程 GIVEUP_GAME 回城后，客户端会先发送一组
+        // SYNC_ITEM_SPACE(0x035C) / STORY_PAUSE，再等待 VILLAGE_OBJECT_LIST。
+        public bool A21TutorialReturnNeedsVillageObjectList { get; set; }
+
+        // A21：00AD 后等待客户端保存两次 00C5，再发送登录成功。
+        public bool A21LoginSuccessPending { get; set; }
+
+        public int A21SelectOptionSaveCount { get; set; }
+
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
 
         public EnhancedClientSession(

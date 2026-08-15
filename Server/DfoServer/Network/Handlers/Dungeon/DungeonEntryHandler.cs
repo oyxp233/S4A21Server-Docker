@@ -4,6 +4,7 @@ using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Quests;
+using DfoServer.Game.SelectCharacter;
 using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
 using DfoServer.Network.Builders;
@@ -35,6 +36,7 @@ namespace DfoServer.Network.Handlers.Dungeon
 
         internal async Task HandleEnterSelectDungeon(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
+            var isA21TutorialEntry = IsFirstA21TutorialEntry(session);
             FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] ENTER_SELECT_DUNGEON: cid={session.Player.CharacterId} uid={session.Player.UserId} town={session.Player.CurTownId} area={session.Player.CurAreaId}");
             if (!CanEnterRaidDungeonSelection(session))
             {
@@ -60,7 +62,9 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             try
             {
-                var selection = BeginDungeonSelection(session.Player);
+                var selection = BeginDungeonSelection(
+                    session.Player,
+                    isA21TutorialEntry);
                 if (selection == null)
                 {
                     FileLogger.Log(
@@ -86,10 +90,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                 }
                 session.Player.UserState = 0x01;
 
-                var snapshot = TownAreaNotificationBuilder.CreateCurrentSnapshot(session.Player);
-                snapshot.AreaId = 0xFF;
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0017, TownAreaNotificationBuilder.BuildUserArea(snapshot)));
-
                 // NOTI 0x0002 subtype1 (ADDITION): dynamically built from structured table (same path as init flow)
                 int cid = session.Player.CharacterId;
                 HonorLevelSummary honorSummary = null;
@@ -112,10 +112,14 @@ namespace DfoServer.Network.Handlers.Dungeon
                         var skillSnap = _svc.ProgressNotifications
                             .LoadSyncedSkillState(cid, record.Level).Skills;
                         var w = new GamePacketWriter();
-                        w.WriteByte(1); // subtype 1 ADDITION
-                        w.WriteUInt16(1);
-                        w.WriteUInt16((ushort)record.CharacterId);
-                        w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(addition, skillSnap));
+                        UserInfoBodyBuilder.WriteA21Subtype1Prefix(
+                            w,
+                            (ushort)record.CharacterId,
+                            addition.ManageLevel);
+                        w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
+                            addition,
+                            skillSnap,
+                            record.Appearance));
                         await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0002, w.ToArray()));
                         FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] ENTER_SELECT_DUNGEON: NOTI 2 type1 dynamic body");
                     }
@@ -128,25 +132,23 @@ namespace DfoServer.Network.Handlers.Dungeon
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0003, EnterSelectDungeonStateBuilder.BuildUserState(session.Player)));
 
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x001A, UdpHostBuilder.BuildUnavailable()));
-                var towerOfDespairFloor = 1;
-                if (!_svc.TowerOfDespairProgress.TryGetNextFloor(
-                        session.Player.CharacterId,
-                        out towerOfDespairFloor,
-                        out var towerProgressError))
+                await _svc.PersistentMechanisms.RestoreBeforeSelectionAsync(session);
+                if (!isA21TutorialEntry)
+                {
+                    await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                        0x00,
+                        0x001B,
+                        EnterSelectDungeonStateBuilder.BuildA21EnterSelectDungeon(
+                            session.Player.UserId,
+                            initialTutorialLayout: false)));
+                }
+                else
                 {
                     FileLogger.Log(
                         $"[{DungeonSharedServices.ProtocolLogName}] " +
-                        $"ENTER_SELECT_DUNGEON tower floor fallback: " +
-                        $"cid={session.Player.CharacterId} " +
-                        $"error={towerProgressError?.Message}");
+                        $"ENTER_SELECT_DUNGEON: defer A21 tutorial NOTI 27 " +
+                        "until CHANGE_TUTORIAL_FLAG");
                 }
-                await _svc.PersistentMechanisms.RestoreBeforeSelectionAsync(session);
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                    0x00,
-                    0x001B,
-                    EnterSelectDungeonStateBuilder.BuildEnterSelectDungeon(
-                        session.Player,
-                        towerOfDespairFloor)));
                 await _svc.GrowthCapsuleSync.SendExpProgressAsync(
                     session, "enter-select-dungeon", honor: honorSummary);
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] ENTER_SELECT_DUNGEON: state packets and account EXP progress sent OK");
@@ -196,7 +198,8 @@ namespace DfoServer.Network.Handlers.Dungeon
         }
 
         private static DungeonSelectionContext BeginDungeonSelection(
-            Game.Session.PlayerContext player)
+            Game.Session.PlayerContext player,
+            bool isA21TutorialEntry)
         {
             if (player == null)
                 return null;
@@ -222,7 +225,37 @@ namespace DfoServer.Network.Handlers.Dungeon
                 x,
                 y,
                 player.CurDirection,
-                player.CurAreaState));
+                player.CurAreaState),
+                isA21TutorialEntry);
+        }
+
+        private bool IsFirstA21TutorialEntry(
+            EnhancedClientSession session)
+        {
+            var player = session?.Player;
+            if (player == null
+                || player.CharacterId <= 0
+                || player.Level != 1)
+            {
+                return false;
+            }
+
+            var snapshot = new SelectCharacterInitializationSnapshot();
+            try
+            {
+                _svc.CharacterStateRepository.LoadFlags(
+                    player.CharacterId,
+                    snapshot);
+                return snapshot.AckTutorialSkipable == 0;
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"A21 tutorial state probe failed: cid={player.CharacterId} " +
+                    $"error={ex.Message}");
+                return false;
+            }
         }
 
         internal Task HandleSelectDungeon(
@@ -259,6 +292,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             var expectedSelection = expectedPredecessorIdentity.HasValue
                 ? null
                 : session?.Player?.CurrentDungeonSelection;
+            var isA21TutorialEntry = expectedSelection?.IsA21TutorialEntry == true;
             if (expectedPredecessorIdentity.HasValue
                 && (predecessorRun == null
                     || !predecessorRun.Matches(
@@ -465,12 +499,17 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
             var run = session.Player.CurrentRun;
             var runIdentity = run.CaptureIdentity();
-            run.HellMode = req.HellPartyRequestFlag != 0 && DungeonData.IsHellDungeon(req.DungeonId);
+            // The first A21 tutorial is a normal flow regardless of the
+            // dungeon id selected by the character's job. Ignore stale hell
+            // flags so they cannot alter its map projection.
+            run.HellMode = !isA21TutorialEntry
+                && req.HellPartyRequestFlag != 0
+                && DungeonData.IsHellDungeon(req.DungeonId);
 
             WarmUpDropConfigs(run.HellMode);
 
             if (req.HellPartyRequestFlag != 0)
-                FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] SELECT_DUNGEON: manual hell requested dungeon={req.DungeonId} enabled={run.HellMode}");
+                FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] SELECT_DUNGEON: manual hell requested dungeon={req.DungeonId} flag1={req.HellPartyRequestFlag} flag2={req.HellPartyDifficultyFlag} tutorial={isA21TutorialEntry} enabled={run.HellMode}");
 
             run.QuestSnapshot = QuestRunSnapshot.Capture(activeQuests);
             string mazeSelectionDiagnostic = null;
@@ -501,6 +540,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 $"[DungeonHandler] SELECT_DUNGEON route: " +
                 $"cid={session.Player.CharacterId} dungeon={req.DungeonId} " +
                 $"{mazeSelectionDiagnostic ?? $"difficulty={req.Difficulty} selectedMaze={selection.Index}"} " +
+                $"flags=({req.HellPartyRequestFlag},{req.HellPartyDifficultyFlag}) hell={run.HellMode} " +
                 $"questConnected={run.MazeQuestConnected} " +
                 $"start=({run.MazeStartX},{run.MazeStartY}) startMap={run.MazeStartMapId} " +
                 $"boss=({(bossPos != null && bossPos.Length >= 2 ? bossPos[0] : -1)}," +
@@ -555,6 +595,19 @@ namespace DfoServer.Network.Handlers.Dungeon
                 FileLogger.Log($"[DungeonHandler] ClearCondition init: {selection.Maze.ClearConditions.Count} conditions, totalRequired={run.ClearCondition.TotalRequired}");
             else
                 FileLogger.Log($"[DungeonHandler] WARNING: dungeon={req.DungeonId} maze={selection.Index} has no [clear condition]");
+            if (isA21TutorialEntry)
+            {
+                run.TutorialEntryProjectionPending = true;
+                run.TutorialEntryProjectionSent = false;
+                run.TutorialEntryUsesInitialLayout = true;
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"SELECT_DUNGEON: defer A21 tutorial projection " +
+                    $"run={run.RunId} generation={run.RunGeneration} dungeon={req.DungeonId} " +
+                    $"until CHANGE_TUTORIAL_FLAG");
+                return;
+            }
+
             await SendDungeonSelectPacketsTo(session, req, bossPos, (byte)selection.Index);
             if (!session.Player.IsCurrentDungeonRun(runIdentity))
                 return;
@@ -571,6 +624,57 @@ namespace DfoServer.Network.Handlers.Dungeon
 
         internal static byte[] BuildMercenaryContentErrorBody()
             => CommonPacketBodyBuilder.BuildCmdError(MercenaryContentErrorCode);
+
+        internal async Task CompletePendingTutorialEntryAsync(
+            EnhancedClientSession session)
+        {
+            var run = session?.Player?.CurrentRun;
+            if (run == null)
+                return;
+
+            var runIdentity = run.CaptureIdentity();
+            lock (run.SyncRoot)
+            {
+                if (!run.TutorialEntryProjectionPending
+                    || run.TutorialEntryProjectionSent)
+                {
+                    return;
+                }
+
+                run.TutorialEntryProjectionSent = true;
+                run.TutorialEntryProjectionPending = false;
+            }
+
+            if (!session.Player.IsCurrentDungeonRun(runIdentity))
+                return;
+
+            await session.SendPacketAsync(
+                GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    StartGameResponseType,
+                    CommonPacketBodyBuilder.BuildSuccessAck()));
+            if (!session.Player.IsCurrentDungeonRun(runIdentity))
+                return;
+
+            var body = EnterSelectDungeonStateBuilder.BuildA21EnterSelectDungeon(
+                session.Player.UserId,
+                run.TutorialEntryUsesInitialLayout);
+            await session.SendPacketAsync(
+                GamePacketEnvelopeBuilder.Build(0x00, 0x001B, body));
+            if (!session.Player.IsCurrentDungeonRun(runIdentity))
+                return;
+
+            var req = new Network.Parsers.Dungeon.SelectDungeonRequest(
+                (ushort)run.DungeonId,
+                run.Difficulty,
+                0,
+                0);
+            await SendDungeonSelectPacketsTo(
+                session,
+                req,
+                run.BossMapPos,
+                (byte)Math.Max(0, run.MazeIndex));
+        }
 
         internal async Task EnterLinkedDungeonAsync(
             EnhancedClientSession session,
@@ -788,6 +892,19 @@ namespace DfoServer.Network.Handlers.Dungeon
                     run,
                     req.DungeonId,
                     mazeModeFlag);
+            if (StrikerSupportTagCharacterPacketBuilder.TryBuildOwnerSupportBody(
+                    s.Player.CharacterId,
+                    _svc.Database,
+                    out var strikerBody))
+                await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x019F, strikerBody));
+            else
+                await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    0x019F,
+                    StrikerSupportTagCharacterBodyBuilder.BuildEmptyBody()));
+            if (!s.Player.IsCurrentDungeonRun(runIdentity))
+                return;
+
             await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x001C, DungeonNotificationBuilder.BuildDungeonInfo(
                 dungeonId: req.DungeonId,
                 difficulty: req.Difficulty,
@@ -821,16 +938,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                     startRoomIdentity.Value))
                 return;
 
-            if (StrikerSupportTagCharacterPacketBuilder.TryBuildOwnerSupportBody(
-                    s.Player.CharacterId,
-                    _svc.Database,
-                    out var strikerBody))
-                await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x019F, strikerBody));
-            else
-                await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                    0x00,
-                    0x019F,
-                    StrikerSupportTagCharacterBodyBuilder.BuildEmptyBody()));
         }
 
         // ★组队副本联机 fan-out(⚠️协议+客户端渲染, 待真机验证; DFO_PARTY_DUNGEON_COOP=0 可隔离):

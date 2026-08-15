@@ -25,7 +25,11 @@ namespace DfoServer.Network.Builders
             Register(new SkillInfoBodyBuilder());              
             Register(new DarkKnightComboSkillInfoBodyBuilder());
             Register(new QuestListBodyBuilder());              
-            Register(new UserInfoBodyBuilder());               
+            Register(new UserInfoBodyBuilder());
+            Register(new UserStateInitBodyBuilder());
+            Register(new SimpleByteBodyBuilder(0x00CA, _ => 0));
+            Register(new A21UsableCount0465BodyBuilder());
+            Register(new A21UsableCount021EBodyBuilder());
             Register(new CreatureListBodyBuilder());           
             Register(new ExpertJobInfoBodyBuilder());          
             Register(new ItemLockListBodyBuilder());           

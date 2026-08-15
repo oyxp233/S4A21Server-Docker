@@ -1,5 +1,6 @@
 using System;
 using DfoServer.Game.Inventory;
+using DfoServer.Game.ItemUpgrade;
 using DfoServer.Network;
 
 namespace DfoServer.Network.Builders
@@ -7,7 +8,13 @@ namespace DfoServer.Network.Builders
     internal static class ItemListProtocolWriter
     {
         internal const int Entry84Size = 84;
-        internal const int AvatarEntry126Size = 126;
+        internal const int A21CommonEntryExtra = 17;
+        internal const int A21CommonEntrySize = Entry84Size + A21CommonEntryExtra;
+        internal const int A21AvatarJewelBytes = 18;
+        internal const int A21AvatarEntrySize =
+            Entry84Size + A21CommonEntryExtra + 4 + A21AvatarJewelBytes + 4 + 4;
+        internal const int CommonEntrySize = A21CommonEntrySize;
+        internal const int AvatarEntrySize = A21AvatarEntrySize;
 
         public static void WriteNoti2EquippedEntry(
             GamePacketWriter writer,
@@ -31,10 +38,10 @@ namespace DfoServer.Network.Builders
             writer.WriteUInt32(ResolveNoti2ClearAvatarOrSeal(core, avatarDetail));
             WriteEnchantBlock(writer, core);
 
-            if (slot <= 10)
+            if (EquipmentTypeInfo.IsCostumeBarSlot(slot))
                 WriteNoti2AvatarBlock(writer, core, avatarDetail);
 
-            if (slot == 24)
+            if (slot == (short)EquipmentType.Creature)
                 writer.WriteUInt32(ResolveNoti2Marker16(core, creatureDetail));
 
             WriteNoti2ChronicleBlock(writer, core);
@@ -43,6 +50,7 @@ namespace DfoServer.Network.Builders
             writer.WriteUInt16(core.Rune);
             WriteNoti2RandomOptionBlock(writer, core);
             WriteNoti2TailBlock(writer, core);
+            WriteA21Noti2EntryTail(writer, slot);
         }
 
         public static void WriteCommonEntry84(GamePacketWriter writer, short slot, ItemCore core)
@@ -51,8 +59,9 @@ namespace DfoServer.Network.Builders
                 writer,
                 slot,
                 core,
-                core?.Value ?? 0,
+                ResolveWireInstanceValue(core),
                 ResolveCommonMarker16(core));
+            WriteA21CommonPadding(writer);
         }
 
         public static void WriteAvatarEntry126(
@@ -71,8 +80,9 @@ namespace DfoServer.Network.Builders
                 core,
                 remainingSeconds,
                 ResolveZeroDefaultMarker16(core.Marker16));
-            writer.WriteInt32(JewelSocket.Size);
-            WriteFixedBytes(writer, avatarDetail?.JewelSocket, JewelSocket.Size);
+            WriteA21CommonPadding(writer);
+            writer.WriteInt32(A21AvatarJewelBytes);
+            WriteFixedBytes(writer, avatarDetail?.JewelSocket, A21AvatarJewelBytes);
             writer.WriteInt32(4);
             writer.WriteUInt16(avatarDetail?.Color1 ?? 0);
             writer.WriteUInt16(avatarDetail?.Color2 ?? 0);
@@ -87,6 +97,7 @@ namespace DfoServer.Network.Builders
                 core?.Value ?? 0,
                 ResolveZeroDefaultMarker16(
                     core?.Marker16 ?? ItemCore.Marker16Default));
+            WriteA21CommonPadding(writer);
         }
 
         public static void WritePetCreatureEntry84(
@@ -99,6 +110,7 @@ namespace DfoServer.Network.Builders
                 throw new ArgumentNullException(nameof(core));
 
             WriteEntry84(writer, slot, core, core.Value, ResolvePetCreatureMarker16(core, creatureDetail));
+            WriteA21CommonPadding(writer);
         }
 
         public static void WriteVirtualCountEntry84(GamePacketWriter writer, short slot, int itemId, int count)
@@ -109,7 +121,7 @@ namespace DfoServer.Network.Builders
             writer.WriteInt16(slot);
             writer.WriteInt32(itemId);
             writer.WriteInt32(count);
-            writer.WriteZeroBytes(Entry84Size - 10);
+            writer.WriteZeroBytes(CommonEntrySize - 10);
         }
 
         public static void WriteEmptyEntry(GamePacketWriter writer, InventoryListType itemSpace, short slot)
@@ -118,8 +130,8 @@ namespace DfoServer.Network.Builders
                 throw new ArgumentNullException(nameof(writer));
 
             var entrySize = itemSpace == InventoryListType.Avatar
-                ? AvatarEntry126Size
-                : Entry84Size;
+                ? AvatarEntrySize
+                : CommonEntrySize;
             writer.WriteInt16(slot);
             writer.WriteInt32(-1);
             writer.WriteZeroBytes(entrySize - 6);
@@ -152,6 +164,11 @@ namespace DfoServer.Network.Builders
             WriteTailBlock(writer, core);
         }
 
+        private static void WriteA21CommonPadding(GamePacketWriter writer)
+        {
+            writer.WriteZeroBytes(A21CommonEntryExtra);
+        }
+
         private static void WriteEnchantBlock(GamePacketWriter writer, ItemCore core)
         {
             writer.WriteInt32(core.EnchantCardId);
@@ -164,8 +181,8 @@ namespace DfoServer.Network.Builders
         {
             if (core.ItemKind == ItemCore.KindAvatar)
             {
-                writer.WriteInt32(JewelSocket.Size);
-                WriteFixedBytes(writer, avatarDetail?.JewelSocket, JewelSocket.Size);
+                writer.WriteInt32(A21AvatarJewelBytes);
+                WriteFixedBytes(writer, avatarDetail?.JewelSocket, A21AvatarJewelBytes);
             }
             else
             {
@@ -175,6 +192,22 @@ namespace DfoServer.Network.Builders
             writer.WriteInt32(4);
             writer.WriteUInt16(avatarDetail?.Color1 ?? 0);
             writer.WriteUInt16(avatarDetail?.Color2 ?? 0);
+        }
+
+        private static void WriteA21Noti2EntryTail(
+            GamePacketWriter writer,
+            short slot)
+        {
+            if (EquipmentTypeInfo.IsCostumeBarSlot(slot)
+                || slot == (short)EquipmentType.Creature)
+            {
+                writer.WriteZeroBytes(9);
+                return;
+            }
+
+            writer.WriteUInt32(0);
+            writer.WriteUInt32(8);
+            writer.WriteZeroBytes(9);
         }
 
         private static void WriteNoti2ChronicleBlock(GamePacketWriter writer, ItemCore core)
@@ -225,6 +258,15 @@ namespace DfoServer.Network.Builders
             if (core.ItemKind == ItemCore.KindAvatar)
                 return avatarDetail?.GetRemainDate() ?? 0;
 
+            return ResolveWireInstanceValue(core);
+        }
+
+        private static int ResolveWireInstanceValue(ItemCore core)
+        {
+            if (core == null)
+                return 0;
+            if (core.ItemKind == ItemCore.KindEquipment && core.Value == 0)
+                return unchecked((int)ItemQuality.TopQualitySeed);
             return core.Value;
         }
 

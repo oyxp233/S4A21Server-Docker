@@ -85,7 +85,7 @@ namespace DfoServer.SelfTests
 
             var returnAck = Network.Handlers.TownHandler
                 .BuildReturnToTownSuccessPacket(0x002A);
-            Check("return-to-town CMD result keeps the A14 success envelope",
+            Check("A21 return-to-town CMD response is one-byte success before town notifications",
                 returnAck.Length == 16
                 && returnAck[0] == 0x01
                 && BitConverter.ToUInt16(returnAck, 1) == 0x002A
@@ -218,7 +218,7 @@ namespace DfoServer.SelfTests
                 && player.CurPosX == 378
                 && player.CurPosY == 278
                 && player.CurDirection == 5
-                && player.CurAreaState == 3,
+                && player.CurAreaState == 0,
                 ref failures);
             Check("cross-run fields survive teardown",
                 player.HellPartyGorgeousChallengeEnabled,
@@ -575,7 +575,7 @@ namespace DfoServer.SelfTests
                 && !sameActorRoomCreated
                 && ReferenceEquals(actorRoom, sameActorRoom)
                 && actorRoom.FirstActorSequenceId == 43210
-                && BitConverter.ToUInt16(actorStartMap, 23) == 43210,
+                && BitConverter.ToUInt16(actorStartMap, 25) == 43210,
                 ref failures);
             leaderRun.SetCurrentRoom(actorRoom);
             var firstMapOwnedDeath = actorRoom

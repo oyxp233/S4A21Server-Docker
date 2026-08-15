@@ -54,5 +54,38 @@ namespace DfoServer.Network.Builders
             writer.WriteZeroBytes(3);
             return writer.ToArray();
         }
+
+        // A21 NOTI 27. The first tutorial selection observed in the current
+        // capture uses a 37-byte body; later selection entries use the
+        // 39-byte variant. The caller supplies the tutorial-state variant;
+        // dungeon ids are deliberately not interpreted here.
+        // These layouts are intentionally separate from the retired A12 19B
+        // builder because the user id/count offsets moved in the A21 client.
+        public static byte[] BuildA21EnterSelectDungeon(
+            ushort userId,
+            bool initialTutorialLayout)
+        {
+            var writer = new GamePacketWriter();
+            if (initialTutorialLayout)
+            {
+                writer.WriteZeroBytes(10);
+                writer.WriteByte(1);
+                writer.WriteUInt16(userId);
+                writer.WriteZeroBytes(5);
+                writer.WriteByte(1);
+                writer.WriteZeroBytes(18);
+                return writer.ToArray();
+            }
+
+            writer.WriteZeroBytes(8);
+            writer.WriteByte(1);
+            writer.WriteZeroBytes(3);
+            writer.WriteByte(1);
+            writer.WriteUInt16(userId);
+            writer.WriteZeroBytes(5);
+            writer.WriteByte(1);
+            writer.WriteZeroBytes(18);
+            return writer.ToArray();
+        }
     }
 }

@@ -1279,7 +1279,6 @@ namespace DfoServer.SelfTests
             {
                 510000, 510001, 510002, 510003, 510004,
                 510005, 510006, 510007, 510008, 510009,
-                511011,
             };
             var appearanceEntries =
                 new Game.Characters.CharacterAppearanceEntry[12];
@@ -1309,7 +1308,7 @@ namespace DfoServer.SelfTests
             appearanceEntries[11] =
                 new Game.Characters.CharacterAppearanceEntry(
                     11,
-                    expectedAppearance[10],
+                    511011,
                     4,
                     Array.Empty<byte>(),
                     0,

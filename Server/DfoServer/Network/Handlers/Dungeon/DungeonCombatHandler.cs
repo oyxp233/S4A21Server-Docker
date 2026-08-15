@@ -607,6 +607,16 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             }
 
+            PersistPickup(session, req.SrcSlot);
+
+            // A21 客户端先消费 1B 成功 ACK，再解析 0x0027 拾取通知。
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                0x002B,
+                DropItemBuilder.BuildGetItemSuccessAck()));
+            if (!session.Player.IsCurrentDungeonRun(runIdentity))
+                return;
+
             if (pickup.IsGold)
             {
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0027,
@@ -626,6 +636,24 @@ namespace DfoServer.Network.Handlers.Dungeon
                             new[] { pickup.PickedUpItemId });
                 }
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] GET_ITEM: item pickup srcSlot={req.SrcSlot} templateId={pickup.PickedUpItemId} invSlot={pickup.InventorySlot}");
+            }
+        }
+
+        private static void PersistPickup(EnhancedClientSession session, ushort srcSlot)
+        {
+            var characterId = session?.Player?.CharacterId ?? 0;
+            if (characterId <= 0
+                || !InventoryContext.TryGetLease(characterId, out var lease)
+                || !lease.IsOwnedBy(session.SessionId))
+            {
+                return;
+            }
+
+            if (!InventoryPersistenceService.SaveDirty(lease))
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] GET_ITEM: SaveDirty failed " +
+                    $"cid={characterId} srcSlot={srcSlot}");
             }
         }
 

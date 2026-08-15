@@ -95,10 +95,14 @@ namespace DfoServer.Network.Handlers
             AdventureGroupUserInfoSynchronizer.ApplyToUserInfoAddition(addition, accountCharacters);
             HonorLevelDataProvider.ApplyToUserInfoAddition(addition, honor);
             var w = new GamePacketWriter();
-            w.WriteByte(1);
-            w.WriteUInt16(1);
-            w.WriteUInt16((ushort)record.CharacterId);
-            w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(addition, skills));
+            UserInfoBodyBuilder.WriteA21Subtype1Prefix(
+                w,
+                (ushort)record.CharacterId,
+                addition.ManageLevel);
+            w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
+                addition,
+                skills,
+                record.Appearance));
             return w.ToArray();
         }
     }

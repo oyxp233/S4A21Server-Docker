@@ -85,7 +85,7 @@ namespace DfoServer.SelfTests
                 Check("full/zero drop rates and duplicate deaths are handled in tower state",
                     TowerDropRatesAndDedupe(generateDrops, out var firstDrops, out var tower),
                     ref failures);
-                Check("0x0026 keeps dropCount and 39B itemId offsets",
+                Check("A21 0x0026 keeps dropCount and 48B itemId offsets",
                     TowerMonsterDiePacketMatchesLayout(firstDrops), ref failures);
                 Check("same stage seed produces the same tower drop decision",
                     TowerDropDecisionIsDeterministic(generateDrops, firstDrops), ref failures);
@@ -324,11 +324,12 @@ namespace DfoServer.SelfTests
         private static bool TowerMonsterDiePacketMatchesLayout(IReadOnlyList<DropInfo> drops)
         {
             var body = DungeonNotificationBuilder.BuildMonsterDie(77, drops, 88);
-            return body.Length == 3 + drops.Count * 39 + 4
+            return body.Length == 3 + drops.Count * 48 + 4
                 && body[2] == drops.Count
                 && drops.Count == 1
                 && BitConverter.ToUInt16(body, 3) == drops[0].SceneSlot
-                && BitConverter.ToUInt32(body, 3 + 2) == drops[0].TemplateId;
+                && BitConverter.ToUInt32(body, 3 + 2) == drops[0].TemplateId
+                && BitConverter.ToUInt16(body, 3 + 44) == 88;
         }
 
         private static bool TowerDropDecisionIsDeterministic(

@@ -24,6 +24,38 @@ namespace DfoServer.Network.Builders
             };
         }
 
+        // A21 进入选角前只发送账号当前的 00AD。新号快聊为空，已有号保留两份快聊库。
+        // FullAvatar(idx55) 必须开启，否则客户端会隐藏完整身体外观。
+        public static byte[] BuildSelectScreenGameOption(
+            AccountSettings settings,
+            out byte[] persistedMain)
+        {
+            var source = settings?.MainGameOption
+                         ?? AccountSettings.DefaultMainGameOption
+                         ?? Array.Empty<byte>();
+            var main = new byte[source.Length];
+            Buffer.BlockCopy(source, 0, main, 0, source.Length);
+            persistedMain = EnsureFullAvatarVisible(main) ? main : null;
+
+            return BuildGameOptionBody(
+                main,
+                settings?.QuickchatBank0 ?? Array.Empty<byte>(),
+                settings?.QuickchatBank1 ?? Array.Empty<byte>());
+        }
+
+        internal static bool EnsureFullAvatarVisible(byte[] main)
+        {
+            var offset = AccountSettings.FullAvatarOptionIndex * 2;
+            if (main == null || main.Length < offset + 2)
+                return false;
+            if (main[offset] == 1 && main[offset + 1] == 0)
+                return false;
+
+            main[offset] = 1;
+            main[offset + 1] = 0;
+            return true;
+        }
+
         public static byte[] BuildGameOptionBody(byte[] main, byte[] quick0, byte[] quick1)
         {
             var writer = new GamePacketWriter();

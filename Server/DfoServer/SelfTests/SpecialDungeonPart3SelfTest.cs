@@ -506,12 +506,12 @@ namespace DfoServer.SelfTests
                 extraEntries: firstProjection.Entries);
             Check(
                 "START_MAP projects parent actor and reserved scene slot",
-                startMap.Length >= 56
-                && startMap[17] == 2
-                && startMap[18] == 3
-                && BitConverter.ToUInt16(startMap, 19) == 2
-                && startMap[37] == 4
-                && BitConverter.ToUInt16(startMap, 38) == 3,
+                 startMap.Length >= 58
+                 && startMap[19] == 2
+                 && startMap[20] == 3
+                 && BitConverter.ToUInt16(startMap, 21) == 2
+                 && startMap[39] == 4
+                 && BitConverter.ToUInt16(startMap, 40) == 3,
                 ref failures);
         }
 

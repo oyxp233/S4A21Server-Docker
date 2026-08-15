@@ -109,6 +109,7 @@ namespace DfoServer.Game.Dungeon
 
     internal sealed class DungeonRunSelectionState
     {
+        internal bool IsA21TutorialEntry { get; set; }
         internal int MazeIndex { get; set; } = -1;
         internal int LayeredMapIndex { get; set; } = -1;
         internal bool MazeQuestConnected { get; set; }
@@ -130,6 +131,13 @@ namespace DfoServer.Game.Dungeon
         internal byte HellMapX { get; set; } = 0xFF;
         internal byte HellMapY { get; set; } = 0xFF;
         internal GameWorld.Dungeon.HellPartyRoomInfo HellRoomInfo { get; set; }
+
+        // A21 首次教程会先收到 CHANGE_TUTORIAL_FLAG，再允许投影
+        // ENTER_SELECT_DUNGEON/ DUNGEON_INFO/START_MAP。该状态只属于当前
+        // DungeonRun，避免旧 session 或旧 run 回调污染后续副本。
+        internal bool TutorialEntryProjectionPending { get; set; }
+        internal bool TutorialEntryProjectionSent { get; set; }
+        internal bool TutorialEntryUsesInitialLayout { get; set; }
     }
 
     internal sealed class DungeonRunCombatState

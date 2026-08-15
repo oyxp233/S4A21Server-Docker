@@ -24,6 +24,7 @@ namespace DfoServer.Game.Accounts
 
             // 冒险团等级驱动图标；尾部字节触发客户端四维额外加成。
             addition.ManageLevel = summary.ManageLevel;
+            addition.ManagePoint = summary.TotalPoint;
             addition.FlagByte = summary.ManageLevel;
         }
     }

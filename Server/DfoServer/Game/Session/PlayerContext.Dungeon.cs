@@ -81,7 +81,8 @@ namespace DfoServer.Game.Session
         }
 
         internal Game.Dungeon.DungeonSelectionContext BeginDungeonSelection(
-            Game.Dungeon.DungeonTownReturnAnchor returnAnchor)
+            Game.Dungeon.DungeonTownReturnAnchor returnAnchor,
+            bool isA21TutorialEntry = false)
         {
             lock (DungeonRunLifecycleSyncRoot)
             {
@@ -100,7 +101,8 @@ namespace DfoServer.Game.Session
                 var context = new Game.Dungeon.DungeonSelectionContext(
                     Interlocked.Increment(ref _dungeonSelectionGeneration),
                     CurrentDungeonRunGeneration,
-                    returnAnchor);
+                    returnAnchor,
+                    isA21TutorialEntry);
                 Volatile.Write(ref _currentDungeonSelection, context);
                 return context;
             }

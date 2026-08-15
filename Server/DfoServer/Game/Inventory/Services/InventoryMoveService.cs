@@ -978,7 +978,7 @@ namespace DfoServer.Game.Inventory
         {
             return listType == InventoryListType.Equipment
                 && slotIndex >= (short)EquipmentType.HatAvatar
-                && slotIndex <= (short)EquipmentType.WeaponAvatar;
+                && slotIndex <= (short)EquipmentType.AuroraIllusionAvatar;
         }
 
         private static bool IsValidEquipmentSlotForItem(
@@ -1004,6 +1004,10 @@ namespace DfoServer.Game.Inventory
                 return false;
 
             if (slotIndex == (short)type)
+                return true;
+
+            if (type == EquipmentType.AuroraAvatar
+                && slotIndex == (short)EquipmentType.AuroraIllusionAvatar)
                 return true;
 
             return type == EquipmentType.Weapon

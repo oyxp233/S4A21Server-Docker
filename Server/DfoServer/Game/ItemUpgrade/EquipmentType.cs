@@ -16,26 +16,27 @@ namespace DfoServer.Game.ItemUpgrade
         SkinAvatar = 8,
         AuroraAvatar = 9,
         WeaponAvatar = 10,
-        Weapon = 11,
-        TitleName = 12,
-        Coat = 13,
-        Shoulder = 14,
-        Pants = 15,
-        Shoes = 16,
-        Waist = 17,
-        Amulet = 18,
-        Wrist = 19,
-        Ring = 20,
-        Support = 21,
-        MagicStone = 22,
-        SupportWeapon = 23,
-        Creature = 24,
-        ArtifactRed = 25,
-        ArtifactBlue = 26,
-        ArtifactGreen = 27,
-        NameTag = 28,
-        Charm = 29,
-        Unknown = 30,
+        AuroraIllusionAvatar = 11,
+        Weapon = 12,
+        TitleName = 13,
+        Coat = 14,
+        Shoulder = 15,
+        Pants = 16,
+        Shoes = 17,
+        Waist = 18,
+        Amulet = 19,
+        Wrist = 20,
+        Ring = 21,
+        Support = 22,
+        MagicStone = 23,
+        SupportWeapon = 24,
+        Creature = 25,
+        ArtifactRed = 26,
+        ArtifactBlue = 27,
+        ArtifactGreen = 28,
+        NameTag = 29,
+        Charm = 30,
+        Unknown = 31,
     }
 
     public static class EquipmentTypeInfo
@@ -53,6 +54,9 @@ namespace DfoServer.Game.ItemUpgrade
             ["[skin avatar]"] = EquipmentType.SkinAvatar,
             ["[aurora avatar]"] = EquipmentType.AuroraAvatar,
             ["[weapon avatar]"] = EquipmentType.WeaponAvatar,
+            ["[aurora illusion avatar]"] = EquipmentType.AuroraIllusionAvatar,
+            ["[aurora skin avatar]"] = EquipmentType.AuroraIllusionAvatar,
+            ["[aurora change avatar]"] = EquipmentType.AuroraIllusionAvatar,
             ["[weapon]"] = EquipmentType.Weapon,
             ["[title name]"] = EquipmentType.TitleName,
             ["[coat]"] = EquipmentType.Coat,
@@ -91,6 +95,30 @@ namespace DfoServer.Game.ItemUpgrade
         public static string ToPvfToken(EquipmentType type)
         {
             return TypeToText.TryGetValue(type, out var token) ? token : null;
+        }
+
+        // PVF/旧外观编码中的 200–230 使用插槽前的编号；A21 在槽 11 插入光环幻化。
+        public static int ToA21AppearanceSlot(int slot)
+        {
+            if (slot >= 200 && slot <= 230)
+            {
+                var encodedSlot = slot - 200;
+                return encodedSlot >= 11 ? encodedSlot + 1 : encodedSlot;
+            }
+
+            return slot;
+        }
+
+        public static bool IsCostumeBarSlot(short slot)
+        {
+            return slot >= (short)EquipmentType.HatAvatar
+                && slot <= (short)EquipmentType.AuroraIllusionAvatar;
+        }
+
+        public static bool IsAvatarPart(EquipmentType type)
+        {
+            return type >= EquipmentType.HatAvatar
+                && type <= EquipmentType.AuroraIllusionAvatar;
         }
 
         public static bool IsWeapon(EquipmentType type)

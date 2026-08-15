@@ -81,8 +81,12 @@ namespace DfoServer.SelfTests
                 allDefaultAvatarRows.All(defaults => defaults.Count >= 11
                     && defaults[9] <= 0
                     && defaults[10] <= 0));
+            Check("A21 default-avatar rows retain the extended slot",
+                allDefaultAvatarRows.Any(defaults => defaults.Count >= 12));
             Check("equipment slot validator accepts a real weapon in weapon slot",
-                StrikerSupportTagCharacterPacketBuilder.IsEquipmentSlotMatchForTest(11, 101040019));
+                StrikerSupportTagCharacterPacketBuilder.IsEquipmentSlotMatchForTest(
+                    (byte)DfoServer.Game.ItemUpgrade.EquipmentType.Weapon,
+                    101040019));
             Check("equipment slot validator rejects the same weapon in an avatar slot",
                 !StrikerSupportTagCharacterPacketBuilder.IsEquipmentSlotMatchForTest(0, 101040019));
 
@@ -205,8 +209,10 @@ namespace DfoServer.SelfTests
                 GateOrCount1 = 32,
                 GateOrCount2 = 32,
             }, out var bodySummary);
-            Check("USERINFO subtype2 writes adventure group level", body.Length > 10 && body[5] == bodySummary.ManageLevel && body[5] == expectedManageLevel);
-            Check("USERINFO subtype2 writes adventure group point", body.Length > 10 && BitConverter.ToInt32(body, 6) == expectedTotalPoint);
+            Check("A21 USERINFO subtype2 keeps adventure group level out of the roster header",
+                body.Length > 10 && body[5] == 0);
+            Check("A21 USERINFO subtype2 keeps adventure group points out of the roster header",
+                body.Length > 10 && BitConverter.ToInt32(body, 6) == 0);
 
             var addition = new DfoServer.Game.SelectCharacter.UserInfoAdditionSnapshot
             {

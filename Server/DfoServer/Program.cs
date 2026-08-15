@@ -13,6 +13,10 @@ namespace DfoServer
         // 自测注册表: 新增自测在这里加一行, 单跑参数与 --selftest-all 都会覆盖到。
         private static readonly (string Arg, Func<int> Run)[] SelfTestRegistry =
         {
+            ("--selftest-a21-startup-protocol", SelfTests.A21StartupProtocolSelfTest.Run),
+            ("--selftest-a21-channel-protocol", SelfTests.A21ChannelProtocolSelfTest.Run),
+            ("--selftest-a21-create-character-protocol", SelfTests.A21CreateCharacterProtocolSelfTest.Run),
+            ("--selftest-a21-tutorial-protocol", SelfTests.A21TutorialProtocolSelfTest.Run),
             ("--selftest-sqlite-bootstrap", SelfTests.SqliteDatabaseBootstrapSelfTest.Run),
             ("--selftest-game-database", SelfTests.GameDatabaseSelfTest.Run),
             ("--selftest-monster-card-bind", SelfTests.MonsterCardBindSelfTest.Run),
@@ -355,6 +359,8 @@ namespace DfoServer
             {
                 { channelPort, (new ChannelProtocolHandler(), new ChannelPacketHeader()) }
             };
+            Console.WriteLine(
+                "A21WireLayout: 14B game receive header; A21 CHANNELINFO/login layout");
             foreach (var channel in gameChannels)
             {
                 portConfigs.Add(

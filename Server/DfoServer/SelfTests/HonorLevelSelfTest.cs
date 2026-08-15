@@ -111,34 +111,28 @@ INSERT INTO character_subtype1_fields(character_id, progress1, progress2) VALUES
                     internetCafeBonusExp: 0x61626364u,
                     eliteMonsterKillBonusExp: 0x71727374u,
                     growthCapsuleExp: 0x81828384u);
-                Check("0x0025 keeps the current 95-byte N=0 output", expBody.Length == ExpNotificationBuilder.BodyLength);
+                Check("A21 0x0025 uses the fixed 83-byte body", expBody.Length == ExpNotificationBuilder.BodyLength);
                 Check("0x0025 writes both skill-page SP and TP fields",
-                    BitConverter.ToUInt16(expBody, 13) == 0x5566
-                    && BitConverter.ToUInt16(expBody, 15) == 0x6677
-                    && BitConverter.ToUInt16(expBody, 17) == 0x7788
-                    && BitConverter.ToUInt16(expBody, 19) == 0x8899);
-                Check("0x0025 writes the PvP victory-point snapshot at +0x15",
+                    BitConverter.ToUInt16(expBody, 9) == 0x5566
+                    && BitConverter.ToUInt16(expBody, 11) == 0x6677
+                    && BitConverter.ToUInt16(expBody, 13) == 0x7788
+                    && BitConverter.ToUInt16(expBody, 15) == 0x8899);
+                Check("A21 0x0025 writes the PvP victory-point snapshot at +0x11",
                     BitConverter.ToUInt32(expBody, ExpNotificationBuilder.PvpVictoryPointOffset) == 0x15161718u);
-                Check("0x0025 writes zero variable entries in the current builder",
+                Check("A21 0x0025 writes zero variable entries",
                     expBody[ExpNotificationBuilder.VariableEntryCountOffset] == 0);
-                Check("0x0025 writes growth-capsule EXP at client offset +0x3B",
+                Check("A21 0x0025 writes growth-capsule EXP at +0x37",
                     BitConverter.ToUInt32(expBody, ExpNotificationBuilder.GrowthCapsuleExpOffset) == 0x81828384u);
-                Check("0x0025 writes honor level at client offset +0x3F",
+                Check("A21 0x0025 writes honor level at +0x3B",
                     BitConverter.ToUInt32(expBody, ExpNotificationBuilder.HonorLevelOffset) == mixed.HonorLevel);
-                Check("0x0025 writes current honor-segment EXP at client offset +0x43",
+                Check("A21 0x0025 writes current honor-segment EXP at +0x3F",
                     BitConverter.ToUInt32(expBody, ExpNotificationBuilder.HonorExpOffset) == mixed.HonorExp);
-                Check("0x0025 keeps the project-only unread 8-byte compatibility tail",
-                    ExpNotificationBuilder.ClientReadLengthWithNoVariableEntries == 87
-                    && ExpNotificationBuilder.CompatibilityTailLength == 8
-                    && BitConverter.ToUInt32(expBody, 87) == 0
-                    && BitConverter.ToUInt32(expBody, 91) == 0);
-                Check("0x0025 matches the exact current 95-byte N=0 output",
-                    BitConverter.ToString(expBody) ==
-                    "56-44-33-22-11-04-03-02-01-14-13-12-11-66-55-77-66-88-77-99-88-" +
-                    "18-17-16-15-24-23-22-21-00-34-33-32-31-44-43-42-41-00-00-00-00-" +
-                    "54-53-52-51-64-63-62-61-00-74-73-72-71-00-00-00-00-84-83-82-81-" +
-                    "03-00-00-00-40-4B-4C-00-00-00-00-00-00-00-00-00-00-00-00-00-" +
-                    "00-00-00-00-00-00-00-00-00-00-00-00");
+                Check("A21 0x0025 writes channel bonus EXP at +0x4B",
+                    BitConverter.ToUInt32(expBody, ExpNotificationBuilder.ChannelBonusExpOffset) == 0);
+                Check("A21 0x0025 does not append a compatibility tail",
+                    ExpNotificationBuilder.ClientReadLengthWithNoVariableEntries == 83
+                    && ExpNotificationBuilder.CompatibilityTailLength == 0
+                    && expBody.Length == 83);
 
                 var missingSkillPages = SkillStateService.GetProtocolState(
                     new SkillInfoSnapshot
@@ -176,23 +170,31 @@ INSERT INTO character_subtype1_fields(character_id, progress1, progress2) VALUES
                     new CharacterRecord { CharacterId = 8, Name = new byte[] { (byte)'a' }, Job = 1, GrowType = 0, Level = 86 },
                     new CharacterRecord { CharacterId = 9, Name = new byte[] { (byte)'b' }, Job = 2, GrowType = 0, Level = 1 },
                 }, new GetUserInfoTemplate { GateOrCount1 = 32, GateOrCount2 = 32 }, out _, mixed);
-                var rosterNeedle = new byte[]
-                {
-                    mixed.HonorLevel, 0, 0, 0,
-                    (byte)(mixed.HonorExp & 0xFF), (byte)((mixed.HonorExp >> 8) & 0xFF),
-                    (byte)((mixed.HonorExp >> 16) & 0xFF), (byte)((mixed.HonorExp >> 24) & 0xFF),
-                    0, 0
-                };
-                var firstRosterHonor = IndexOf(rosterBody, rosterNeedle);
-                Check("roster subtype2 writes shared honor display fields", firstRosterHonor >= 0);
-                Check("roster subtype2 writes shared honor for every listed character", IndexOf(rosterBody, rosterNeedle, firstRosterHonor + 1) >= 0);
+                Check("A21 roster subtype2 leaves adventure-group header values zero",
+                    rosterBody.Length >= 10
+                    && rosterBody[5] == 0
+                    && BitConverter.ToInt32(rosterBody, 6) == 0);
+                Check("A21 roster subtype2 carries the character count in its fixed header",
+                    rosterBody.Length >= 18
+                    && BitConverter.ToUInt16(rosterBody, 16) == 2);
 
                 var roundTripRecord = new CharacterRecord { CharacterId = 7, Name = new byte[] { (byte)'x' }, Job = 0, Level = 86, Subtype0Tail = tail };
                 var roundTripBody = UserInfoSubtype0Builder.BuildNotificationBody(roundTripRecord);
-                var tailOffset = roundTripBody.Length - UserInfoMinimumTailSnapshot.TailLength;
-                var parsedTail = UserInfoMinimumTailSnapshot.FromBytes(roundTripBody.AsSpan(tailOffset, UserInfoMinimumTailSnapshot.TailLength).ToArray());
-                Check("subtype0 builder keeps honor level at progressA offset", parsedTail.ProgressA == capped.HonorLevel);
-                Check("subtype0 builder keeps honor exp at progressB offset", parsedTail.ProgressB == capped.HonorExp);
+                var fixedPrefix = roundTripBody.Length >= 41;
+                if (fixedPrefix)
+                {
+                    for (var i = 3; i < 41; i++)
+                    {
+                        if (roundTripBody[i] != 0)
+                        {
+                            fixedPrefix = false;
+                            break;
+                        }
+                    }
+                }
+                Check("A21 subtype0 builder writes the fixed 38-byte prefix", fixedPrefix);
+                Check("A21 honor state is not serialized through the legacy subtype0 tail",
+                    fixedPrefix && roundTripBody.Length > 41);
 
                 Console.WriteLine("HonorLevelSelfTest OK");
                 return 0;

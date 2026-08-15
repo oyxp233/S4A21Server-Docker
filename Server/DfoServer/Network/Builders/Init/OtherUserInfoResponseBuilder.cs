@@ -105,12 +105,14 @@ namespace DfoServer.Network.Builders
                 if (mode == 0x01)
                 {
                     var writer = new GamePacketWriter();
-                    writer.WriteByte(1);
-                    writer.WriteUInt16(1);
-                    writer.WriteUInt16(targetUserId);
+                    UserInfoBodyBuilder.WriteA21Subtype1Prefix(
+                        writer,
+                        targetUserId,
+                        initialization.UserInfoAddition.ManageLevel);
                     writer.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                         initialization.UserInfoAddition,
-                        initialization.SkillInfo));
+                        initialization.SkillInfo,
+                        snapshot.CharacterRecord?.Appearance));
                     return new[]
                     {
                         BuildUserInfoPacket(writer.ToArray(), routingByte7),
