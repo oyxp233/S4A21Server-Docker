@@ -129,24 +129,6 @@ namespace DfoServer.SelfTests
                 Encoding.ASCII.GetString(channelList).Contains("127.0.0.2"),
                 ref failures);
 
-            const string etc = @"
-[dungeon]
-`[granfloris]` `格兰之森` 3 4
-[/dungeon]
-[server]
-1 11 `格兰之森` 0 `[granfloris]` 5 0 0 0 0 0 0 0 0 0 0
-[/server]
-[server]
-2 12 `格兰之森` 0 `[granfloris]` 5 0 0 0 0 0 0 0 0 0 0
-[/server]";
-            var script = Encoding.UTF8.GetString(
-                ChannelProtocolHandler.BuildGetScriptPlaintext(etc));
-            Check(
-                "A21 channel script keeps only server group 1",
-                script.Contains("[server]\n1\n11 ")
-                && !script.Contains("[server]\n2\n"),
-                ref failures);
-
             var userInfo0 = UserInfoSubtype0Builder.BuildNotificationBody(
                 new CharacterRecord
                 {

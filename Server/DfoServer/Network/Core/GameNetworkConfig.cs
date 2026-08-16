@@ -15,7 +15,7 @@ namespace DfoServer.Network
         public const int ChannelIndex = NormalChannelIndex;
         public const int NormalGamePort = 10011;
         public const int NormalProxyGamePort = 10012;
-        public const int Channel100GamePort = 10161;
+        public const int Channel100GamePort = 10100;
         public const int Channel100ProxyGamePort = 10162;
         public const int FreeDuelGamePort = 10068;
         public const int RaidGamePort = 10200;
@@ -40,7 +40,7 @@ namespace DfoServer.Network
                 StringComparison.OrdinalIgnoreCase)
                 ? "127.0.0.2"
                 : ServerIp;
-        public static bool PacketCaptureEnabled { get; private set; }
+        public static bool PacketCaptureEnabled { get; private set; } = true;
         public static string PacketCaptureDir { get; private set; }
         public static bool ProxyMode { get; private set; }
         public static bool FreeDuelListenerEnabled { get; private set; }
@@ -60,6 +60,22 @@ namespace DfoServer.Network
                 PvpUdpRelayPortBase,
                 PvpUdpRelayPortCount);
 
+        // 频道目录(频道号 ↔ TCP 端口 10000+频道号,与线上约定一致)。
+        // 启动时由 Program 从 channel_info.etc 加载; 未加载时退回基线三频道。
+        private static int[] _channelCatalogIds;
+
+        public static void ConfigureChannelCatalog(IReadOnlyList<int> channelIds)
+        {
+            _channelCatalogIds = channelIds == null
+                ? null
+                : channelIds
+                    .Where(id => id >= byte.MinValue && id <= byte.MaxValue)
+                    .Distinct()
+                    .ToArray();
+        }
+
+        public static int PortForChannel(int channelId) => 10000 + channelId;
+
         public static IReadOnlyList<GameChannelEndpoint> GetGameChannels()
             => BuildGameChannels(FreeDuelListenerEnabled);
 
@@ -71,25 +87,40 @@ namespace DfoServer.Network
             bool includeFreeDuel,
             bool proxyMode)
         {
-            var normalListenerPort =
-                proxyMode ? NormalProxyGamePort : NormalGamePort;
-            var channel100ListenerPort =
-                proxyMode ? Channel100ProxyGamePort : Channel100GamePort;
-            var channels = new List<GameChannelEndpoint>
+            var catalog = _channelCatalogIds;
+            var channels = new List<GameChannelEndpoint>();
+            if (proxyMode || catalog == null || catalog.Length == 0)
             {
-                new GameChannelEndpoint(
-                    NormalChannelIndex,
-                    NormalGamePort,
-                    normalListenerPort),
-                new GameChannelEndpoint(
-                    Channel100Index,
-                    Channel100GamePort,
-                    channel100ListenerPort),
-                new GameChannelEndpoint(
-                    RaidChannelIndex,
-                    RaidGamePort,
-                    RaidGamePort)
-            };
+                // 代理模式只映射基线三频道; 未加载频道目录时同样退回基线。
+                var normalListenerPort =
+                    proxyMode ? NormalProxyGamePort : NormalGamePort;
+                var channel100ListenerPort =
+                    proxyMode ? Channel100ProxyGamePort : Channel100GamePort;
+                channels.Add(
+                    new GameChannelEndpoint(
+                        NormalChannelIndex,
+                        NormalGamePort,
+                        normalListenerPort));
+                channels.Add(
+                    new GameChannelEndpoint(
+                        Channel100Index,
+                        Channel100GamePort,
+                        channel100ListenerPort));
+                channels.Add(
+                    new GameChannelEndpoint(
+                        RaidChannelIndex,
+                        RaidGamePort,
+                        RaidGamePort));
+            }
+            else
+            {
+                foreach (var channelId in catalog)
+                {
+                    var port = PortForChannel(channelId);
+                    channels.Add(
+                        new GameChannelEndpoint(channelId, port, port));
+                }
+            }
 
             if (includeFreeDuel)
             {
@@ -108,7 +139,9 @@ namespace DfoServer.Network
             => BuildGameChannels(includeFreeDuel: true).FirstOrDefault(
                    channel =>
                        channel.ListenerGamePort == listenerGamePort)
-               ?? BuildGameChannels(includeFreeDuel: false)[0];
+               ?? BuildGameChannels(includeFreeDuel: false)
+                   .First(channel =>
+                       channel.ChannelId == NormalChannelIndex);
 
         public static bool TryResolveGameChannel(
             int listenerGamePort,

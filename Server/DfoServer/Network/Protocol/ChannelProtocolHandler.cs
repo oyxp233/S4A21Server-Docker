@@ -8,8 +8,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using DfoServer.Infrastructure;
-using DfoServer.GameWorld;
-using PvfLib;
 
 namespace DfoServer.Network
 {
@@ -27,38 +25,12 @@ namespace DfoServer.Network
 
         public int TestServerPort => 10011;
 
-        // A21 SC_ASK_CHANNEL_INFO_NEW 明文 reader 的固定布局：
-        // 2B 首部字段、4B 条目数，以及每条 20B + 4B + 4B + 16B + 4B。
-        // 中间两个 4B 和尾部 4B 的业务语义仍以客户端后续消费为准。
+        // A21 SC_ASK_CHANNEL_INFO_NEW 明文布局(抓包校准):
+        // 2B 组号 + 4B 条目数,每条 20B 名称 + 4B 容量 + 4B 在线人数 + 16B IP + 4B 端口。
         internal const int ChannelListPrefixSize = 6;
         internal const int ChannelListNameSize = 20;
         internal const int ChannelListAddressSize = 16;
         internal const int ChannelListEntrySize = 48;
-
-        private readonly object _responseCacheLock = new object();
-        private CachedScriptResponse _cachedScriptResponse;
-        private CachedChannelResponse _cachedChannelResponse;
-
-        private sealed class CachedScriptResponse
-        {
-            public string Key { get; set; }
-            public byte[] Data { get; set; }
-            public int PlainLength { get; set; }
-            public int SourceLength { get; set; }
-            public string Preview { get; set; }
-        }
-
-        private sealed class CachedChannelResponse
-        {
-            public string Key { get; set; }
-            public bool IncludeFreeDuel { get; set; }
-            public byte[] Data { get; set; }
-            public int ChannelCount { get; set; }
-            public int PlainLength { get; set; }
-            public string Names { get; set; }
-            public string Head { get; set; }
-        }
-
 
         private enum PACKETS : int
         {
@@ -90,19 +62,6 @@ namespace DfoServer.Network
             public int Port { get; set; }
         }
 
-        private class ServerGroupInfo
-        {
-            public string ServerGroupName { get; set; }
-            public int ServerCount { get; set; }
-            public List<ServerInfo> Servers { get; set; }
-        }
-
-        private class ServerGroup
-        {
-            public int ServerGroupCount { get; set; }
-            public List<ServerGroupInfo> Groups { get; set; }
-        }
-
         public override async Task OnClientConnected(EnhancedClientSession session)
         {
             FileLogger.Log($"[{ProtocolName}] Client connected: {session.SessionId}");
@@ -122,15 +81,12 @@ namespace DfoServer.Network
             var msgType = (PACKETS)header.msg_no;
             var body = packet.BodyData;
 
-            
             FileLogger.Log($"[{ProtocolName}] Packet received from {session.SessionId}:, Type={msgType}, Length={packet.TotalLength}");
 
-            
             if (packet.BodyData != null && packet.BodyData.Length > 0)
                 FileLogger.Log($"[{ProtocolName}] Packet body (hex): {BitConverter.ToString(packet.BodyData).Replace("-", " ")}");
             else
                 FileLogger.Log($"[{ProtocolName}] Packet body is empty.");
-
 
             switch (msgType)
             {
@@ -152,7 +108,6 @@ namespace DfoServer.Network
             }
         }
 
-        
         private async Task SendResponsePacket(EnhancedClientSession session, PACKETS msgType, byte[] data)
         {
             var header = new ChannelPacketHeader()
@@ -171,7 +126,7 @@ namespace DfoServer.Network
         private async Task HandleCS_CONNECT(EnhancedClientSession session, byte[] packet)
         {
             var list = new List<byte>();
-            list.AddRange(new byte[] { 0, 0, 0, 0 }); 
+            list.AddRange(new byte[] { 0, 0, 0, 0 });
             list.AddRange(Encoding.ASCII.GetBytes(AesEncryptionKey));
             list.AddRange(new byte[32 - AesEncryptionKey.Length]);
             var data = list.ToArray();
@@ -181,392 +136,19 @@ namespace DfoServer.Network
 
         private async Task HandleCS_GET_SCRIPT(EnhancedClientSession session, byte[] packet)
         {
-            // A21 组号之后按名字解析频道 id。
-            // 中文和带反引号的 `1` 都会解析成 0，每组只能插入一条。
-            // 名字发裸整数 id；地牢/extra 仍按脚本引用解析。
-            var cached = GetScriptResponse();
-            FileLogger.Log(
-                $"[{ProtocolName}] SC_GET_SCRIPT etc=a21-ch-id-bare " +
-                $"plain={cached.PlainLength} cipher={cached.Data.Length} " +
-                $"src={cached.SourceLength} preview={cached.Preview}");
-            await SendResponsePacket(session, PACKETS.SC_GET_SCRIPT, cached.Data);
-        }
-
-        private CachedScriptResponse GetScriptResponse()
-        {
-            var key = AesEncryptionKey;
-            lock (_responseCacheLock)
-            {
-                if (_cachedScriptResponse != null &&
-                    string.Equals(_cachedScriptResponse.Key, key, StringComparison.Ordinal))
-                {
-                    return _cachedScriptResponse;
-                }
-
-                var text = PvfArchiveAccessor.ReadChannelInfoEtc();
-                return _cachedScriptResponse = BuildScriptResponse(text, key);
-            }
-        }
-
-        internal byte[] BuildGetScriptResponseForSelfTest(string text, string key)
-        {
-            lock (_responseCacheLock)
-            {
-                if (_cachedScriptResponse != null &&
-                    string.Equals(_cachedScriptResponse.Key, key, StringComparison.Ordinal))
-                {
-                    return _cachedScriptResponse.Data;
-                }
-
-                return (_cachedScriptResponse = BuildScriptResponse(text, key)).Data;
-            }
-        }
-
-        private static CachedScriptResponse BuildScriptResponse(string text, string key)
-        {
-            var raw = BuildGetScriptPlaintext(text);
-            var data = EncryptTool.EncryptData(raw, key);
-            var preview = Encoding.UTF8.GetString(raw);
-            if (preview.Length > 200)
-                preview = preview.Substring(0, 200);
-
-            return new CachedScriptResponse
-            {
-                Key = key,
-                Data = data,
-                PlainLength = raw.Length,
-                SourceLength = text?.Length ?? 0,
-                Preview = preview.Replace("\n", "\\n")
-            };
-        }
-
-        internal static byte[] BuildGetScriptPlaintext(string text)
-        {
-            if (string.IsNullOrEmpty(text))
-                return Array.Empty<byte>();
-
-            var tokens = TokenizeGetScript(text);
-            var sb = new StringBuilder(text.Length + 2048);
-            // 当前 channel_info.etc 的 dungeon 投影：名称、客户端引用和结束标记按 A21 顺序输出。
-            sb.Append("[dungeon]\n`[none]`\n`<4::channel_info_dname_0>`\n[/dungeon]\n");
-
-            var i = 0;
-            while (i < tokens.Count)
-            {
-                if (tokens[i] == "[dungeon]")
-                {
-                    i = AppendDungeonSection(sb, tokens, i);
-                    continue;
-                }
-
-                if (tokens[i] == "[server]")
-                {
-                    i = AppendServerSection(sb, tokens, i);
-                    continue;
-                }
-
-                sb.Append(tokens[i]).Append('\n');
-                i++;
-            }
-
-            return Encoding.UTF8.GetBytes(sb.ToString());
-        }
-
-        internal static List<string> TokenizeGetScript(string text)
-        {
-            var tokens = new List<string>();
-            var i = 0;
-            while (i < text.Length)
-            {
-                var ch = text[i];
-                if (char.IsWhiteSpace(ch))
-                {
-                    i++;
-                    continue;
-                }
-
-                if (ch == '[')
-                {
-                    var end = text.IndexOf(']', i + 1);
-                    if (end > i)
-                    {
-                        tokens.Add(text.Substring(i, end - i + 1));
-                        i = end + 1;
-                        continue;
-                    }
-                }
-
-                if (ch == '`')
-                {
-                    var end = text.IndexOf('`', i + 1);
-                    if (end > i)
-                    {
-                        tokens.Add(text.Substring(i, end - i + 1));
-                        i = end + 1;
-                        continue;
-                    }
-                }
-
-                var start = i;
-                while (i < text.Length
-                       && !char.IsWhiteSpace(text[i])
-                       && text[i] != '`'
-                       && text[i] != '[')
-                {
-                    i++;
-                }
-
-                tokens.Add(text.Substring(start, i - start));
-            }
-
-            return tokens;
-        }
-
-        private static int AppendDungeonSection(
-            StringBuilder sb,
-            List<string> tokens,
-            int i)
-        {
-            sb.Append("[dungeon]\n");
-            i++;
-            var bodyIndex = 0;
-            var dungeonTag = string.Empty;
-            while (i < tokens.Count
-                   && tokens[i] != "[/dungeon]"
-                   && tokens[i] != "[dungeon]"
-                   && tokens[i] != "[server]")
-            {
-                var token = tokens[i];
-                if (bodyIndex == 0)
-                {
-                    dungeonTag = UnwrapTick(token);
-                    sb.Append(WrapTick(token));
-                }
-                else if (bodyIndex == 1)
-                {
-                    // A21 外层要反引号；去壳后要 `<4::key>`。
-                    // 资源中的 name2 可能已经去壳；统一投影为 A21 客户端需要的引用形式。
-                    sb.Append(WrapTick(DungeonDisplayRef(dungeonTag, token)));
-                }
-                else
-                {
-                    sb.Append(token);
-                }
-
-                sb.Append('\n');
-                bodyIndex++;
-                i++;
-            }
-
-            if (i < tokens.Count && tokens[i] == "[/dungeon]")
-                i++;
-            sb.Append("[/dungeon]\n");
-            return i;
-        }
-
-        private static int AppendServerSection(
-            StringBuilder sb,
-            List<string> tokens,
-            int i)
-        {
-            i++;
-            if (i >= tokens.Count)
-                return i;
-
-            // ASK 头是组 1。A21 PVF 还有 2–9/98/99，全发会把客户端组表盖成最后一组。
-            if (!IsScriptInt(tokens[i])
-                || !int.TryParse(
-                    tokens[i],
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out var group)
-                || group != 1)
-            {
-                return SkipServerSection(tokens, i);
-            }
-
-            sb.Append("[server]\n");
-            sb.Append(tokens[i]).Append('\n');
-            i++;
-            while (i < tokens.Count
-                   && tokens[i] != "[/server]"
-                   && tokens[i] != "[server]")
-            {
-                if (!LooksLikeChannelStart(tokens, i))
-                {
-                    i++;
-                    continue;
-                }
-
-                var dungeonTag = UnwrapTick(tokens[i + 3]);
-                var name = tokens[i];
-                var type = tokens[i + 2];
-                var dungeonDisp = WrapTick(DungeonDisplayRef(dungeonTag, tokens[i + 3]));
-                var dungeonKey = WrapTick(dungeonTag);
-                i += 4;
-                var nums = new List<string>();
-                while (i < tokens.Count && IsScriptNumber(tokens[i]))
-                {
-                    if (LooksLikeChannelStart(tokens, i))
-                        break;
-                    nums.Add(tokens[i]);
-                    i++;
-                }
-
-                while (nums.Count < 11)
-                    nums.Add("0");
-
-                // A21 频道：地牢字段去壳后要 `<4::>`；
-                // extra 不去壳，带反引号，内层 `[tag]` 用来查频道表。
-                sb.Append(name).Append(' ');
-                sb.Append(dungeonDisp).Append(' ');
-                sb.Append(type).Append(' ');
-                sb.Append(dungeonKey).Append(' ');
-                sb.Append(string.Join(" ", nums.Take(11)));
-                sb.Append(' ').Append(dungeonKey).Append('\n');
-            }
-
-            if (i < tokens.Count && tokens[i] == "[/server]")
-                i++;
-            sb.Append("[/server]\n");
-            return i;
-        }
-
-        private static int SkipServerSection(List<string> tokens, int i)
-        {
-            while (i < tokens.Count
-                   && tokens[i] != "[/server]"
-                   && tokens[i] != "[server]")
-            {
-                i++;
-            }
-
-            if (i < tokens.Count && tokens[i] == "[/server]")
-                i++;
-            return i;
-        }
-
-        private static bool LooksLikeChannelStart(List<string> tokens, int i)
-        {
-            return i + 3 < tokens.Count
-                   && IsScriptInt(tokens[i])
-                   && !IsScriptNumber(tokens[i + 1])
-                   && IsScriptInt(tokens[i + 2]);
-        }
-
-        private static bool IsScriptInt(string token)
-        {
-            return int.TryParse(
-                token,
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out _);
-        }
-
-        private static bool IsScriptNumber(string token)
-        {
-            return double.TryParse(
-                token,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out _);
-        }
-
-        private static readonly Dictionary<string, string> DungeonDisplayKeys =
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["[none]"] = "<4::channel_info_dname_0>",
-                ["[elven_guard]"] = "<4::channel_info_dname_0>",
-                ["[granfloris]"] = "<4::channel_info_dname_1>",
-                ["[sky_catle]"] = "<4::channel_info_dname_2>",
-                ["[behemoth]"] = "<4::channel_info_dname_3>",
-                ["[Alfhlyra]"] = "<4::channel_info_dname_4>",
-                ["[north_myre]"] = "<4::channel_info_dname_5>",
-                ["[stormpass]"] = "<4::channel_info_dname_6>",
-                ["[deathtower]"] = "<4::channel_info_dname_7>",
-                ["[Fortress]"] = "<4::channel_info_dname_9>",
-                ["[Hall]"] = "<4::channel_info_dname_10>",
-                ["[Antwer]"] = "<4::channel_info_dname_11>",
-                ["[impossible]"] = "<4::channel_info_dname_12>",
-                ["[seatrain]"] = "<4::channel_info_dname_13>",
-                ["[dragonroad]"] = "<4::channel_info_dname_13>",
-                ["[timedoor]"] = "<4::channel_info_dname_15>",
-                ["[sainthorn]"] = "<4::channel_info_dname_15>",
-                ["[noblsky]"] = "<4::channel_info_dname_15>",
-                ["[CastleofDead]"] = "<4::channel_info_dname_15>",
-                ["[powerstation]"] = "<4::channel_info_dname_16>",
-                ["[attackzone]"] = "<4::channel_info_dname_17>",
-                ["[zombie]"] = "<4::channel_info_dname_18>",
-                ["[tournament]"] = "<4::channel_info_dname_19>",
-                ["[goldenroad]"] = "<4::channel_info_dname_20>",
-            };
-
-        private static string DungeonDisplayRef(string dungeonTag, string token)
-        {
-            var inner = UnwrapTick(token);
-            if (inner.StartsWith("<4::", StringComparison.Ordinal))
-                return inner;
-            if (DungeonDisplayKeys.TryGetValue(dungeonTag, out var key))
-                return key;
-            return "<4::channel_info_dname_0>";
-        }
-
-        private static string UnwrapTick(string token)
-        {
-            if (string.IsNullOrEmpty(token))
-                return string.Empty;
-            if (token.Length >= 2 && token[0] == '`' && token[token.Length - 1] == '`')
-                return token.Substring(1, token.Length - 2);
-            return token;
-        }
-
-        private static string WrapTick(string token)
-        {
-            if (string.IsNullOrEmpty(token))
-                return "`_`";
-            if (token.Length >= 2 && token[0] == '`' && token[token.Length - 1] == '`')
-                return token;
-            return "`" + token + "`";
+            // 频道脚本逐字节直发 channel_info.etc(该文件内容已与参照服抓包逐行核对一致)。
+            var data = EncryptTool.EncryptData(File.ReadAllBytes(EtcFilePath), AesEncryptionKey);
+            await SendResponsePacket(session, PACKETS.SC_GET_SCRIPT, data);
         }
 
         private async Task HandleCS_ASK_CHANNEL_INFO_NEW(EnhancedClientSession session, byte[] packet)
         {
-            var cached = GetChannelResponse(GameNetworkConfig.FreeDuelListenerEnabled);
-            FileLogger.Log(
-                $"[{ProtocolName}] SC_ASK_CHANNEL_INFO_NEW channels={cached.ChannelCount} " +
-                $"plain={cached.PlainLength} cipher={cached.Data.Length} zlib=on " +
-                $"names={cached.Names} head={cached.Head}");
-            await SendResponsePacket(session, PACKETS.SC_ASK_CHANNEL_INFO_NEW, cached.Data);
-        }
-
-        private CachedChannelResponse GetChannelResponse(bool includeFreeDuel)
-        {
-            var key = AesEncryptionKey;
-            lock (_responseCacheLock)
-            {
-                if (_cachedChannelResponse != null &&
-                    string.Equals(_cachedChannelResponse.Key, key, StringComparison.Ordinal) &&
-                    _cachedChannelResponse.IncludeFreeDuel == includeFreeDuel)
-                {
-                    return _cachedChannelResponse;
-                }
-
-                var channels = LoadChannels(
-                    json: null,
-                    includeFreeDuel: includeFreeDuel);
-                var plaintext = BuildChannelListPlaintext(channels);
-                var data = EncryptTool.EncryptData(plaintext, key);
-                return _cachedChannelResponse = new CachedChannelResponse
-                {
-                    Key = key,
-                    IncludeFreeDuel = includeFreeDuel,
-                    Data = data,
-                    ChannelCount = channels.Count,
-                    PlainLength = plaintext.Length,
-                    Names = string.Join(",", channels.Select(c => c.ChannelName)),
-                    Head = BitConverter.ToString(data, 0, Math.Min(16, data.Length))
-                };
-            }
+            var channels = LoadChannels(
+                json: null,
+                includeFreeDuel: GameNetworkConfig.FreeDuelListenerEnabled);
+            var plaintext = BuildChannelListPlaintext(channels);
+            var data = EncryptTool.EncryptData(plaintext, AesEncryptionKey);
+            await SendResponsePacket(session, PACKETS.SC_ASK_CHANNEL_INFO_NEW, data);
         }
 
         internal byte[] BuildChannelListPlaintext(
@@ -580,8 +162,6 @@ namespace DfoServer.Network
                 + ChannelListEntrySize * channels.Count);
             var list = new List<byte>(expectedLength);
 
-            // A21 当前 reader 只证明该字段存在；现有 channel_info.etc
-            // 路径使用组 1，保留原值直到获得真实 7001 原始响应。
             WriteUInt16(list, 1);
             WriteInt32(list, channels.Count);
             foreach (var channel in channels)
@@ -633,7 +213,7 @@ namespace DfoServer.Network
                                        nameValue.ValueKind == JsonValueKind.String &&
                                        !string.IsNullOrWhiteSpace(nameValue.GetString())
                                 ? nameValue.GetString()
-                                : $"ch.{channelId}";
+                                : $"#ch.{channelId}";
                             var maxUser = ReadMaxUser(element);
                             result.Add(
                                 new ServerInfo
@@ -665,10 +245,38 @@ namespace DfoServer.Network
                 return result;
             }
 
-            foreach (var channel in LoadChannelsFromEtc(serverGroup: 1))
+            // A21 频道集以 channel_info.etc 的 [server] 组 1 为真源(与脚本同源),
+            // 端口落到真实监听器; 文件缺失时兜底为真实监听器集合。
+            var scriptText = File.Exists(ServerPaths.ChannelInfoFilePath)
+                ? File.ReadAllText(ServerPaths.ChannelInfoFilePath, Encoding.UTF8)
+                : null;
+            var channelIdsFromScript =
+                scriptText != null ? ParseScriptChannelIds(scriptText) : null;
+            if (channelIdsFromScript != null && channelIdsFromScript.Count > 0)
             {
-                if (channelIds.Add(channel.ChannelId))
-                    result.Add(channel);
+                foreach (var channelId in channelIdsFromScript)
+                {
+                    if (!channelIds.Add(channelId))
+                        continue;
+
+                    result.Add(
+                        new ServerInfo
+                        {
+                            ChannelId = channelId,
+                            ChannelName = $"#ch.{channelId}",
+                            MaxUserNum = ResolveChannelCapacity(channelId),
+                            Port = ResolveSelectorPort(channelId)
+                        });
+                }
+            }
+            else
+            {
+                foreach (var channel in
+                         GameNetworkConfig.BuildGameChannels(includeFreeDuel: false))
+                {
+                    if (channelIds.Add(channel.ChannelId))
+                        result.Add(CreateDefaultChannel(channel.ChannelId));
+                }
             }
 
             if (includeFreeDuel
@@ -680,6 +288,76 @@ namespace DfoServer.Network
             }
 
             return result;
+        }
+
+        // 解析 channel_info.etc [server] 组 1 的频道 id(每行一条: id `名称` type `[tag]` ...)。
+        // FreeDuel 频道不在此出,由运行时按监听器开关追加到末尾。
+        internal static List<int> ParseScriptChannelIds(string text)
+        {
+            var ids = new List<int>();
+            var inServer = false;
+            var groupMatched = false;
+            using var reader = new StringReader(text);
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                var trimmed = line.Trim();
+                if (trimmed == "[server]")
+                {
+                    inServer = true;
+                    groupMatched = false;
+                    continue;
+                }
+                if (trimmed == "[/server]")
+                {
+                    inServer = false;
+                    continue;
+                }
+                if (!inServer || trimmed.Length == 0 || trimmed.StartsWith("//"))
+                    continue;
+                if (!groupMatched)
+                {
+                    groupMatched = trimmed == "1";
+                    continue;
+                }
+
+                var tokenEnd = 0;
+                while (tokenEnd < trimmed.Length
+                       && !char.IsWhiteSpace(trimmed[tokenEnd]))
+                {
+                    tokenEnd++;
+                }
+                var idToken = trimmed.Substring(0, tokenEnd);
+                if (int.TryParse(
+                        idToken,
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out var channelId)
+                    && channelId >= byte.MinValue
+                    && channelId <= byte.MaxValue
+                    && trimmed.Contains('`')
+                    && !GameNetworkConfig.IsFreeDuelChannel(channelId))
+                {
+                    ids.Add(channelId);
+                }
+            }
+
+            return ids;
+        }
+
+        // 容量字段不在 etc 格式内,按抓包标定:ch.20/21→150、ch.200→250、其余 100。
+        private static int ResolveChannelCapacity(int channelId)
+        {
+            switch (channelId)
+            {
+                case 20:
+                case 21:
+                    return 150;
+                case GameNetworkConfig.RaidChannelIndex:
+                    return 250;
+                default:
+                    return 100;
+            }
         }
 
         private static int ReadChannelId(JsonElement element)
@@ -714,100 +392,10 @@ namespace DfoServer.Network
             => new ServerInfo
             {
                 ChannelId = channelId,
-                ChannelName = GameNetworkConfig.FindGameChannel(channelId)?.SelectorName
-                              ?? $"#ch.{channelId}",
+                ChannelName = $"#ch.{channelId}",
                 MaxUserNum = 500,
                 Port = ResolveSelectorPort(channelId)
             };
-
-        // A21 [server]：组号后同一行重复 id / 名称 / type / dungeon / 数值。
-        internal static List<ServerInfo> LoadChannelsFromEtc(int serverGroup)
-        {
-            var text = PvfArchiveAccessor.ReadChannelInfoEtc();
-            var root = new ScriptParser().Parse(text);
-            var result = new List<ServerInfo>();
-            var seen = new HashSet<int>();
-            foreach (var server in root.GetChildren("server"))
-            {
-                var line = string.Join(
-                    " ",
-                    server.DataItems
-                        .Select(item => item.GetContent(text).Trim())
-                        .Where(part => !string.IsNullOrWhiteSpace(part)));
-                var tokens = ScriptValueTokenizer.Tokenize(line);
-                if (tokens.Count < 5)
-                    continue;
-                if (!int.TryParse(
-                        tokens[0],
-                        NumberStyles.Integer,
-                        CultureInfo.InvariantCulture,
-                        out var group)
-                    || group != serverGroup)
-                {
-                    continue;
-                }
-
-                var i = 1;
-                while (i + 3 < tokens.Count)
-                {
-                    if (!int.TryParse(
-                            tokens[i],
-                            NumberStyles.Integer,
-                            CultureInfo.InvariantCulture,
-                            out var channelId)
-                        || channelId < byte.MinValue
-                        || channelId > byte.MaxValue)
-                    {
-                        break;
-                    }
-
-                    _ = tokens[i + 1];
-                    if (!int.TryParse(
-                            tokens[i + 2],
-                            NumberStyles.Integer,
-                            CultureInfo.InvariantCulture,
-                            out _))
-                    {
-                        break;
-                    }
-
-                    i += 4;
-                    while (i < tokens.Count)
-                    {
-                        var isNumber = double.TryParse(
-                            tokens[i],
-                            NumberStyles.Float,
-                            CultureInfo.InvariantCulture,
-                            out _);
-                        var nextIsName = i + 1 < tokens.Count
-                            && !double.TryParse(
-                                tokens[i + 1],
-                                NumberStyles.Float,
-                                CultureInfo.InvariantCulture,
-                                out _);
-                        if (isNumber && nextIsName)
-                            break;
-                        if (!isNumber)
-                            break;
-                        i++;
-                    }
-
-                    if (!seen.Add(channelId))
-                        continue;
-
-                    result.Add(
-                        new ServerInfo
-                        {
-                            ChannelId = channelId,
-                            ChannelName = $"ch.{channelId}",
-                            MaxUserNum = 500,
-                            Port = ResolveSelectorPort(channelId)
-                        });
-                }
-            }
-
-            return result;
-        }
 
         private static int ResolveSelectorPort(int channelId)
         {
@@ -841,7 +429,7 @@ namespace DfoServer.Network
         private async Task HandleCS_CHECK_SCRIPT_VERSION(EnhancedClientSession session, byte[] packet)
         {
             var list = new List<byte>();
-            list.AddRange(new byte[] { 0, 0, 0, 0 }); 
+            list.AddRange(new byte[] { 0, 0, 0, 0 });
             list.AddRange(Encoding.ASCII.GetBytes(ScriptVersion));
             list.AddRange(new byte[16 - ScriptVersion.Length]);
             var data = EncryptTool.EncryptData(list.ToArray(), AesEncryptionKey, false);

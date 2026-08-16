@@ -2,6 +2,7 @@ using DfoServer.Network;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -123,6 +124,16 @@ namespace DfoServer
 
             GameNetworkConfig.Configure(args);
             GameNetworkConfig.ValidateRelayConfiguration();
+
+            // 频道目录驱动监听集合: 每频道一个独立 TCP 端口(10000+频道号),
+            // 客户端连哪个端口, CHANNELINFO 就带哪个频道身份。
+            var channelInfoPath = Infrastructure.ServerPaths.ChannelInfoFilePath;
+            if (File.Exists(channelInfoPath))
+            {
+                GameNetworkConfig.ConfigureChannelCatalog(
+                    ChannelProtocolHandler.ParseScriptChannelIds(
+                        File.ReadAllText(channelInfoPath)));
+            }
 
             PacketFileLogger.Initialize();
             if (GameNetworkConfig.PacketCaptureEnabled)

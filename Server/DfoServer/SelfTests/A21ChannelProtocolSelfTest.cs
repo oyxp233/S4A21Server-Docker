@@ -123,17 +123,22 @@ namespace DfoServer.SelfTests
             var selectorCatalogPlaintext = handler.BuildChannelListPlaintext(
                 selectorCatalog);
             Check(
-                "A21 selector keeps the verified PVF channel catalog",
-                selectorCatalog.Count == 38
+                "A21 selector catalog comes from channel_info.etc group 1",
+                selectorCatalog.Count == 28
                 && selectorCatalog.Any(channel => channel.ChannelId == 1)
                 && selectorCatalog.Any(channel => channel.ChannelId == 11)
+                && selectorCatalog.Any(channel => channel.ChannelId == 200)
+                && !selectorCatalog.Any(channel =>
+                    channel.ChannelId == GameNetworkConfig.FreeDuelChannelIndex)
+                && selectorCatalog.Single(
+                       channel => channel.ChannelId == 200).MaxUserNum == 250
                 && selectorCatalog.All(channel =>
-                    channel.ChannelName == $"ch.{channel.ChannelId}"),
+                    channel.ChannelName == $"#ch.{channel.ChannelId}"),
                 ref failures);
             Check(
-                "A21 selector catalog keeps the verified 1830B body",
-                selectorCatalogPlaintext.Length == 1830
-                && BitConverter.ToInt32(selectorCatalogPlaintext, 2) == 38,
+                "A21 selector catalog keeps the capture-verified 1350B body",
+                selectorCatalogPlaintext.Length == 1350
+                && BitConverter.ToInt32(selectorCatalogPlaintext, 2) == 28,
                 ref failures);
 
             var encrypted = EncryptTool.EncryptData(plaintext, Key);
@@ -146,28 +151,6 @@ namespace DfoServer.SelfTests
                 && decrypted.Length >= plaintext.Length
                 && decrypted.Take(plaintext.Length).SequenceEqual(plaintext)
                 && decrypted.Skip(plaintext.Length).All(value => value == 0),
-                ref failures);
-
-            var scriptHandler = new ChannelProtocolHandler();
-            const string scriptSource =
-                "[dungeon]\n`[none]` `None`\n[/dungeon]\n" +
-                "[server]\n1 11 `ch.11` 0 `[none]` 5 0 0 0 0 0 0 0 0 0 0\n[/server]";
-            var cachedScript1 = scriptHandler.BuildGetScriptResponseForSelfTest(
-                scriptSource,
-                Key);
-            var cachedScript2 = scriptHandler.BuildGetScriptResponseForSelfTest(
-                scriptSource,
-                Key);
-            Check(
-                "A21 channel script response is cached per key",
-                ReferenceEquals(cachedScript1, cachedScript2),
-                ref failures);
-            var cachedScriptNextKey = scriptHandler.BuildGetScriptResponseForSelfTest(
-                scriptSource,
-                "20260817000006");
-            Check(
-                "A21 channel script cache expires when AES key changes",
-                !ReferenceEquals(cachedScript1, cachedScriptNextKey),
                 ref failures);
 
             var header = new ChannelPacketHeader
