@@ -10,7 +10,6 @@ namespace DfoServer.SelfTests
     {
         private const string Key = "20260815000006";
         private const int HeaderSize = 11;
-        private const int ChannelBlockSize = 48;
 
         public static int Run()
         {
@@ -36,26 +35,105 @@ namespace DfoServer.SelfTests
             };
 
             var plaintext = handler.BuildChannelListPlaintext(channels);
+            var cursor = 0;
+            var prefixReadable = TryReadUInt16(
+                plaintext,
+                ref cursor,
+                out var group);
+            var countReadable = TryReadInt32(
+                plaintext,
+                ref cursor,
+                out var channelCount);
+            var entries = new List<ParsedChannelEntry>();
+            var entriesReadable = prefixReadable
+                                  && countReadable
+                                  && channelCount >= 0;
+            if (entriesReadable)
+            {
+                for (var i = 0; i < channelCount; i++)
+                {
+                    if (!TryReadChannelEntry(
+                            plaintext,
+                            ref cursor,
+                            out var entry))
+                    {
+                        entriesReadable = false;
+                        break;
+                    }
+
+                    entries.Add(entry);
+                }
+            }
+
             Check(
-                "A21 channel plaintext has 6B prefix and 48B blocks",
-                plaintext.Length == 6 + ChannelBlockSize * channels.Count
-                && BitConverter.ToUInt16(plaintext, 0) == 1
-                && BitConverter.ToInt32(plaintext, 2) == channels.Count,
+                "A21 channel plaintext has reader prefix",
+                prefixReadable
+                && countReadable
+                && group == 1
+                && channelCount == channels.Count
+                && cursor >= ChannelProtocolHandler.ChannelListPrefixSize,
                 ref failures);
             Check(
-                "A21 channel block fields keep name/max/ip/port offsets",
-                ReadFixedUtf8(plaintext, 6, 20) == "ch.11"
-                && BitConverter.ToInt32(plaintext, 26) == 500
-                && BitConverter.ToInt32(plaintext, 30) == 0
-                && ReadFixedUtf8(plaintext, 34, 16)
-                    == GameNetworkConfig.AdvertisedGameIp
-                && BitConverter.ToInt32(plaintext, 50) == 10011
-                && ReadFixedUtf8(plaintext, 6 + ChannelBlockSize, 20)
-                    == "ch.100"
-                && BitConverter.ToInt32(
-                    plaintext,
-                    6 + ChannelBlockSize + 44)
-                    == 10161,
+                "A21 channel plaintext has fixed 48B entries",
+                plaintext.Length
+                    == ChannelProtocolHandler.ChannelListPrefixSize
+                       + ChannelProtocolHandler.ChannelListEntrySize
+                         * channels.Count,
+                ref failures);
+            Check(
+                "A21 channel reader consumes every entry field",
+                entriesReadable
+                && entries.Count == channels.Count
+                && cursor == plaintext.Length,
+                ref failures);
+            Check(
+                "A21 channel reader gets both fixed-width names",
+                entries.Count == 2
+                && entries[0].Name == "ch.11"
+                && entries[1].Name == "ch.100",
+                ref failures);
+            Check(
+                "A21 channel reader gets both field_1 values",
+                entries.Count == 2
+                && entries[0].Field1 == 500
+                && entries[1].Field1 == 900,
+                ref failures);
+            Check(
+                "A21 channel reader gets both field_2 values",
+                entries.Count == 2
+                && entries[0].Field2 == 0
+                && entries[1].Field2 == 0,
+                ref failures);
+            Check(
+                "A21 channel reader gets both address fields",
+                entries.Count == 2
+                && entries[0].Address == GameNetworkConfig.AdvertisedGameIp
+                && entries[1].Address == GameNetworkConfig.AdvertisedGameIp,
+                ref failures);
+            Check(
+                "A21 channel reader gets both tail fields",
+                entries.Count == 2
+                && entries[0].Tail == 10011
+                && entries[1].Tail == 10161,
+                ref failures);
+
+            var selectorCatalog = ChannelProtocolHandler.LoadChannels(
+                json: null,
+                includeFreeDuel: false);
+            var selectorCatalogPlaintext = handler.BuildChannelListPlaintext(
+                selectorCatalog);
+            Check(
+                "A21 selector keeps the verified PVF channel catalog",
+                selectorCatalog.Count == 38
+                && selectorCatalog.Any(channel => channel.ChannelId == 1)
+                && selectorCatalog.Any(channel => channel.ChannelId == 11)
+                && selectorCatalog.All(channel =>
+                    channel.ChannelName == $"ch.{channel.ChannelId}"),
+                ref failures);
+            Check(
+                "A21 selector catalog keeps the verified 1830B body",
+                selectorCatalogPlaintext.Length == 1830
+                && BitConverter.ToInt32(selectorCatalogPlaintext, 2) == 38,
                 ref failures);
 
             var encrypted = EncryptTool.EncryptData(plaintext, Key);
@@ -68,6 +146,28 @@ namespace DfoServer.SelfTests
                 && decrypted.Length >= plaintext.Length
                 && decrypted.Take(plaintext.Length).SequenceEqual(plaintext)
                 && decrypted.Skip(plaintext.Length).All(value => value == 0),
+                ref failures);
+
+            var scriptHandler = new ChannelProtocolHandler();
+            const string scriptSource =
+                "[dungeon]\n`[none]` `None`\n[/dungeon]\n" +
+                "[server]\n1 11 `ch.11` 0 `[none]` 5 0 0 0 0 0 0 0 0 0 0\n[/server]";
+            var cachedScript1 = scriptHandler.BuildGetScriptResponseForSelfTest(
+                scriptSource,
+                Key);
+            var cachedScript2 = scriptHandler.BuildGetScriptResponseForSelfTest(
+                scriptSource,
+                Key);
+            Check(
+                "A21 channel script response is cached per key",
+                ReferenceEquals(cachedScript1, cachedScript2),
+                ref failures);
+            var cachedScriptNextKey = scriptHandler.BuildGetScriptResponseForSelfTest(
+                scriptSource,
+                "20260817000006");
+            Check(
+                "A21 channel script cache expires when AES key changes",
+                !ReferenceEquals(cachedScript1, cachedScriptNextKey),
                 ref failures);
 
             var header = new ChannelPacketHeader
@@ -120,6 +220,105 @@ namespace DfoServer.SelfTests
             return Encoding.UTF8
                 .GetString(bytes, offset, count)
                 .TrimEnd('\0');
+        }
+
+        private static bool TryReadChannelEntry(
+            byte[] bytes,
+            ref int cursor,
+            out ParsedChannelEntry entry)
+        {
+            entry = null;
+            if (!TryReadFixedUtf8(
+                    bytes,
+                    ref cursor,
+                    ChannelProtocolHandler.ChannelListNameSize,
+                    out var name)
+                || !TryReadInt32(bytes, ref cursor, out var field1)
+                || !TryReadInt32(bytes, ref cursor, out var field2)
+                || !TryReadFixedUtf8(
+                    bytes,
+                    ref cursor,
+                    ChannelProtocolHandler.ChannelListAddressSize,
+                    out var address)
+                || !TryReadInt32(bytes, ref cursor, out var tail))
+            {
+                return false;
+            }
+
+            entry = new ParsedChannelEntry
+            {
+                Name = name,
+                Field1 = field1,
+                Field2 = field2,
+                Address = address,
+                Tail = tail
+            };
+            return true;
+        }
+
+        private static bool TryReadFixedUtf8(
+            byte[] bytes,
+            ref int cursor,
+            int count,
+            out string value)
+        {
+            value = string.Empty;
+            if (bytes == null
+                || cursor < 0
+                || count < 0
+                || bytes.Length - cursor < count)
+            {
+                return false;
+            }
+
+            value = ReadFixedUtf8(bytes, cursor, count);
+            cursor += count;
+            return true;
+        }
+
+        private static bool TryReadUInt16(
+            byte[] bytes,
+            ref int cursor,
+            out ushort value)
+        {
+            value = 0;
+            if (bytes == null
+                || cursor < 0
+                || bytes.Length - cursor < sizeof(ushort))
+            {
+                return false;
+            }
+
+            value = BitConverter.ToUInt16(bytes, cursor);
+            cursor += sizeof(ushort);
+            return true;
+        }
+
+        private static bool TryReadInt32(
+            byte[] bytes,
+            ref int cursor,
+            out int value)
+        {
+            value = 0;
+            if (bytes == null
+                || cursor < 0
+                || bytes.Length - cursor < sizeof(int))
+            {
+                return false;
+            }
+
+            value = BitConverter.ToInt32(bytes, cursor);
+            cursor += sizeof(int);
+            return true;
+        }
+
+        private sealed class ParsedChannelEntry
+        {
+            public string Name { get; set; }
+            public int Field1 { get; set; }
+            public int Field2 { get; set; }
+            public string Address { get; set; }
+            public int Tail { get; set; }
         }
 
         private static void Check(

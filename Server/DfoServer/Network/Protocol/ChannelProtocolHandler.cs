@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -26,6 +26,38 @@ namespace DfoServer.Network
         public string TestServerIP => GameNetworkConfig.AdvertisedGameIp;
 
         public int TestServerPort => 10011;
+
+        // A21 SC_ASK_CHANNEL_INFO_NEW 明文 reader 的固定布局：
+        // 2B 首部字段、4B 条目数，以及每条 20B + 4B + 4B + 16B + 4B。
+        // 中间两个 4B 和尾部 4B 的业务语义仍以客户端后续消费为准。
+        internal const int ChannelListPrefixSize = 6;
+        internal const int ChannelListNameSize = 20;
+        internal const int ChannelListAddressSize = 16;
+        internal const int ChannelListEntrySize = 48;
+
+        private readonly object _responseCacheLock = new object();
+        private CachedScriptResponse _cachedScriptResponse;
+        private CachedChannelResponse _cachedChannelResponse;
+
+        private sealed class CachedScriptResponse
+        {
+            public string Key { get; set; }
+            public byte[] Data { get; set; }
+            public int PlainLength { get; set; }
+            public int SourceLength { get; set; }
+            public string Preview { get; set; }
+        }
+
+        private sealed class CachedChannelResponse
+        {
+            public string Key { get; set; }
+            public bool IncludeFreeDuel { get; set; }
+            public byte[] Data { get; set; }
+            public int ChannelCount { get; set; }
+            public int PlainLength { get; set; }
+            public string Names { get; set; }
+            public string Head { get; set; }
+        }
 
 
         private enum PACKETS : int
@@ -152,17 +184,60 @@ namespace DfoServer.Network
             // A21 组号之后按名字解析频道 id。
             // 中文和带反引号的 `1` 都会解析成 0，每组只能插入一条。
             // 名字发裸整数 id；地牢/extra 仍按脚本引用解析。
-            var text = PvfArchiveAccessor.ReadChannelInfoEtc();
+            var cached = GetScriptResponse();
+            FileLogger.Log(
+                $"[{ProtocolName}] SC_GET_SCRIPT etc=a21-ch-id-bare " +
+                $"plain={cached.PlainLength} cipher={cached.Data.Length} " +
+                $"src={cached.SourceLength} preview={cached.Preview}");
+            await SendResponsePacket(session, PACKETS.SC_GET_SCRIPT, cached.Data);
+        }
+
+        private CachedScriptResponse GetScriptResponse()
+        {
+            var key = AesEncryptionKey;
+            lock (_responseCacheLock)
+            {
+                if (_cachedScriptResponse != null &&
+                    string.Equals(_cachedScriptResponse.Key, key, StringComparison.Ordinal))
+                {
+                    return _cachedScriptResponse;
+                }
+
+                var text = PvfArchiveAccessor.ReadChannelInfoEtc();
+                return _cachedScriptResponse = BuildScriptResponse(text, key);
+            }
+        }
+
+        internal byte[] BuildGetScriptResponseForSelfTest(string text, string key)
+        {
+            lock (_responseCacheLock)
+            {
+                if (_cachedScriptResponse != null &&
+                    string.Equals(_cachedScriptResponse.Key, key, StringComparison.Ordinal))
+                {
+                    return _cachedScriptResponse.Data;
+                }
+
+                return (_cachedScriptResponse = BuildScriptResponse(text, key)).Data;
+            }
+        }
+
+        private static CachedScriptResponse BuildScriptResponse(string text, string key)
+        {
             var raw = BuildGetScriptPlaintext(text);
-            var data = EncryptTool.EncryptData(raw, AesEncryptionKey);
+            var data = EncryptTool.EncryptData(raw, key);
             var preview = Encoding.UTF8.GetString(raw);
             if (preview.Length > 200)
                 preview = preview.Substring(0, 200);
-            FileLogger.Log(
-                $"[{ProtocolName}] SC_GET_SCRIPT etc=a21-ch-id-bare " +
-                $"plain={raw.Length} cipher={data.Length} src={text.Length} " +
-                $"preview={preview.Replace("\n", "\\n")}");
-            await SendResponsePacket(session, PACKETS.SC_GET_SCRIPT, data);
+
+            return new CachedScriptResponse
+            {
+                Key = key,
+                Data = data,
+                PlainLength = raw.Length,
+                SourceLength = text?.Length ?? 0,
+                Preview = preview.Replace("\n", "\\n")
+            };
         }
 
         internal static byte[] BuildGetScriptPlaintext(string text)
@@ -456,17 +531,42 @@ namespace DfoServer.Network
 
         private async Task HandleCS_ASK_CHANNEL_INFO_NEW(EnhancedClientSession session, byte[] packet)
         {
-            var channels = LoadChannels(
-                json: null,
-                includeFreeDuel: GameNetworkConfig.FreeDuelListenerEnabled);
-            var plaintext = BuildChannelListPlaintext(channels);
-            var data = EncryptTool.EncryptData(plaintext, AesEncryptionKey);
+            var cached = GetChannelResponse(GameNetworkConfig.FreeDuelListenerEnabled);
             FileLogger.Log(
-                $"[{ProtocolName}] SC_ASK_CHANNEL_INFO_NEW channels={channels.Count} " +
-                $"plain={plaintext.Length} cipher={data.Length} zlib=on " +
-                $"names={string.Join(",", channels.Select(c => c.ChannelName))} " +
-                $"head={BitConverter.ToString(data, 0, Math.Min(16, data.Length))}");
-            await SendResponsePacket(session, PACKETS.SC_ASK_CHANNEL_INFO_NEW, data);
+                $"[{ProtocolName}] SC_ASK_CHANNEL_INFO_NEW channels={cached.ChannelCount} " +
+                $"plain={cached.PlainLength} cipher={cached.Data.Length} zlib=on " +
+                $"names={cached.Names} head={cached.Head}");
+            await SendResponsePacket(session, PACKETS.SC_ASK_CHANNEL_INFO_NEW, cached.Data);
+        }
+
+        private CachedChannelResponse GetChannelResponse(bool includeFreeDuel)
+        {
+            var key = AesEncryptionKey;
+            lock (_responseCacheLock)
+            {
+                if (_cachedChannelResponse != null &&
+                    string.Equals(_cachedChannelResponse.Key, key, StringComparison.Ordinal) &&
+                    _cachedChannelResponse.IncludeFreeDuel == includeFreeDuel)
+                {
+                    return _cachedChannelResponse;
+                }
+
+                var channels = LoadChannels(
+                    json: null,
+                    includeFreeDuel: includeFreeDuel);
+                var plaintext = BuildChannelListPlaintext(channels);
+                var data = EncryptTool.EncryptData(plaintext, key);
+                return _cachedChannelResponse = new CachedChannelResponse
+                {
+                    Key = key,
+                    IncludeFreeDuel = includeFreeDuel,
+                    Data = data,
+                    ChannelCount = channels.Count,
+                    PlainLength = plaintext.Length,
+                    Names = string.Join(",", channels.Select(c => c.ChannelName)),
+                    Head = BitConverter.ToString(data, 0, Math.Min(16, data.Length))
+                };
+            }
         }
 
         internal byte[] BuildChannelListPlaintext(
@@ -475,18 +575,28 @@ namespace DfoServer.Network
             if (channels == null)
                 throw new ArgumentNullException(nameof(channels));
 
-            var list = new List<byte>();
-            // A21 第一层查不到时，用这 2 字节当 etc 组号再查频道 id。
-            list.AddRange(BitConverter.GetBytes((ushort)1));
-            list.AddRange(BitConverter.GetBytes(channels.Count));
+            var expectedLength = checked(
+                ChannelListPrefixSize
+                + ChannelListEntrySize * channels.Count);
+            var list = new List<byte>(expectedLength);
+
+            // A21 当前 reader 只证明该字段存在；现有 channel_info.etc
+            // 路径使用组 1，保留原值直到获得真实 7001 原始响应。
+            WriteUInt16(list, 1);
+            WriteInt32(list, channels.Count);
             foreach (var channel in channels)
             {
-                WriteFixedField(list, channel.ChannelName, 20);
-                list.AddRange(BitConverter.GetBytes(channel.MaxUserNum));
-                list.AddRange(BitConverter.GetBytes(0));
-                WriteFixedField(list, TestServerIP, 16);
-                list.AddRange(BitConverter.GetBytes(channel.Port));
+                WriteFixedField(list, channel.ChannelName, ChannelListNameSize);
+                WriteInt32(list, channel.MaxUserNum);
+                WriteInt32(list, 0);
+                WriteFixedField(list, TestServerIP, ChannelListAddressSize);
+                WriteInt32(list, channel.Port);
             }
+
+            if (list.Count != expectedLength)
+                throw new InvalidOperationException(
+                    $"A21 channel list layout mismatch: "
+                    + $"actual={list.Count}, expected={expectedLength}");
 
             return list.ToArray();
         }
@@ -561,6 +671,14 @@ namespace DfoServer.Network
                     result.Add(channel);
             }
 
+            if (includeFreeDuel
+                && channelIds.Add(GameNetworkConfig.FreeDuelChannelIndex))
+            {
+                result.Add(
+                    CreateDefaultChannel(
+                        GameNetworkConfig.FreeDuelChannelIndex));
+            }
+
             return result;
         }
 
@@ -596,7 +714,8 @@ namespace DfoServer.Network
             => new ServerInfo
             {
                 ChannelId = channelId,
-                ChannelName = $"ch.{channelId}",
+                ChannelName = GameNetworkConfig.FindGameChannel(channelId)?.SelectorName
+                              ?? $"#ch.{channelId}",
                 MaxUserNum = 500,
                 Port = ResolveSelectorPort(channelId)
             };
@@ -707,6 +826,16 @@ namespace DfoServer.Network
             target.AddRange(bytes.Take(size));
             if (bytes.Length < size)
                 target.AddRange(new byte[size - bytes.Length]);
+        }
+
+        private static void WriteUInt16(List<byte> target, ushort value)
+        {
+            target.AddRange(BitConverter.GetBytes(value));
+        }
+
+        private static void WriteInt32(List<byte> target, int value)
+        {
+            target.AddRange(BitConverter.GetBytes(value));
         }
 
         private async Task HandleCS_CHECK_SCRIPT_VERSION(EnhancedClientSession session, byte[] packet)

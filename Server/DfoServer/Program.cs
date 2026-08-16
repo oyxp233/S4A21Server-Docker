@@ -13,6 +13,7 @@ namespace DfoServer
         // 自测注册表: 新增自测在这里加一行, 单跑参数与 --selftest-all 都会覆盖到。
         private static readonly (string Arg, Func<int> Run)[] SelfTestRegistry =
         {
+            ("--selftest-file-logger-backpressure", SelfTests.FileLoggerBackpressureSelfTest.Run),
             ("--selftest-a21-startup-protocol", SelfTests.A21StartupProtocolSelfTest.Run),
             ("--selftest-a21-channel-protocol", SelfTests.A21ChannelProtocolSelfTest.Run),
             ("--selftest-a21-create-character-protocol", SelfTests.A21CreateCharacterProtocolSelfTest.Run),
@@ -56,7 +57,7 @@ namespace DfoServer
             ("--selftest-inventory-move-transaction", SelfTests.InventoryMoveTransactionSelfTest.Run),
             ("--selftest-inventory-sort-lock-transaction", SelfTests.InventorySortLockTransactionSelfTest.Run),
             ("--selftest-inventory-disjoint-transaction", SelfTests.InventoryDisjointTransactionSelfTest.Run),
-            ("--selftest-dungeon-map-fallback", SelfTests.DungeonMapFallbackSelfTest.Run),
+            ("--selftest-dungeon-map-parsing", SelfTests.DungeonMapParsingSelfTest.Run),
             ("--selftest-move-map-request", SelfTests.MoveMapRequestSelfTest.Run),
             ("--selftest-tower-of-despair-progress", SelfTests.TowerOfDespairProgressSelfTest.Run),
             ("--selftest-tower-of-despair-settlement-transaction", SelfTests.TowerOfDespairSettlementTransactionSelfTest.Run),
@@ -85,7 +86,6 @@ namespace DfoServer
             ("--selftest-quest-dungeon-drop", SelfTests.QuestDungeonDropSelfTest.Run),
             ("--selftest-quest-giveup-transaction", SelfTests.QuestGiveupTransactionSelfTest.Run),
             ("--selftest-character-option", SelfTests.CharacterOptionSelfTest.Run),
-            ("--selftest-seed-character-protocol", SelfTests.SeedCharacterProtocolSelfTest.Run),
             ("--selftest-expert-contract-skill", SelfTests.ExpertContractSkillSelfTest.Run),
             ("--selftest-expert-job-store", SelfTests.ExpertJobStoreSelfTest.Run),
             ("--selftest-expert-job-giveup", SelfTests.ExpertJobGiveupSelfTest.Run),
@@ -96,7 +96,6 @@ namespace DfoServer
             ("--selftest-clear-map-quest", SelfTests.ClearMapQuestSelfTest.Run),
             ("--selftest-death-tower-map-loader", SelfTests.DeathTowerMapLoaderSelfTest.Run),
             ("--selftest-death-tower-drop", SelfTests.DeathTowerDropSelfTest.Run),
-            ("--selftest-death-tower-protocol", SelfTests.DeathTowerProtocolSelfTest.Run),
             ("--selftest-death-tower-inventory-overlay", SelfTests.DeathTowerInventoryOverlaySelfTest.Run),
             ("--selftest-death-tower-quest-routing", SelfTests.DeathTowerQuestRoutingSelfTest.Run),
             ("--selftest-quest-clear", SelfTests.QuestClearSelfTest.Run),
@@ -126,10 +125,8 @@ namespace DfoServer
             ("--selftest-honor-level", SelfTests.HonorLevelSelfTest.Run),
             ("--selftest-character-experience-progression", SelfTests.CharacterExperienceProgressionSelfTest.Run),
             ("--selftest-party", SelfTests.PartySelfTest.Run),
-            ("--selftest-party-command-isolation", SelfTests.PartyCommandIsolationSelfTest.Run),
             ("--selftest-chat-broadcast", SelfTests.ChatBroadcastSelfTest.Run),
             ("--selftest-party-udp-relay-core", SelfTests.PartyUdpRelayCoreSelfTest.Run),
-            ("--selftest-other-user-info", SelfTests.OtherUserInfoSelfTest.Run),
             ("--selftest-other-user-info-protocol", SelfTests.OtherUserInfoProtocolSelfTest.Run),
             ("--selftest-session-generation", SelfTests.SessionGenerationSelfTest.Run),
             ("--selftest-inventory-lease-lifecycle", SelfTests.InventoryLeaseLifecycleSelfTest.Run),

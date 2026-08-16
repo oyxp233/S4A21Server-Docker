@@ -137,18 +137,22 @@ namespace DfoServer.SelfTests
                 ChannelProtocolHandler.LoadChannels(
                     json: null,
                     includeFreeDuel: true);
+            var defaultDisabledSelector =
+                ChannelProtocolHandler.LoadChannels(
+                    json: null,
+                    includeFreeDuel: false);
             Check(
                 "runtime enable appends CH.68 to the default selector",
-                defaultEnabledSelector.Select(
-                        channel => channel.ChannelId)
+                defaultEnabledSelector.Count
+                    == defaultDisabledSelector.Count + 1
+                && defaultEnabledSelector
+                    .Take(defaultDisabledSelector.Count)
+                    .Select(channel => channel.ChannelId)
                     .SequenceEqual(
-                        new[]
-                        {
-                            GameNetworkConfig.NormalChannelIndex,
-                            GameNetworkConfig.Channel100Index,
-                            GameNetworkConfig.RaidChannelIndex,
-                            GameNetworkConfig.FreeDuelChannelIndex
-                        }),
+                        defaultDisabledSelector.Select(
+                            channel => channel.ChannelId))
+                && defaultEnabledSelector[^1].ChannelId
+                    == GameNetworkConfig.FreeDuelChannelIndex,
                 ref failures);
 
             var plaintext =

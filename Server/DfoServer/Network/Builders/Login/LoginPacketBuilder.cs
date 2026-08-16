@@ -21,7 +21,11 @@ namespace DfoServer.Network.Builders
             writer.WriteInt32((int)System.DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             writer.WriteInt32(0x00000001);
             writer.WriteAsciiDstr(GameNetworkConfig.AdvertisedGameIp);
-            // A21 在地址列表后直接读取 cmd/noti 表大小；写 UDP 端口会触发表数量错误。
+            writer.WriteInt32(GameNetworkConfig.InitialUdpPort1);
+            writer.WriteInt32(GameNetworkConfig.InitialUdpPort2);
+            writer.WriteInt32(0x00000000);
+            writer.WriteByte((byte)'0');
+            writer.WriteByte((byte)'0');
             writer.WriteInt32(GameNetworkConfig.CommandPacketCount);
             writer.WriteInt32(GameNetworkConfig.NotificationPacketCount);
             writer.WriteInt32(0);

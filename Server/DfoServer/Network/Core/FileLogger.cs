@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace DfoServer
@@ -16,9 +15,11 @@ namespace DfoServer
     {
         private static readonly string _logPath;
         private static readonly Encoding _encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
-        private static readonly Channel<string> _queue;
+        private const int QueueCapacity = 8192;
+        private static readonly BoundedAsyncLogQueue _queue;
         private static readonly Task _consumerTask;
         private static int _shutdownStarted;
+        private static long _lastDropNotice;
 
         static FileLogger()
         {
@@ -27,14 +28,9 @@ namespace DfoServer
             // server.log 包含中文诊断字段，显式写入 BOM 方便 Windows 查看器识别 UTF-8。
             File.WriteAllText(_logPath, $"=== DfoServer started {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\r\n", _encoding);
 
-            // 单人运行时日志量有明确上限，使用无界队列可确保业务线程只负责入队，
-            // 不会因为队列容量不足重新等待磁盘。单消费者负责维持日志的先后顺序。
-            _queue = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
-            {
-                SingleReader = true,
-                SingleWriter = false,
-                AllowSynchronousContinuations = false
-            });
+            // 单消费者负责维持日志顺序；有界队列保证磁盘变慢或客户端
+            // 重连风暴时，待写日志不会把进程内存无限占满。
+            _queue = new BoundedAsyncLogQueue(QueueCapacity);
             _consumerTask = Task.Run(ProcessQueueAsync);
 
             // 正常退出由 Program 主动等待队列排空；这里补充覆盖 Environment.Exit 等提前退出路径。
@@ -45,8 +41,19 @@ namespace DfoServer
         {
             // 时间戳在调用线程生成，记录事件实际发生的时刻，而不是后台任务稍后落盘的时刻。
             var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}\r\n";
-            if (!_queue.Writer.TryWrite(line))
-                Console.Error.WriteLine("[FileLogger] logger has stopped; log entry dropped.");
+            if (_queue.TryEnqueue(line))
+                return;
+
+            var dropped = _queue.DroppedCount;
+            if (dropped == 1 || dropped % 1000 == 0)
+            {
+                var previous = Interlocked.Exchange(ref _lastDropNotice, dropped);
+                if (previous != dropped)
+                {
+                    Console.Error.WriteLine(
+                        $"[FileLogger] bounded queue full; dropped={dropped}.");
+                }
+            }
         }
 
         public static void Log(string format, params object[] args)
@@ -63,7 +70,7 @@ namespace DfoServer
             if (Interlocked.Exchange(ref _shutdownStarted, 1) != 0)
                 return;
 
-            _queue.Writer.TryComplete();
+            _queue.TryComplete();
 
             try
             {

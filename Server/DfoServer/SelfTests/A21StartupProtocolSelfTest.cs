@@ -18,12 +18,12 @@ namespace DfoServer.SelfTests
             var failures = 0;
 
             Check(
-                "A21 cmd/noti table size is 1246",
-                GameNetworkConfig.CommandPacketCount == 1246
-                && GameNetworkConfig.NotificationPacketCount == 1246,
+                "A21 cmd/noti table sizes are 1271/1218",
+                GameNetworkConfig.CommandPacketCount == 1271
+                && GameNetworkConfig.NotificationPacketCount == 1218,
                 ref failures);
             Check(
-                "A21 loopback advertisement avoids literal 127.0.0.1",
+                "A21 loopback advertisement uses the working selector alias",
                 GameNetworkConfig.AdvertisedGameIp == "127.0.0.2",
                 ref failures);
 
@@ -64,14 +64,13 @@ namespace DfoServer.SelfTests
 
             var initial = LoginPacketBuilder.BuildInitialLoginNotice();
             Check(
-                "A21 initial notice advertises A21 table sizes",
-                initial.Length >= 12
-                && BitConverter.ToInt32(initial, initial.Length - 12) == 1246
-                && BitConverter.ToInt32(initial, initial.Length - 8) == 1246
-                && BitConverter.ToInt32(initial, initial.Length - 4) == 0,
+                "A21 initial notice follows the client reader layout",
+                HasValidInitialLoginNoticeLayout(
+                    initial,
+                    GameNetworkConfig.NormalGamePort),
                 ref failures);
             Check(
-                "A21 initial notice advertises 127.0.0.2",
+                "A21 initial notice advertises selector loopback alias",
                 Encoding.ASCII.GetString(initial).Contains("127.0.0.2"),
                 ref failures);
 
@@ -258,6 +257,105 @@ namespace DfoServer.SelfTests
             var result = new byte[source.Length];
             Buffer.BlockCopy(source, 0, result, 0, source.Length);
             return result;
+        }
+
+        private static bool HasValidInitialLoginNoticeLayout(
+            byte[] body,
+            int listenerGamePort)
+        {
+            if (body == null)
+                return false;
+
+            var channel =
+                GameNetworkConfig.ResolveGameChannel(listenerGamePort);
+            var offset = 0;
+
+            if (!TryReadByte(body, ref offset, out var success)
+                || success != 0x01
+                || !TryReadAsciiDstr(body, ref offset, out var channelName)
+                || channelName != channel.LoginName
+                || !TryReadInt32(body, ref offset, out var opaqueA)
+                || opaqueA != 0
+                || !TryReadInt32(body, ref offset, out var opaqueB)
+                || opaqueB != 0
+                || !TryReadByte(body, ref offset, out var serverIndex)
+                || serverIndex != GameNetworkConfig.ChannelServerIndex
+                || !TryReadByte(body, ref offset, out var channelId)
+                || channelId != channel.ChannelId
+                || !TryReadByte(body, ref offset, out var reserved)
+                || reserved != 0
+                || !TryReadInt32(body, ref offset, out _)
+                || !TryReadInt32(body, ref offset, out var addressCount)
+                || addressCount != 1
+                || !TryReadAsciiDstr(body, ref offset, out var address)
+                || address != GameNetworkConfig.AdvertisedGameIp
+                || !TryReadInt32(body, ref offset, out var udpPort1)
+                || udpPort1 != GameNetworkConfig.InitialUdpPort1
+                || !TryReadInt32(body, ref offset, out var udpPort2)
+                || udpPort2 != GameNetworkConfig.InitialUdpPort2
+                || !TryReadInt32(body, ref offset, out var extraAddressCount)
+                || extraAddressCount != 0
+                || !TryReadByte(body, ref offset, out var markerA)
+                || markerA != (byte)'0'
+                || !TryReadByte(body, ref offset, out var markerB)
+                || markerB != (byte)'0'
+                || !TryReadInt32(body, ref offset, out var commandCount)
+                || commandCount != GameNetworkConfig.CommandPacketCount
+                || !TryReadInt32(body, ref offset, out var notificationCount)
+                || notificationCount
+                    != GameNetworkConfig.NotificationPacketCount
+                || !TryReadInt32(body, ref offset, out var trailing)
+                || trailing != 0)
+            {
+                return false;
+            }
+
+            return offset == body.Length;
+        }
+
+        private static bool TryReadByte(
+            byte[] body,
+            ref int offset,
+            out byte value)
+        {
+            value = 0;
+            if (offset >= body.Length)
+                return false;
+
+            value = body[offset++];
+            return true;
+        }
+
+        private static bool TryReadInt32(
+            byte[] body,
+            ref int offset,
+            out int value)
+        {
+            value = 0;
+            if (offset < 0 || offset > body.Length - sizeof(int))
+                return false;
+
+            value = BitConverter.ToInt32(body, offset);
+            offset += sizeof(int);
+            return true;
+        }
+
+        private static bool TryReadAsciiDstr(
+            byte[] body,
+            ref int offset,
+            out string value)
+        {
+            value = null;
+            if (!TryReadInt32(body, ref offset, out var length)
+                || length < 0
+                || offset > body.Length - length)
+            {
+                return false;
+            }
+
+            value = Encoding.ASCII.GetString(body, offset, length);
+            offset += length;
+            return true;
         }
 
         private static void Check(string name, bool condition, ref int failures)

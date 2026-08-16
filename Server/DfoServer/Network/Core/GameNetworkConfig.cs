@@ -28,8 +28,9 @@ namespace DfoServer.Network
         public const int InitialUdpPort2 = 12312;
         public const int LoginChannelPort = 10128;
         public const int LoginUnknownPort = 17200;
-        public const int CommandPacketCount = 1246;
-        public const int NotificationPacketCount = 1246;
+        // A21 client sub_1160090 compares the CHANNELINFO tail with 0x04F7/0x04C2.
+        public const int CommandPacketCount = 1271;
+        public const int NotificationPacketCount = 1218;
 
         public static string ServerIp { get; private set; } = "127.0.0.1";
         public static string AdvertisedGameIp =>
