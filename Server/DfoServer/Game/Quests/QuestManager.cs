@@ -318,18 +318,39 @@ namespace DfoServer.Game.Quests
             int cid = _sender.CharacterId;
             if (cid <= 0) return;
             InventoryContext.TryGetOwnedLease(sessionId, cid, out var lease);
+            var experienceBonus = CaptureCompletionExperienceBonus();
             var owner = new QuestCommandOwnerContext(
                 cid,
                 _sender.AccountId,
                 sessionId,
                 lease,
-                _sender.Player?.Exp);
+                _sender.Player?.Exp,
+                experienceBonus);
             var result = QuestCommandParser.TryParseFinish(qBody, out var command)
                 ? _service.HandleFinishQuest(owner, command)
                 : QuestFinishResult.Fail(22);
             await _notifications.SendPreFinishAckNotificationsAsync(cid, result);
             await _sender.SendCmdAckAsync(wireType, QuestAckBuilder.BuildFinish(result));
             await _notifications.ProjectFinishedQuestAsync(cid, result);
+        }
+
+        private QuestCompletionExperienceBonusSnapshot
+            CaptureCompletionExperienceBonus()
+        {
+            var player = _sender.Player;
+            if (player == null)
+                return default;
+
+            var run = player.CurrentRun;
+            var snapshot = QuestCompletionExperienceBonusPolicy.Capture(
+                run,
+                player.Level);
+            lock (player.DungeonRunLifecycleSyncRoot)
+            {
+                return ReferenceEquals(player.CurrentRun, run)
+                    ? snapshot
+                    : default;
+            }
         }
 
         public void HandleSaveQuestNotify(byte[] body)

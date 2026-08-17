@@ -20,6 +20,7 @@ namespace DfoServer.GameWorld
         EventSkill,
         HellChallenge,
         CrackOfDimension,
+        CircleDungeon,
     }
 
     internal enum QuestRewardSelectionPolicy
@@ -336,6 +337,19 @@ namespace DfoServer.GameWorld
                     }
                     break;
 
+                case "circle dungeon":
+                    kind = QuestRewardKind.CircleDungeon;
+                    if (!TryParseCircleDungeonReward(
+                            quest,
+                            out chainType,
+                            out rewardParameter,
+                            out fixedItems,
+                            out error))
+                    {
+                        return false;
+                    }
+                    break;
+
                 default:
                     error = $"unsupported reward type '{rewardTag}'";
                     return false;
@@ -375,6 +389,45 @@ namespace DfoServer.GameWorld
                 suppressExperience,
                 quest.GoldMultiple);
             return true;
+        }
+
+        private static bool TryParseCircleDungeonReward(
+            QuestFile quest,
+            out int chainType,
+            out int rewardParameter,
+            out IReadOnlyList<QuestRewardItemRule> fixedItems,
+            out string error)
+        {
+            chainType = 0;
+            rewardParameter = 0;
+            fixedItems = Array.Empty<QuestRewardItemRule>();
+            error = string.Empty;
+            if (!string.IsNullOrWhiteSpace(quest.RewardSelectionIntData))
+            {
+                error = "circle dungeon reward has unexpected selection data";
+                return false;
+            }
+
+            var tokens = SplitTokens(quest.RewardIntData);
+            if (tokens.Length == 1)
+            {
+                if (!TryParseInt(tokens[0], out rewardParameter)
+                    || rewardParameter < 1
+                    || rewardParameter > 4)
+                {
+                    error = "circle dungeon grow type must be between 1 and 4";
+                    return false;
+                }
+
+                chainType = 1;
+                return true;
+            }
+
+            return TryParseItemRules(
+                quest.RewardIntData,
+                allowGoldMarker: true,
+                out fixedItems,
+                out error);
         }
 
         private bool TryValidateSelectionPresence(

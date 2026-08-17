@@ -8,6 +8,9 @@ namespace DfoServer.Game.Dungeon
         public ushort SceneSlot;
         public uint TemplateId;
         public uint StackCount;
+        // A21 DIE_MONSTER 条目 +16..19：同一掉落组共享的 Unix 秒级标识。
+        // 由掉落生成/注册边界写入，Builder 只负责序列化。
+        public uint DropGroupId;
         public ushort Endurance;
         public byte UpgradeLevel;
         internal ItemCore Core;

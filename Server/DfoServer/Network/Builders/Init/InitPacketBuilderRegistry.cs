@@ -74,7 +74,6 @@ namespace DfoServer.Network.Builders
             Register(new RentalInfoBodyBuilder());                                      
             Register(new LotteryBufferBodyBuilder(_database));                          
             Register(new CubeInfoBodyBuilder());                                        
-            Register(new LuckyStarInfoBodyBuilder());                                        
             Register(new FatigueAccelBodyBuilder());                                    
 
             

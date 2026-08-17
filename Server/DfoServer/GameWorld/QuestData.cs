@@ -331,6 +331,25 @@ namespace DfoServer.GameWorld
             return qst != null ? ParseItemPairs(qst.DependGiveItem) : new List<QuestRewardItem>();
         }
 
+        internal static IReadOnlyList<QuestRewardItem>
+            GetCircleDungeonWorldmapRewardItems(
+            int questId)
+        {
+            var qst = GetQuestFile(questId);
+            if (qst == null
+                || NormalizeQuestTag(qst.Grade) != "circle"
+                || NormalizeQuestTag(qst.RewardType) != "circle dungeon")
+            {
+                return Array.Empty<QuestRewardItem>();
+            }
+
+            return CircleDungeonRewardCatalog.TryGetRewards(
+                    questId,
+                    out var rewards)
+                ? rewards
+                : Array.Empty<QuestRewardItem>();
+        }
+
         public static List<QuestRewardItem> GetCarryForwardEventItems(int questId)
             => QuestRelationIndex.GetCarryForwardEventItems(questId);
 

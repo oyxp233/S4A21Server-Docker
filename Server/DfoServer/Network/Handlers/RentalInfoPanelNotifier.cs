@@ -7,9 +7,10 @@ namespace DfoServer.Network.Handlers
 {
     internal static class RentalInfoPanelNotifier
     {
-        internal const ushort NotiRental = 0x0357;
+        internal const ushort NotiRental =
+            (ushort)NotiPacketTypeA21.EQUIPMENT_RENTAL_LIST;
 
-        // 0x0357 是租赁面板状态包，幸运星或租赁物品变化后主动刷新。
+        // 幸运星或租赁物品变化后，按 A21 租赁列表 reader 刷新完整状态。
         internal static async Task SyncAsync(
             EnhancedClientSession session,
             SqliteSelectCharacterDataSource dataSource,

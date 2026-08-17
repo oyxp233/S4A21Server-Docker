@@ -13,6 +13,7 @@ using DfoServer.Game.Session;
 using DfoServer.Game.Skills;
 using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
+using DfoServer.Network;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Handlers.Pets;
 
@@ -175,7 +176,7 @@ namespace DfoServer.Game.Quests
             if (needsExpNotification && skillPoints.HasValue)
             {
                 await _sender.SendNotiAsync(
-                    0x0025,
+                    (ushort)NotiPacketTypeA21.EXP,
                     ExpNotificationBuilder.Build(
                         player.Level,
                         player.Exp,

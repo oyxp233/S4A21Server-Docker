@@ -438,9 +438,9 @@ namespace DfoServer.Network
             d[0x0110] = _inventoryHandler.Handle_ENUM_CMDPACKET_ENCHANT_BY_BEAD;   //272
             d[0x0191] = _inventoryHandler.Handle_UNSEAL_RANDOM_OPTION;             //401
             d[0x0197] = _inventoryHandler.Handle_REGENERATION_RANDOM_OPTION;       //407 equipment compound
-            d[0x019C] = _inventoryHandler.Handle_TITLE_BOOK;                       //412
+            d[(ushort)CmdPacketTypeA21.TITLE_BOOK_PUT] = _inventoryHandler.Handle_TITLE_BOOK;
             d[0x01B6] = _inventoryHandler.Handle_CHANGE_RANDOM_OPTION;             //438
-            d[0x019D] = _inventoryHandler.Handle_TITLE_BOOK;                       //413
+            d[(ushort)CmdPacketTypeA21.TITLE_BOOK_GET] = _inventoryHandler.Handle_TITLE_BOOK;
             d[0x019E] = _inventoryHandler.Handle_ENUM_CMDPACKET_MONSTERCARD_BIND;  //414 monster card synthesis
             d[0x025C] = _inventoryHandler.Handle_UPGRADE_CARD;                     //604 monster card upgrade
             d[0x0207] = _inventoryHandler.Handle_OPEN_AVATAR_PACKAGE;
@@ -614,10 +614,12 @@ namespace DfoServer.Network
         {
             d[0x000F] = _dungeonHandler.Handle_ENUM_CMDPACKET_ENTER_SELECT_DUNGEON;
             d[0x0010] = _dungeonHandler.Handle_ENUM_CMDPACKET_SELECT_DUNGEON;
-            d[0x0027] = _dungeonHandler.Handle_ENUM_CMDPACKET_DIE_MONSTER;
+            d[(ushort)CmdPacketTypeA21.REQUEST_CIRCLE_ENTER] =
+                _dungeonHandler.Handle_ENUM_CMDPACKET_REQUEST_CIRCLE_ENTER;
+            d[(ushort)CmdPacketTypeA21.DIE_MONSTER] = _dungeonHandler.Handle_ENUM_CMDPACKET_DIE_MONSTER;
             d[0x0028] = HandleRaidAwareCharacterDeath;       //40
             d[0x0029] = HandleRaidAwareUseCoin;
-            d[0x002B] = _dungeonHandler.Handle_ENUM_CMDPACKET_GET_ITEM;
+            d[(ushort)CmdPacketTypeA21.GET_ITEM] = _dungeonHandler.Handle_ENUM_CMDPACKET_GET_ITEM;
             d[0x002D] = _dungeonHandler.Handle_ENUM_CMDPACKET_MOVE_MAP;
             d[0x002E] = HandleRaidAwareSetPlayResult;                    //46
             d[0x002F] = _dungeonHandler.Handle_ENUM_CMDPACKET_DROP_ITEM;
@@ -682,7 +684,7 @@ namespace DfoServer.Network
                 await _townHandler.Handle_ENUM_CMDPACKET_SET_USER_AREA(s, h, b);
                 await _expertJobStoreHandler.SendAreaStoresToAsync(s);
             };
-            d[0x0025] = HandleRaidAwareFinishLoading;
+            d[(ushort)CmdPacketTypeA21.FINISH_LOADING] = HandleRaidAwareFinishLoading;
             d[0x002A] = (s, h, b) => HandleRaidAwareDungeonExit(s, h, b, _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME, "giveup");
             d[0x0084] = (s, h, b) => HandleRaidAwareDungeonExit(s, h, b, _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME, "back-to-village");
             d[0x00ED] = _townHandler.Handle_ENUM_CMDPACKET_TELEPORT;
@@ -839,12 +841,13 @@ namespace DfoServer.Network
                 s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0003, CommonPacketBodyBuilder.BuildSuccessAck()));
             d[0x0040] = _ceraShopHandler.HandleCeraShopPurchase;                   //64
             d[(ushort)CmdPacketType.GEN_CERATICKET] = _ceraShopHandler.HandleGenCeraTicket;
-            d[0x01A1] = _inventoryHandler.Handle_ACHIEVEMENT_TRIGGER;              //417
+            d[(ushort)CmdPacketTypeA21.ACHIEVEMENT_TRIGGER] = _inventoryHandler.Handle_ACHIEVEMENT_TRIGGER;
             d[0x01DE] = _dungeonHandler.HandleDungeonSceneUniqueIdReport;           //478
             d[0x02A8] = (s, h, b) =>
                 s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x02A8, new byte[] { 0x00, 0x00 }));
-            d[0x0372] = _rentalHandler.HandleRentWeapon;
-            d[0x0373] = _luckyStarHandler.HandleShopPurchasePacket;
+            d[RentalHandler.CommandType] = _rentalHandler.HandleRentWeapon;
+            d[(ushort)CmdPacketTypeA21.CHARGE_RENTPOINT] =
+                _luckyStarHandler.HandleShopPurchasePacket;
             d[(ushort)CmdPacketType.GET_EXPAND_EXP_GAGE_REWARD] = _growthCapsuleHandler.HandleClaimAsync;
             d[(ushort)CmdPacketType.UPGRADE_CARRY_GOLD] = _goldLimitHandler.HandleUpgradeAsync;
             d[PvpChannelInfoHandler.CommandType] =

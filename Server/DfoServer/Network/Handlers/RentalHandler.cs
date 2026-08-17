@@ -13,6 +13,8 @@ namespace DfoServer.Network.Handlers
     /// </summary>
     public sealed class RentalHandler
     {
+        public const ushort CommandType = (ushort)CmdPacketTypeA21.RENT_EQUIPMENT_ITEM;
+
         private readonly IRentalTimeProvider _rentalTimeProvider;
         private readonly SqliteSelectCharacterDataSource _dataSource;
         private readonly InventoryRefreshSender _refresh;
@@ -34,41 +36,45 @@ namespace DfoServer.Network.Handlers
             if (characterId <= 0 || accountId <= 0)
                 return;
 
-            if (!RentalWeaponRequestCodec.TryParse(body, out var weaponId, out var parsedInventoryId, out var starCost, out var priceTier))
+            if (!RentalWeaponRequestCodec.TryParse(body, out var inventoryTemplateId, out var clientContext, out var starCost))
             {
                 var tail = body == null || body.Length == 0
                     ? string.Empty
                     : BitConverter.ToString(body, Math.Max(0, body.Length - 8));
                 var head = body == null || body.Length == 0
                     ? string.Empty
-                    : BitConverter.ToString(body, 0, Math.Min(13, body.Length));
+                    : BitConverter.ToString(body, 0, Math.Min(RentalWeaponRequestCodec.ItemTemplateOffset, body.Length));
                 var detail = RentalWeaponRequestCodec.DescribeParseFailure(body);
-                FileLogger.Log($"[Rental] REJECT 0x0372 char={characterId} parse failed bodyLen={body?.Length ?? 0} head={head} tail={tail} detail={detail}");
-                await Send0372Error(session);
+                FileLogger.Log($"[Rental] REJECT 0x{CommandType:X4} char={characterId} parse failed bodyLen={body?.Length ?? 0} head={head} tail={tail} detail={detail}");
+                await SendFailure(session);
                 return;
             }
+
+            FileLogger.Log($"[Rental] RENT_WEAPON request char={characterId} item=0x{inventoryTemplateId:X8} clientContext=0x{clientContext:X8} cost={starCost}");
 
             if (!InventoryContext.TryGetLease(characterId, out var lease) || !lease.IsOwnedBy(session.SessionId))
             {
-                FileLogger.Log($"[Rental] RENT_WEAPON: online inventory missing shop=0x{weaponId:X8} inv=0x{parsedInventoryId:X8} char={characterId}");
-                await Send0372Error(session);
+                FileLogger.Log($"[Rental] RENT_WEAPON: online inventory missing item=0x{inventoryTemplateId:X8} char={characterId}");
+                await SendFailure(session);
                 return;
             }
 
-            var inventoryTemplateId = (int)parsedInventoryId;
+            var inventoryTemplateIdValue = (int)inventoryTemplateId;
             var expireTime = (int)ResolveRentalExpireTime();
             var luckyStar = (ushort)0;
             InventoryMutationResult rentResult = null;
             string rejectLog = null;
+            var failureResult = 0u;
 
             var success = OnlineInventoryMutationCommitCoordinator.TryCommit(
                 lease,
                 "rental-weapon-purchase",
                 (connection, transaction) =>
                 {
-                    if (!InventoryShopRuntimeService.CanRentWeapon(lease.Inventory, inventoryTemplateId))
+                    if (!InventoryShopRuntimeService.CanRentWeapon(lease.Inventory, inventoryTemplateIdValue))
                     {
-                        rejectLog = $"[Rental] RENT_WEAPON: plan FAILED (inventory full or invalid) shop=0x{weaponId:X8} inv=0x{inventoryTemplateId:X8} char={characterId}";
+                        failureResult = RentalWeaponPacketBuilder.InventoryFullResult;
+                        rejectLog = $"[Rental] RENT_WEAPON: plan FAILED (inventory full or invalid) item=0x{inventoryTemplateId:X8} char={characterId}";
                         return false;
                     }
 
@@ -83,19 +89,19 @@ namespace DfoServer.Network.Handlers
                         connection,
                         transaction,
                         characterId);
-                    rental.UpsertItem(weaponId, (uint)inventoryTemplateId, (uint)expireTime);
+                    rental.UpsertItem(inventoryTemplateId, inventoryTemplateId, (uint)expireTime);
                     _dataSource.SaveRentalInfo(connection, transaction, characterId, rental);
                     luckyStar = (ushort)Math.Max(0, currentLuckyStar - starCost);
 
                     if (!InventoryShopRuntimeService.TryRentWeapon(
                             lease.Inventory,
-                            inventoryTemplateId,
+                            inventoryTemplateIdValue,
                             expireTime,
                             out rentResult,
                             connection,
                             transaction))
                     {
-                        rejectLog = $"[Rental] RENT_WEAPON: apply FAILED shop=0x{weaponId:X8} inv=0x{inventoryTemplateId:X8} char={characterId}";
+                        rejectLog = $"[Rental] RENT_WEAPON: apply FAILED item=0x{inventoryTemplateId:X8} char={characterId}";
                         return false;
                     }
 
@@ -104,29 +110,27 @@ namespace DfoServer.Network.Handlers
 
             if (!success || rentResult == null)
             {
-                FileLogger.Log(rejectLog ?? $"[Rental] RENT_WEAPON: failed shop=0x{weaponId:X8} inv=0x{inventoryTemplateId:X8} char={characterId}");
-                await Send0372Error(session);
+                FileLogger.Log(rejectLog ?? $"[Rental] RENT_WEAPON: failed item=0x{inventoryTemplateId:X8} char={characterId}");
+                await SendFailure(session, failureResult);
                 return;
             }
 
-            FileLogger.Log($"[Rental] RENT_WEAPON: added/refreshed shop=0x{weaponId:X8} inv=0x{inventoryTemplateId:X8} list={rentResult.ListType} slot={rentResult.SlotIndex} char={characterId}");
-            FileLogger.Log($"[Rental] RENT_WEAPON: char={characterId} weapon=0x{weaponId:X8} inv=0x{parsedInventoryId:X8} cost={starCost} priceTier={priceTier} starsLeft={luckyStar} expire={expireTime}");
+            FileLogger.Log($"[Rental] RENT_WEAPON: added/refreshed item=0x{inventoryTemplateId:X8} list={rentResult.ListType} slot={rentResult.SlotIndex} char={characterId}");
+            FileLogger.Log($"[Rental] RENT_WEAPON: char={characterId} item=0x{inventoryTemplateId:X8} cost={starCost} starsLeft={luckyStar} expire={expireTime}");
 
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0372, CommonPacketBodyBuilder.BuildSuccessAck()));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, CommandType, RentalWeaponPacketBuilder.BuildSuccessAck()));
             await RentalInfoPanelNotifier.SyncAsync(session, _dataSource, characterId, luckyStar, _rentalTimeProvider);
 
             if (_refresh != null && rentResult.SlotIndex >= 0)
                 await _refresh.SendUpdateItemList(session, rentResult.ListType, rentResult.SlotIndex);
         }
 
-        private RentalInfoSnapshot LoadRentalInfo(int characterId)
+        private static async Task SendFailure(EnhancedClientSession session, uint result = 0)
         {
-            return _dataSource.LoadRentalInfo(characterId);
-        }
-
-        private static async Task Send0372Error(EnhancedClientSession session)
-        {
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0372, new byte[] { 0x00, 0x04 }));
+            var body = result == 0
+                ? RentalWeaponPacketBuilder.BuildFailureAck()
+                : RentalWeaponPacketBuilder.BuildResultAck(result);
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, CommandType, body));
         }
 
         private uint ResolveRentalExpireTime()

@@ -18,7 +18,7 @@ namespace DfoServer.Network.Builders
             _rentalTimeProvider = rentalTimeProvider ?? SystemRentalTimeProvider.Instance;
         }
 
-        public ushort NotiType => 0x0357;
+        public ushort NotiType => (ushort)NotiPacketTypeA21.EQUIPMENT_RENTAL_LIST;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {

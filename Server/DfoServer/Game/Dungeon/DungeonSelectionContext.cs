@@ -34,6 +34,9 @@ namespace DfoServer.Game.Dungeon
     internal sealed class DungeonSelectionContext
     {
         private int _returnState;
+        private readonly object _circleEntrySyncRoot = new object();
+        private int _circleDungeonId;
+        private ushort _circleQuestId;
 
         internal DungeonSelectionContext(
             long selectionId,
@@ -61,5 +64,39 @@ namespace DfoServer.Game.Dungeon
 
         internal bool TryCompleteReturn() =>
             Interlocked.CompareExchange(ref _returnState, 2, 1) == 1;
+
+        internal bool TryBindCircleEntry(int dungeonId, ushort circleQuestId)
+        {
+            if (dungeonId <= 0 || circleQuestId == 0 || IsReturning)
+                return false;
+
+            lock (_circleEntrySyncRoot)
+            {
+                if (IsReturning)
+                    return false;
+
+                _circleDungeonId = dungeonId;
+                _circleQuestId = circleQuestId;
+                return true;
+            }
+        }
+
+        internal bool TryConsumeCircleEntry(
+            int dungeonId,
+            out ushort circleQuestId)
+        {
+            lock (_circleEntrySyncRoot)
+            {
+                var pendingDungeonId = _circleDungeonId;
+                var pendingQuestId = _circleQuestId;
+                _circleDungeonId = 0;
+                _circleQuestId = 0;
+
+                circleQuestId = pendingDungeonId == dungeonId
+                    ? pendingQuestId
+                    : (ushort)0;
+                return circleQuestId != 0;
+            }
+        }
     }
 }

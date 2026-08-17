@@ -112,6 +112,75 @@ namespace DfoServer.GameWorld
             }
         }
 
+        internal static int ResolveActiveQuestConnectionId(
+            int dungeonId,
+            MazeInfo maze,
+            ICollection<int> activeQuestIds,
+            int difficulty)
+        {
+            if (TryResolveActiveQuestConnection(
+                    maze?.QuestConnection,
+                    activeQuestIds,
+                    difficulty,
+                    out var questId))
+            {
+                return questId;
+            }
+
+            try
+            {
+                return TryResolveActiveQuestConnection(
+                    Dungeon.GetDungeonFile(dungeonId)?.QuestConnection,
+                    activeQuestIds,
+                    difficulty,
+                    out questId)
+                    ? questId
+                    : 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        internal static bool TrySelectActiveQuestMaze(
+            int dungeonId,
+            int difficulty,
+            int activeQuestId,
+            out (MazeInfo Maze, int Index) selection,
+            Action<string> diagnosticSink)
+        {
+            selection = (null, -1);
+            var dungeon = Dungeon.GetDungeonFile(dungeonId);
+            if (activeQuestId <= 0
+                || dungeon?.Mazes == null
+                || dungeon.Mazes.Count == 0)
+            {
+                return false;
+            }
+
+            var activeQuestIds = new HashSet<int> { activeQuestId };
+            var mazeIndex = FindQuestConnectedMazeIndex(
+                dungeon.Mazes,
+                activeQuestIds,
+                requiredQuestType: 0,
+                difficulty);
+            diagnosticSink?.Invoke(BuildDiagnostic(
+                dungeon.Mazes,
+                activeQuestIds,
+                clearedQuestIds: null,
+                difficulty,
+                mazeIndex,
+                mazeIndex >= 0
+                    ? "preferred_active_quest"
+                    : "preferred_active_quest_miss"));
+            if (mazeIndex < 0)
+                return false;
+
+            selection = (dungeon.Mazes[mazeIndex], mazeIndex);
+            return true;
+        }
+
         private static int FindQuestConnectedMazeIndex(
             IReadOnlyList<MazeInfo> mazes,
             ICollection<int> questIds,
@@ -147,6 +216,29 @@ namespace DfoServer.GameWorld
             if (candidates.Count == 1)
                 return candidates[0];
             return candidates[Infrastructure.ServerRandom.Next(candidates.Count)];
+        }
+
+        private static bool TryResolveActiveQuestConnection(
+            int[] connection,
+            ICollection<int> activeQuestIds,
+            int difficulty,
+            out int questId)
+        {
+            questId = 0;
+            if (connection == null
+                || connection.Length < 2
+                || connection[0] != 0
+                || connection[1] <= 0
+                || activeQuestIds?.Contains(connection[1]) != true
+                || (connection.Length >= 3
+                    && connection[2] >= 0
+                    && difficulty < connection[2]))
+            {
+                return false;
+            }
+
+            questId = connection[1];
+            return true;
         }
 
         private static string BuildDiagnostic(

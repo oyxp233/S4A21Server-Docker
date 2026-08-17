@@ -1,9 +1,13 @@
 using DfoServer.Game.Dungeon;
+using DfoServer.Game.Inventory;
 using DfoServer.Game.Quests;
+using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.Session;
+using DfoServer.Game.TitleBook;
 using DfoServer.GameWorld;
 using DfoServer.Network;
 using DfoServer.Network.Builders;
+using DfoServer.Network.Handlers;
 using DfoServer.Network.Parsers.Dungeon;
 using System;
 using System.Collections.Generic;
@@ -16,6 +20,216 @@ namespace DfoServer.SelfTests
         {
             Console.WriteLine("=== A21_TUTORIAL_PROTOCOL selftest ===");
             var failures = 0;
+
+            Check(
+                "A21 EXP/DIE_MONSTER/GET_ITEM opcodes are direction-specific",
+                (ushort)NotiPacketTypeA21.EXP == 0x0025
+                && (ushort)NotiPacketTypeA21.DIE_MONSTER == 0x0026
+                && (ushort)NotiPacketTypeA21.GET_ITEM == 0x0027
+                && (ushort)CmdPacketTypeA21.FINISH_LOADING == 0x0025
+                && (ushort)CmdPacketTypeA21.DIE_MONSTER == 0x0027
+                && (ushort)CmdPacketTypeA21.GET_ITEM == 0x002B,
+                ref failures);
+
+            var dungeonPermission = DungeonPermissionBodyBuilder.BuildEntries(
+                new[]
+                {
+                    new DungeonPermissionEntrySnapshot
+                    {
+                        DungeonId = 0x0092,
+                        ClearState = 1,
+                    },
+                    new DungeonPermissionEntrySnapshot
+                    {
+                        DungeonId = 0x07D9,
+                        ClearState = 2,
+                    },
+                });
+            Check(
+                "A21 DUNGEON_PERMISSION uses u16 count and u32+u8 entries",
+                (ushort)NotiPacketTypeA21.DUNGEON_PERMISSION == 0x0005
+                && dungeonPermission.Length == 12
+                && BitConverter.ToUInt16(dungeonPermission, 0) == 2
+                && BitConverter.ToUInt32(dungeonPermission, 2) == 0x0092
+                && dungeonPermission[6] == 1
+                && BitConverter.ToUInt32(dungeonPermission, 7) == 0x07D9
+                && dungeonPermission[11] == 2,
+                ref failures);
+
+            var titleBookCategory = new TitleBookCategorySnapshot
+            {
+                InfoType = 0,
+                OwnerId16 = 0,
+                Category = 0,
+            };
+            titleBookCategory.Entries.Add(new TitleBookListEntrySnapshot
+            {
+                SlotIndex = 0,
+                ItemId = 26596,
+                Value = 0x089B66ED,
+                Attr = 1,
+                Durability = 2,
+                SealFlag = 3,
+                EnchantIndex = 4,
+                EnchantUpgradeCount = 5,
+                AmplifyType = 6,
+                AmplifyValue = 7,
+            });
+            var titleBook = TitleBookListBodyBuilder.BuildCategoryBody(titleBookCategory);
+            Check(
+                "A21 TITLE_BOOK_LIST uses 11B header and 26B entries",
+                (ushort)NotiPacketTypeA21.TITLE_BOOK_LIST == 0x0166
+                && titleBook.Length == 37
+                && BitConverter.ToInt32(titleBook, 7) == 1
+                && BitConverter.ToUInt16(titleBook, 11) == 0
+                && BitConverter.ToInt32(titleBook, 13) == 26596
+                && BitConverter.ToInt32(titleBook, 17) == 0x089B66ED
+                && titleBook[21] == 1
+                && BitConverter.ToUInt16(titleBook, 22) == 2
+                && titleBook[24] == 3
+                && BitConverter.ToInt32(titleBook, 25) == 4
+                && titleBook[29] == 5
+                && titleBook[30] == 6
+                && BitConverter.ToUInt16(titleBook, 31) == 7
+                && BitConverter.ToInt32(titleBook, 33) == 0,
+                ref failures);
+
+            var rentalInfo = new RentalInfoSnapshot();
+            rentalInfo.Items.Add(new RentalItemSnapshot
+            {
+                ItemId = 891,
+                InventoryTemplateId = 35004,
+                ExpireTime = 200,
+            });
+            rentalInfo.Items.Add(new RentalItemSnapshot
+            {
+                ItemId = 892,
+                InventoryTemplateId = 35005,
+                ExpireTime = 99,
+            });
+            var rentalBody = RentalInfoBodyBuilder.BuildWireBody(
+                luckyStar: 8,
+                rental: rentalInfo,
+                nowUnixSeconds: 100);
+            Check(
+                "A21 EQUIPMENT_RENTAL_LIST reads total/count and 8B active entries",
+                (ushort)NotiPacketTypeA21.EQUIPMENT_RENTAL_LIST == 0x03C1
+                && rentalBody.Length == 16
+                && BitConverter.ToUInt32(rentalBody, 0) == 8
+                && BitConverter.ToUInt32(rentalBody, 4) == 1
+                && BitConverter.ToUInt32(rentalBody, 8) == 35004
+                && BitConverter.ToUInt32(rentalBody, 12) == 200,
+                ref failures);
+
+            var settlementLuckyStar =
+                LuckyStarClientNotifier.BuildChargeRentPointSuccessBody(
+                    changeCount: 1,
+                    totalLuckyStar: 9,
+                    requestBody: null);
+            Check(
+                "A21 dungeon lucky-star ACK uses mode 2/count/total",
+                (ushort)CmdPacketTypeA21.CHARGE_RENTPOINT == 0x03D0
+                && settlementLuckyStar.Length == 13
+                && settlementLuckyStar[0] == 1
+                && BitConverter.ToInt32(settlementLuckyStar, 1) == 2
+                && BitConverter.ToInt32(settlementLuckyStar, 5) == 1
+                && BitConverter.ToInt32(settlementLuckyStar, 9) == 9,
+                ref failures);
+
+            var chargeRequest = new byte[RentalCatalogCodec.ChargeRentPointRequestSize];
+            Buffer.BlockCopy(BitConverter.GetBytes(1), 0, chargeRequest, 0, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(3), 0, chargeRequest, 4, 4);
+            var purchaseParsed = RentalCatalogCodec.TryParseShopPacketBuyCount(
+                chargeRequest,
+                out var purchaseCount);
+            var purchaseLuckyStar =
+                LuckyStarClientNotifier.BuildChargeRentPointSuccessBody(
+                    changeCount: 3,
+                    totalLuckyStar: 12,
+                    requestBody: chargeRequest);
+            Check(
+                "A21 CHARGE_RENTPOINT request and ACK preserve mode/quantity",
+                purchaseParsed
+                && purchaseCount == 3
+                && purchaseLuckyStar.Length == 13
+                && purchaseLuckyStar[0] == 1
+                && BitConverter.ToInt32(purchaseLuckyStar, 1) == 1
+                && BitConverter.ToInt32(purchaseLuckyStar, 5) == 3
+                && BitConverter.ToInt32(purchaseLuckyStar, 9) == 12,
+                ref failures);
+
+            var rentalCatalog = RentalWeaponInventoryMapper.ParseRentalCatalog(
+                "[group]\n[package selection]\n401000037 3 401030032 3\n[/package selection]\n[/group]");
+            Check(
+                "A21 rental catalog parses item/star pairs from rentsysteminfo.etc",
+                rentalCatalog.Count == 2
+                && rentalCatalog[401000037] == 3
+                && rentalCatalog[401030032] == 3,
+                ref failures);
+
+            var rentalRequest = new byte[]
+            {
+                0xAC, 0xF6, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x70, 0xC9, 0xC1, 0x34, 0xB8, 0x3E, 0x65, 0xC6,
+                0xE6, 0x17, 0x0B, 0x00, 0x00, 0x00,
+            };
+            var secondRentalRequest = new byte[]
+            {
+                0xAC, 0xF6, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x70, 0xC9, 0xC1, 0x34, 0xB8, 0x3E, 0x90, 0x3B,
+                0xE7, 0x17, 0x0B, 0x00, 0x00, 0x00,
+            };
+            Check(
+                "A21 RENT_EQUIPMENT_ITEM reads both captured non-aligned item fields at offset 14",
+                RentalHandler.CommandType == (ushort)CmdPacketTypeA21.RENT_EQUIPMENT_ITEM
+                && RentalWeaponRequestCodec.TryParse(
+                    rentalRequest,
+                    out var rentalItem,
+                    out var rentalContext,
+                    out var rentalCost)
+                && rentalItem == 401000037u
+                && rentalContext == 11u
+                && rentalCost == 3
+                && RentalWeaponRequestCodec.TryParse(
+                    secondRentalRequest,
+                    out var secondRentalItem,
+                    out var secondRentalContext,
+                    out var secondRentalCost)
+                && secondRentalItem == 401030032u
+                && secondRentalContext == 11u
+                && secondRentalCost == 3,
+                ref failures);
+
+            var rentalSuccess = RentalWeaponPacketBuilder.BuildSuccessAck();
+            var rentalFull = RentalWeaponPacketBuilder.BuildResultAck(RentalWeaponPacketBuilder.InventoryFullResult);
+            Check(
+                "A21 RENT_EQUIPMENT_ITEM ACK uses success plus u32 result",
+                rentalSuccess.Length == 5
+                && rentalSuccess[0] == 1
+                && BitConverter.ToUInt32(rentalSuccess, 1) == 0
+                && rentalFull.Length == 5
+                && rentalFull[0] == 1
+                && BitConverter.ToUInt32(rentalFull, 1) == 2,
+                ref failures);
+
+            var invalidRentalRequest = new byte[RentalWeaponRequestCodec.RequestBodySize];
+            Buffer.BlockCopy(BitConverter.GetBytes(727014u), 0, invalidRentalRequest, RentalWeaponRequestCodec.ItemTemplateOffset, 4);
+            Check(
+                "A21 RENT_EQUIPMENT_ITEM rejects the old client-token interpretation",
+                !RentalWeaponRequestCodec.TryParse(invalidRentalRequest, out _, out _, out _),
+                ref failures);
+
+            var initSequence = NewCharacterInitSequence.Build();
+            Check(
+                "A21 select-character init sends rental list without legacy lucky-star packets",
+                initSequence.Exists(packet =>
+                    packet.Command == 0
+                    && packet.Type == (ushort)NotiPacketTypeA21.EQUIPMENT_RENTAL_LIST)
+                && !initSequence.Exists(packet =>
+                    packet.Command == 0 && packet.Type == 0x0357)
+                && !initSequence.Exists(packet =>
+                    packet.Command == 0 && packet.Type == 0x019D),
+                ref failures);
 
             var enterFirst = EnterSelectDungeonStateBuilder
                 .BuildA21EnterSelectDungeon(0x0439, initialTutorialLayout: true);
@@ -232,6 +446,646 @@ namespace DfoServer.SelfTests
                 && select.A21Reserved1 == 0,
                 ref failures);
 
+            var circleEntryBody = new byte[CircleDungeonEntryRequest.BodySize];
+            Buffer.BlockCopy(BitConverter.GetBytes((uint)147), 0, circleEntryBody, 0, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes((uint)14880), 0, circleEntryBody, 4, 4);
+            var circleParsed = CircleDungeonEntryRequest.TryParse(
+                circleEntryBody,
+                out var circleEntry);
+            var circleDecision = CircleDungeonEntryPolicy.Evaluate(
+                circleEntry.DungeonId,
+                circleEntry.CircleQuestId);
+            var circleResponse = CircleDungeonEntryResponseBuilder.BuildSuccess(
+                circleDecision.CircleQuestId);
+            Check(
+                "REQUEST_CIRCLE_ENTER uses strict dungeonId/circleQuestId u32 pair",
+                (ushort)CmdPacketTypeA21.REQUEST_CIRCLE_ENTER == 0x0308
+                && circleParsed
+                && circleEntry.DungeonId == 147
+                && circleEntry.CircleQuestId == 14880
+                && circleDecision.Allowed
+                && circleResponse.Length == 9
+                && circleResponse[0] == 1
+                && BitConverter.ToUInt32(circleResponse, 1) == 1
+                && BitConverter.ToUInt32(circleResponse, 5) == 14880
+                && BitConverter.ToUInt16(circleResponse, 5) == 14880,
+                ref failures);
+
+            var observedCircleResponse =
+                CircleDungeonEntryResponseBuilder.BuildSuccess(14877);
+            Check(
+                "REQUEST_CIRCLE_ENTER keeps the command result byte outside both u32 fields",
+                observedCircleResponse.Length == 9
+                && observedCircleResponse[0] == 1
+                && observedCircleResponse[1] == 1
+                && observedCircleResponse[2] == 0
+                && observedCircleResponse[3] == 0
+                && observedCircleResponse[4] == 0
+                && observedCircleResponse[5] == 0x1D
+                && observedCircleResponse[6] == 0x3A
+                && observedCircleResponse[7] == 0
+                && observedCircleResponse[8] == 0,
+                ref failures);
+
+            Check(
+                "circle entry policy follows all PVF role branches without id routing",
+                CircleDungeonEntryPolicy.Evaluate(147, 14880).Allowed
+                && CircleDungeonEntryPolicy.Evaluate(147, 14881).Allowed
+                && CircleDungeonEntryPolicy.Evaluate(147, 14882).Allowed,
+                ref failures);
+
+            var circleSelectionContext = new DungeonSelectionContext(
+                selectionId: 1,
+                runGeneration: 1,
+                returnAnchor: default,
+                isA21TutorialEntry: false);
+            var circleContextBound = circleSelectionContext.TryBindCircleEntry(
+                dungeonId: 146,
+                circleQuestId: 14877);
+            var circleContextConsumed = circleSelectionContext.TryConsumeCircleEntry(
+                dungeonId: 146,
+                out var selectedCircleQuestId);
+            var circleMazeResolved = DfoServer.GameWorld.Dungeon.TrySelectActiveQuestMaze(
+                dungeonId: 146,
+                difficulty: 0,
+                activeQuestId: selectedCircleQuestId,
+                out var selectedCircleMaze);
+            Check(
+                "circle selection binds the requested PVF quest maze to one selection",
+                circleContextBound
+                && circleContextConsumed
+                && selectedCircleQuestId == 14877
+                && circleMazeResolved
+                && selectedCircleMaze.Index == 4
+                && selectedCircleMaze.Maze.QuestConnection != null
+                && selectedCircleMaze.Maze.QuestConnection.Length >= 2
+                && selectedCircleMaze.Maze.QuestConnection[1] == 14877
+                && !circleSelectionContext.TryConsumeCircleEntry(
+                    dungeonId: 146,
+                    out _),
+                ref failures);
+
+            var iceCrystalStory = Dungeon.GetDungeonFile(145)?.StoryMode;
+            var prisonStory = Dungeon.GetDungeonFile(149)?.StoryMode;
+            var ardenStory = Dungeon.GetDungeonFile(93)?.StoryMode;
+            var nonStoryWeightedDungeon = Dungeon.GetDungeonFile(1);
+            Check(
+                $"DGN story mode preserves quest lists and EXP-rate arrays " +
+                $"iceQuests={iceCrystalStory?.QuestIds.Count ?? -1} " +
+                $"iceExp={FormatInts(iceCrystalStory?.IncreaseExperienceRates)} " +
+                $"prisonQuests={prisonStory?.QuestIds.Count ?? -1} " +
+                $"ardenQuests={ardenStory?.QuestIds.Count ?? -1} " +
+                $"ardenExp={FormatInts(ardenStory?.IncreaseExperienceRates)}",
+                iceCrystalStory != null
+                && iceCrystalStory.DifficultySize == 2
+                && iceCrystalStory.IncreaseExperienceRates.Length == 2
+                && iceCrystalStory.IncreaseExperienceRates[0] == 0
+                && iceCrystalStory.IncreaseExperienceRates[1] == 0
+                && iceCrystalStory.QuestIds.Contains(1779)
+                && iceCrystalStory.QuestIds.Contains(1780)
+                && prisonStory != null
+                && prisonStory.QuestIds.Contains(1790)
+                && prisonStory.QuestIds.Contains(1791)
+                && prisonStory.QuestIds.Contains(1792)
+                && ardenStory != null
+                && ardenStory.IncreaseExperienceRates.Length == 2
+                && ardenStory.IncreaseExperienceRates[0] == 0
+                && ardenStory.IncreaseExperienceRates[1] == 30
+                && ardenStory.QuestIds.Contains(2280)
+                && ardenStory.QuestIds.Contains(2292)
+                && nonStoryWeightedDungeon?.StoryMode == null
+                && Math.Abs(
+                    nonStoryWeightedDungeon.ExperienceIncreasingPoint - 1.3f)
+                    < 0.0001f,
+                ref failures);
+
+            var independentStory = PvfLib.DungeonFile.Parse(
+                "[story mode]\n" +
+                "[difficulty size]\n2\n" +
+                "[increase exp rate]\n0 35\n" +
+                "[quest list]\n2269\n{7=` , `}2270\n" +
+                "[independent rate]\n30 75 0 150 2274\n" +
+                "[/independent rate]\n[/quest list]\n[/story mode]\n");
+            Check(
+                "DGN story mode preserves independent-rate quest references",
+                independentStory.StoryMode != null
+                && independentStory.StoryMode.QuestIds.Count == 3
+                && independentStory.StoryMode.QuestIds[0] == 2269
+                && independentStory.StoryMode.QuestIds[1] == 2270
+                && independentStory.StoryMode.QuestIds[2] == 2274
+                && independentStory.StoryMode.IndependentRates.Count == 1
+                && independentStory.StoryMode.IndependentRates[0]
+                    .ReferencedQuestId == 2274
+                && independentStory.StoryMode.IndependentRates[0]
+                    .Values.Length == 5,
+                ref failures);
+
+            var prisonMazeResolved = Dungeon.TrySelectActiveQuestMaze(
+                dungeonId: 149,
+                difficulty: 0,
+                activeQuestId: 1790,
+                out var prisonMaze);
+            var frozenActiveQuestMazeId = prisonMazeResolved
+                ? Dungeon.ResolveActiveQuestMazeQuestId(
+                    dungeonId: 149,
+                    maze: prisonMaze.Maze,
+                    activeQuestIds: new HashSet<int> { 1790 },
+                    difficulty: 0)
+                : 0;
+            var frozenSelection = new DungeonSelectionSnapshot
+            {
+                MazeIndex = prisonMazeResolved ? prisonMaze.Index : -1,
+                MazeQuestConnected = prisonMazeResolved,
+                ActiveQuestMazeQuestId = frozenActiveQuestMazeId,
+            };
+            var participantRun = new DungeonRun();
+            frozenSelection.ApplyTo(participantRun);
+            Check(
+                "dungeon selection freezes the exact active quest maze id",
+                prisonMazeResolved
+                && prisonMaze.Index == 1
+                && frozenActiveQuestMazeId == 1790
+                && Dungeon.ResolveActiveQuestMazeQuestId(
+                    dungeonId: 149,
+                    maze: prisonMaze.Maze,
+                    activeQuestIds: new HashSet<int> { 1791 },
+                    difficulty: 0) == 0
+                && participantRun.ActiveQuestMazeQuestId == 1790,
+                ref failures);
+
+            Dungeon.TryGetSuitableLevelRange(
+                dungeonId: 93,
+                out var ardenSuitableMinLevel,
+                out var ardenSuitableMaxLevel);
+            var mainlineBonusRun = CreateQuestRun(
+                dungeonId: 93,
+                difficulty: 1,
+                activeQuestMazeQuestId: 2280,
+                snapshotQuestId: 2280);
+            var mainlineBonus = QuestCompletionExperienceBonusPolicy.Capture(
+                mainlineBonusRun,
+                ardenSuitableMinLevel);
+            var mainlineReward = new QuestReward
+            {
+                Exp = 1000,
+                Gold = 77,
+                ChainType = 2,
+                GrowNumber = 3,
+                CreatureKind = 4,
+                CreatureLevel = 5,
+                Items = new List<QuestRewardItem>
+                {
+                    new QuestRewardItem { ItemId = 1234, Count = 2 },
+                },
+                ConsumeItems = new List<QuestRewardItem>
+                {
+                    new QuestRewardItem { ItemId = 5678, Count = 1 },
+                },
+            };
+            var mainlineApplied = QuestCompletionExperienceBonusPolicy.TryApply(
+                ref mainlineReward,
+                completedQuestId: 2280,
+                questGrade: "epic",
+                rewardKind: QuestRewardKind.Item,
+                snapshot: mainlineBonus,
+                out var mainlineBonusError);
+            Check(
+                "story-mode rate only increases the matching mainline quest EXP",
+                mainlineApplied
+                && string.IsNullOrEmpty(mainlineBonusError)
+                && mainlineBonus.IsEligible
+                && mainlineBonus.RatePercent == 30
+                && mainlineReward.Exp == 1300
+                && mainlineReward.Gold == 77
+                && mainlineReward.ChainType == 2
+                && mainlineReward.GrowNumber == 3
+                && mainlineReward.CreatureKind == 4
+                && mainlineReward.CreatureLevel == 5
+                && mainlineReward.Items.Count == 1
+                && mainlineReward.Items[0].ItemId == 1234
+                && mainlineReward.Items[0].Count == 2
+                && mainlineReward.ConsumeItems.Count == 1
+                && mainlineReward.ConsumeItems[0].ItemId == 5678,
+                ref failures);
+
+            var difficultyZeroBonus = QuestCompletionExperienceBonusPolicy.Capture(
+                CreateQuestRun(93, 0, 2280, 2280),
+                ardenSuitableMinLevel);
+            var nonStoryBonus = QuestCompletionExperienceBonusPolicy.Capture(
+                CreateQuestRun(93, 1, 1790, 1790),
+                ardenSuitableMinLevel);
+            var missingFrozenQuestBonus =
+                QuestCompletionExperienceBonusPolicy.Capture(
+                    CreateQuestRun(93, 1, 2280, 2292),
+                    ardenSuitableMinLevel);
+            var unsuitableLevel = ardenSuitableMaxLevel < int.MaxValue
+                ? ardenSuitableMaxLevel + 1
+                : ardenSuitableMinLevel - 1;
+            var unsuitableLevelBonus =
+                QuestCompletionExperienceBonusPolicy.Capture(
+                    mainlineBonusRun,
+                    unsuitableLevel);
+            Check(
+                "story-mode quest EXP bonus filters zero-rate, non-story, " +
+                "unfrozen and unsuitable-level runs",
+                !difficultyZeroBonus.IsEligible
+                && !nonStoryBonus.IsEligible
+                && !missingFrozenQuestBonus.IsEligible
+                && !unsuitableLevelBonus.IsEligible,
+                ref failures);
+
+            var filteredReward = new QuestReward
+            {
+                Exp = 1000,
+                Gold = 88,
+                ChainType = 1,
+                Items = new List<QuestRewardItem>(),
+                ConsumeItems = new List<QuestRewardItem>(),
+            };
+            var nonMainlineApplied = QuestCompletionExperienceBonusPolicy.TryApply(
+                ref filteredReward,
+                completedQuestId: 2280,
+                questGrade: "side",
+                rewardKind: QuestRewardKind.Item,
+                snapshot: mainlineBonus,
+                out _);
+            var circleApplied = QuestCompletionExperienceBonusPolicy.TryApply(
+                ref filteredReward,
+                completedQuestId: 2280,
+                questGrade: "epic",
+                rewardKind: QuestRewardKind.CircleDungeon,
+                snapshot: mainlineBonus,
+                out _);
+            var mismatchedQuestApplied =
+                QuestCompletionExperienceBonusPolicy.TryApply(
+                    ref filteredReward,
+                    completedQuestId: 2292,
+                    questGrade: "epic",
+                    rewardKind: QuestRewardKind.Item,
+                    snapshot: mainlineBonus,
+                    out _);
+            Check(
+                "non-mainline, circle and mismatched quest rewards are not boosted",
+                nonMainlineApplied
+                && circleApplied
+                && mismatchedQuestApplied
+                && filteredReward.Exp == 1000
+                && filteredReward.Gold == 88
+                && filteredReward.ChainType == 1,
+                ref failures);
+
+            var overflowingReward = new QuestReward
+            {
+                Exp = uint.MaxValue,
+                Items = new List<QuestRewardItem>(),
+                ConsumeItems = new List<QuestRewardItem>(),
+            };
+            var overflowAccepted = QuestCompletionExperienceBonusPolicy.TryApply(
+                ref overflowingReward,
+                completedQuestId: 2280,
+                questGrade: "epic",
+                rewardKind: QuestRewardKind.Item,
+                snapshot: mainlineBonus,
+                out var overflowError);
+            Check(
+                "mainline quest EXP overflow is rejected without truncation",
+                !overflowAccepted
+                && !string.IsNullOrWhiteSpace(overflowError)
+                && overflowingReward.Exp == uint.MaxValue,
+                ref failures);
+
+            Check(
+                "REQUEST_CIRCLE_ENTER rejects non-exact body lengths",
+                !CircleDungeonEntryRequest.TryParse(
+                    new byte[CircleDungeonEntryRequest.BodySize - 1],
+                    out _)
+                && !CircleDungeonEntryRequest.TryParse(
+                    new byte[CircleDungeonEntryRequest.BodySize + 1],
+                    out _),
+                ref failures);
+
+            var rejectedCircleResponse =
+                CircleDungeonEntryResponseBuilder.BuildRejected();
+            Check(
+                "circle entry policy rejects non-circle and forged dungeon pairs",
+                !CircleDungeonEntryPolicy.Evaluate(147, 1793).Allowed
+                && CircleDungeonEntryPolicy.Evaluate(147, 1793).RejectReason
+                    == CircleDungeonEntryRejectReason.NotCircleQuest
+                && !CircleDungeonEntryPolicy.Evaluate(146, 14880).Allowed
+                && CircleDungeonEntryPolicy.Evaluate(146, 14880).RejectReason
+                    == CircleDungeonEntryRejectReason.DungeonMismatch
+                && !CircleDungeonEntryPolicy.Evaluate(147, 0x10000).Allowed
+                && rejectedCircleResponse.Length == 1
+                && rejectedCircleResponse[0] == 0,
+                ref failures);
+
+            var circleNoItemDefinitionResolved =
+                QuestData.TryResolveCompletionDefinition(
+                    14887,
+                    out var circleNoItemDefinition,
+                    out _);
+            var circleNoItemReward = circleNoItemDefinitionResolved
+                ? QuestRewardProjector.Resolve(
+                    circleNoItemDefinition.RewardDefinition,
+                    hasRewardSelection: false,
+                    rewardSelectIdx: -1,
+                    playerLevel: 17,
+                    playerJob: 0,
+                    playerGrowType: 0)
+                : null;
+            Check(
+                "circle dungeon reward accepts the zero marker without a fake item",
+                circleNoItemDefinitionResolved
+                && circleNoItemDefinition.RewardDefinition.Kind
+                    == QuestRewardKind.CircleDungeon
+                && circleNoItemReward.IsValid
+                && circleNoItemReward.Reward.ChainType == 0
+                && circleNoItemReward.Reward.Exp > 0
+                && circleNoItemReward.Reward.Gold > 0
+                && circleNoItemReward.Reward.Items.Count == 0,
+                ref failures);
+
+            var circleItemDefinitionResolved =
+                QuestData.TryResolveCompletionDefinition(
+                    14886,
+                    out var circleItemDefinition,
+                    out _);
+            var circleItemReward = circleItemDefinitionResolved
+                ? QuestRewardProjector.Resolve(
+                    circleItemDefinition.RewardDefinition,
+                    hasRewardSelection: false,
+                    rewardSelectIdx: -1,
+                    playerLevel: 17,
+                    playerJob: 0,
+                    playerGrowType: 0)
+                : null;
+            Check(
+                "circle dungeon reward projects the PVF fixed item pairs",
+                circleItemDefinitionResolved
+                && circleItemReward.IsValid
+                && circleItemReward.Reward.Items.Count == 3
+                && circleItemReward.Reward.Items[0].ItemId == 100310840
+                && circleItemReward.Reward.Items[0].Count == 1
+                && circleItemReward.Reward.Items[1].ItemId == 100310581
+                && circleItemReward.Reward.Items[1].Count == 1
+                && circleItemReward.Reward.Items[2].ItemId == 100320649
+                && circleItemReward.Reward.Items[2].Count == 1,
+                ref failures);
+
+            var circleCompletionReward = circleItemReward != null
+                ? QuestCompletionApplicationService.ApplyCompletionRewardPolicy(
+                    circleItemReward.Reward,
+                    QuestRewardKind.CircleDungeon)
+                : QuestRewardProjector.CreateEmptyReward();
+            Check(
+                "circle completion keeps EXP but filters copied ordinary rewards",
+                circleItemReward != null
+                && circleCompletionReward.Exp == circleItemReward.Reward.Exp
+                && circleCompletionReward.Gold == 0
+                && circleCompletionReward.ChainType == 0
+                && circleCompletionReward.GrowNumber == 0
+                && circleCompletionReward.Items.Count == 0,
+                ref failures);
+
+            var ordinaryCompletionReward = circleItemReward != null
+                ? QuestCompletionApplicationService.ApplyCompletionRewardPolicy(
+                    circleItemReward.Reward,
+                    QuestRewardKind.Item)
+                : QuestRewardProjector.CreateEmptyReward();
+            Check(
+                "ordinary quest completion keeps its projected reward",
+                circleItemReward != null
+                && ordinaryCompletionReward.Gold
+                    == circleItemReward.Reward.Gold
+                && ordinaryCompletionReward.ChainType
+                    == circleItemReward.Reward.ChainType
+                && ordinaryCompletionReward.Items.Count
+                    == circleItemReward.Reward.Items.Count,
+                ref failures);
+
+            var circleGrowDefinitionResolved =
+                QuestData.TryResolveCompletionDefinition(
+                    14889,
+                    out var circleGrowDefinition,
+                    out _);
+            var circleGrowReward = circleGrowDefinitionResolved
+                ? QuestRewardProjector.Resolve(
+                    circleGrowDefinition.RewardDefinition,
+                    hasRewardSelection: false,
+                    rewardSelectIdx: -1,
+                    playerLevel: 15,
+                    playerJob: 0,
+                    playerGrowType: 0)
+                : null;
+            Check(
+                "circle reward parser preserves the copied grow-type payload",
+                circleGrowDefinitionResolved
+                && circleGrowDefinition.RewardDefinition.Kind
+                    == QuestRewardKind.CircleDungeon
+                && circleGrowReward.IsValid
+                && circleGrowReward.Reward.ChainType == 1
+                && circleGrowReward.Reward.GrowNumber == 1
+                && circleGrowReward.Reward.Items.Count == 0,
+                ref failures);
+
+            var circleGrowCompletionReward = circleGrowReward != null
+                ? QuestCompletionApplicationService.ApplyCompletionRewardPolicy(
+                    circleGrowReward.Reward,
+                    QuestRewardKind.CircleDungeon)
+                : QuestRewardProjector.CreateEmptyReward();
+            Check(
+                "circle completion filters copied grow-type effects",
+                circleGrowReward != null
+                && circleGrowCompletionReward.Exp
+                    == circleGrowReward.Reward.Exp
+                && circleGrowCompletionReward.ChainType == 0
+                && circleGrowCompletionReward.GrowNumber == 0,
+                ref failures);
+
+            var circleBoxRewards = QuestData
+                .GetCircleDungeonWorldmapRewardItems(14878);
+            var circleBoxOtherQuestRewards = QuestData
+                .GetCircleDungeonWorldmapRewardItems(14883);
+            var circleJobChangeRewards = QuestData
+                .GetCircleDungeonWorldmapRewardItems(14889);
+            Check(
+                "circle dungeon independent reward maps quest to PVF worldmap box",
+                circleBoxRewards.Count == 1
+                && circleBoxRewards[0].ItemId == 10149695
+                && circleBoxRewards[0].Count == 1
+                && circleBoxOtherQuestRewards.Count == 1
+                && circleBoxOtherQuestRewards[0].ItemId == 10149695
+                && circleJobChangeRewards.Count == 0,
+                ref failures);
+
+            var capturedCircleRewardPairs = new[]
+            {
+                (OrdinaryQuestId: 1776, CircleQuestId: 14873, PlayerLevel: 5, ExpectedExp: 964u),
+                (OrdinaryQuestId: 1777, CircleQuestId: 14874, PlayerLevel: 6, ExpectedExp: 964u),
+                (OrdinaryQuestId: 1780, CircleQuestId: 14875, PlayerLevel: 9, ExpectedExp: 771u),
+                (OrdinaryQuestId: 1779, CircleQuestId: 14876, PlayerLevel: 7, ExpectedExp: 964u),
+                (OrdinaryQuestId: 1781, CircleQuestId: 14877, PlayerLevel: 10, ExpectedExp: 771u),
+                (OrdinaryQuestId: 1782, CircleQuestId: 14878, PlayerLevel: 10, ExpectedExp: 771u),
+                (OrdinaryQuestId: 1783, CircleQuestId: 14879, PlayerLevel: 11, ExpectedExp: 771u),
+                (OrdinaryQuestId: 1784, CircleQuestId: 14880, PlayerLevel: 12, ExpectedExp: 771u),
+                (OrdinaryQuestId: 1785, CircleQuestId: 14881, PlayerLevel: 12, ExpectedExp: 771u),
+                (OrdinaryQuestId: 1786, CircleQuestId: 14882, PlayerLevel: 13, ExpectedExp: 289u),
+                (OrdinaryQuestId: 1787, CircleQuestId: 14883, PlayerLevel: 13, ExpectedExp: 289u),
+                (OrdinaryQuestId: 1788, CircleQuestId: 14884, PlayerLevel: 14, ExpectedExp: 289u),
+                (OrdinaryQuestId: 1789, CircleQuestId: 14885, PlayerLevel: 14, ExpectedExp: 289u),
+                (OrdinaryQuestId: 1790, CircleQuestId: 14886, PlayerLevel: 15, ExpectedExp: 289u),
+                (OrdinaryQuestId: 1791, CircleQuestId: 14887, PlayerLevel: 16, ExpectedExp: 289u),
+                (OrdinaryQuestId: 1792, CircleQuestId: 14888, PlayerLevel: 16, ExpectedExp: 289u),
+            };
+            var circleRewardPairsMatch = true;
+            var firstCircleRewardPairMismatch = string.Empty;
+            foreach (var pair in capturedCircleRewardPairs)
+            {
+                var ordinaryReward = QuestData.ResolveReward(
+                    pair.OrdinaryQuestId,
+                    rewardSelectIdx: -1,
+                    playerLevel: pair.PlayerLevel,
+                    playerJob: 0,
+                    playerGrowType: 0);
+                var circleReward = QuestData.ResolveReward(
+                    pair.CircleQuestId,
+                    rewardSelectIdx: -1,
+                    playerLevel: pair.PlayerLevel,
+                    playerJob: 0,
+                    playerGrowType: 0);
+                var worldmapRewards = QuestData
+                    .GetCircleDungeonWorldmapRewardItems(pair.CircleQuestId);
+                if (!ordinaryReward.IsValid
+                    || !circleReward.IsValid
+                    || ordinaryReward.Reward.Exp != pair.ExpectedExp
+                    || !QuestRewardsMatch(
+                        ordinaryReward.Reward,
+                        circleReward.Reward)
+                    || worldmapRewards.Count != 1
+                    || worldmapRewards[0].ItemId != 10149695
+                    || worldmapRewards[0].Count != 1)
+                {
+                    circleRewardPairsMatch = false;
+                    firstCircleRewardPairMismatch =
+                        $"ordinary={pair.OrdinaryQuestId} " +
+                        $"circle={pair.CircleQuestId} " +
+                        $"ordinaryValid={ordinaryReward.IsValid} " +
+                        $"circleValid={circleReward.IsValid} " +
+                        $"ordinaryExp={ordinaryReward.Reward.Exp} " +
+                        $"circleExp={circleReward.Reward.Exp} " +
+                        $"worldmapCount={worldmapRewards.Count}";
+                    break;
+                }
+            }
+            Check(
+                "circle QST resource mirrors ordinary reward before delivery filtering " +
+                firstCircleRewardPairMismatch,
+                circleRewardPairsMatch,
+                ref failures);
+
+            var level15Mainline = QuestRelationIndex.ComputeAcceptableQuests(
+                characterLevel: 15,
+                characterJob: 11,
+                growType: 4,
+                clearedQuestIds: new HashSet<int> { 1789 },
+                clearedFlags: new Dictionary<int, int> { [1789] = 1 },
+                allowedCreatureKinds: new HashSet<int>());
+            var level16Mainline = QuestRelationIndex.ComputeAcceptableQuests(
+                characterLevel: 16,
+                characterJob: 11,
+                growType: 4,
+                clearedQuestIds: new HashSet<int> { 1790, 1791, 1792 },
+                clearedFlags: new Dictionary<int, int>
+                {
+                    [1790] = 1,
+                    [1791] = 1,
+                    [1792] = 1,
+                },
+                allowedCreatureKinds: new HashSet<int>());
+            var level17Mainline = QuestRelationIndex.ComputeAcceptableQuests(
+                characterLevel: 17,
+                characterJob: 11,
+                growType: 4,
+                clearedQuestIds: new HashSet<int> { 1793 },
+                clearedFlags: new Dictionary<int, int> { [1793] = 1 },
+                allowedCreatureKinds: new HashSet<int>());
+            Check(
+                "level 15-17 epic quest availability has no catalog gap",
+                level15Mainline.Contains(1790)
+                && level16Mainline.Contains(1793)
+                && level17Mainline.Contains(1796),
+                ref failures);
+
+            Check(
+                "dungeon minimum level gates entry without delaying quest acceptance",
+                level15Mainline.Contains(1790)
+                && Dungeon.GetDungeonMinimumRequiredLevel(149) == 15
+                && !Dungeon.MeetsMinimumRequiredLevel(
+                    dungeonId: 149,
+                    characterLevel: 14,
+                    out var prisonMinimumLevel)
+                && prisonMinimumLevel == 15
+                && Dungeon.MeetsMinimumRequiredLevel(
+                    dungeonId: 149,
+                    characterLevel: 15,
+                    out prisonMinimumLevel)
+                && prisonMinimumLevel == 15,
+                ref failures);
+
+            var levelPriorityAdmission = WorldMap.EvaluateDungeonAdmission(
+                dungeonId: 149,
+                characterLevel: 14,
+                activeQuestIds: new HashSet<int> { 1790 },
+                clearedQuestIds: new HashSet<int>());
+            var taskAfterLevelAdmission = WorldMap.EvaluateDungeonAdmission(
+                dungeonId: 149,
+                characterLevel: 15,
+                activeQuestIds: new HashSet<int> { 1790 },
+                clearedQuestIds: new HashSet<int>());
+            Check(
+                "dungeon admission applies level before task state",
+                !levelPriorityAdmission.Allowed
+                && levelPriorityAdmission.Reason.StartsWith(
+                    "minimum_level_not_met:",
+                    StringComparison.Ordinal)
+                && taskAfterLevelAdmission.Allowed,
+                ref failures);
+
+            var circleRewardDefinitionCount = 0;
+            var invalidCircleRewardDefinitionCount = 0;
+            var firstInvalidCircleRewardDefinition = string.Empty;
+            foreach (var questId in QuestCatalog.OrderedIds)
+            {
+                var quest = QuestData.GetQuestFile(questId);
+                if (QuestData.NormalizeQuestTag(quest?.RewardType)
+                    != "circle dungeon")
+                {
+                    continue;
+                }
+
+                circleRewardDefinitionCount++;
+                if (!QuestData.TryResolveRewardDefinition(
+                        questId,
+                        out _,
+                        out var circleRewardError))
+                {
+                    invalidCircleRewardDefinitionCount++;
+                    if (string.IsNullOrEmpty(firstInvalidCircleRewardDefinition))
+                    {
+                        firstInvalidCircleRewardDefinition =
+                            $"quest={questId} error={circleRewardError}";
+                    }
+                }
+            }
+            Check(
+                $"current PVF circle reward catalog is fully parseable " +
+                $"count={circleRewardDefinitionCount} " +
+                $"invalid={invalidCircleRewardDefinitionCount} " +
+                $"first={firstInvalidCircleRewardDefinition}",
+                circleRewardDefinitionCount == 480
+                && invalidCircleRewardDefinitionCount == 0,
+                ref failures);
+
             var pickupItem = DropItemBuilder.BuildPickupItem(
                 srcSlot: 0x67,
                 pickerActorId: 1081,
@@ -295,6 +1149,34 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToUInt16(oneGoldDropDie, 3 + 44) == 9,
                 ref failures);
 
+            var equipmentCore = new DfoServer.Game.Inventory.ItemCore
+            {
+                ItemKind = DfoServer.Game.Inventory.ItemCore.KindEquipment,
+                ItemId = 35004,
+                Value = unchecked((int)0x343863C0),
+            };
+            var equipmentDropDie = DungeonNotificationBuilder.BuildMonsterDie(
+                monsterSeqId: 0x66E6,
+                drops: new[]
+                {
+                    new DropInfo
+                    {
+                        SceneSlot = 9,
+                        TemplateId = 35004,
+                        StackCount = 1,
+                        DropGroupId = 0x6A7DE18E,
+                        Core = equipmentCore,
+                    },
+                },
+                ownerActorId: 1);
+            Check(
+                "A21 DIE_MONSTER equipment drop writes quantity, not ItemCore instance UID",
+                equipmentDropDie.Length == 55
+                && BitConverter.ToUInt32(equipmentDropDie, 5) == 35004
+                && BitConverter.ToUInt32(equipmentDropDie, 10) == 1
+                && BitConverter.ToUInt32(equipmentDropDie, 19) == 0x6A7DE18E,
+                ref failures);
+
             var exp = ExpNotificationBuilder.Build(
                 level: 1,
                 totalExp: 0,
@@ -321,6 +1203,25 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToUInt16(playResult, 9) == 0x0439,
                 ref failures);
 
+            var settlementExperience =
+                new DungeonParticipantExperienceRuntime();
+            settlementExperience.RecordMonster(
+                baseExperience: 85,
+                growthContractBonusExperience: 0,
+                isBoss: false,
+                isChampion: false,
+                isSuperChampion: false,
+                isNamedMonster: false,
+                actorSequenceId: 10004);
+            settlementExperience.RecordMonster(
+                baseExperience: 85,
+                growthContractBonusExperience: 0,
+                isBoss: false,
+                isChampion: false,
+                isSuperChampion: false,
+                isNamedMonster: false,
+                actorSequenceId: 10003);
+            var settlementExperienceSnapshot = settlementExperience.Capture();
             var clearReward = DungeonNotificationBuilder.BuildClearDungeonReward(
                 clearBaseExp: 1786,
                 scoreBonusExp: 535,
@@ -328,15 +1229,15 @@ namespace DfoServer.SelfTests
                 bossExp: 135,
                 championExp: 340,
                 paidCardCost: 580,
-                objectExperienceEntries: new[]
-                {
-                    new DungeonObjectExperienceEntry(10004, 85),
-                    new DungeonObjectExperienceEntry(10003, 85),
-                });
+                objectExperienceEntries:
+                    settlementExperienceSnapshot.ObjectExperienceEntries);
             var clearTailOffset = 159 + 2 * 8;
             Check(
-                "A21 CLEAR_DUNGEON_REWARD writes count/reserved/object entries and 115B tail",
+                "A21 CLEAR_DUNGEON_REWARD uses START_MAP actor sequence keys and a 115B tail",
                 clearReward.Length == 290
+                && settlementExperienceSnapshot.ObjectExperienceEntries.Count == 2
+                && settlementExperienceSnapshot.ObjectExperienceEntries[0].ObjectKey == 10004
+                && settlementExperienceSnapshot.ObjectExperienceEntries[1].ObjectKey == 10003
                 && clearReward[155] == 2
                 && clearReward[156] == 0
                 && BitConverter.ToUInt32(clearReward, 159) == 10004
@@ -365,7 +1266,7 @@ namespace DfoServer.SelfTests
                 QuestId = 1016,
                 FinishType = QuestFinishType.MeetNpc,
                 Exp = 10,
-                Gold = 0,
+                ReservedAfterExperience = 0,
                 ChainType = 0,
                 RewardAcquiredAtUnixTime = 0x6A7DE18E,
             };
@@ -408,6 +1309,192 @@ namespace DfoServer.SelfTests
                 && finishQuestBody.AsSpan().SequenceEqual(finishQuestExpected),
                 ref failures);
 
+            var capturedGoldQuest = new QuestFinishResult
+            {
+                QuestId = 13099,
+                FinishType = QuestFinishType.MeetNpc,
+                Exp = 6932,
+                ReservedAfterExperience = 0,
+                ChainType = 0,
+                RewardAcquiredAtUnixTime = 0x6A7DEC50,
+            };
+            capturedGoldQuest.InsertedEntries.Add(new InsertedItemEntry
+            {
+                SlotIndex = 0,
+                ItemId = 0,
+                GrantedCount = 65,
+            });
+            var capturedGoldQuestBody = QuestAckBuilder.BuildFinish(
+                capturedGoldQuest);
+            var capturedGoldQuestExpected = new byte[]
+            {
+                0x01, 0x2B, 0x33, 0x04, 0x14, 0x1B, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0xEC, 0x7D,
+                0x6A, 0x00, 0x00,
+            };
+            Check(
+                "A21 FINISH_QUEST quest 13099 keeps the post-EXP field reserved",
+                capturedGoldQuestBody.Length == 33
+                && capturedGoldQuestBody.AsSpan().SequenceEqual(
+                    capturedGoldQuestExpected),
+                ref failures);
+
+            var seekingFinishQuest = new QuestFinishResult
+            {
+                QuestId = 13081,
+                FinishType = QuestFinishType.Seeking,
+                Exp = 2600,
+                ReservedAfterExperience = 0,
+                ChainType = 0,
+                RewardAcquiredAtUnixTime = 0x6A830D0D,
+            };
+            seekingFinishQuest.ConsumedEntries.Add(new ConsumedItemEntry
+            {
+                UpdateType = 0,
+                SlotIndex = 182,
+                ConsumedCount = 1,
+                ReservedTail = 0,
+            });
+            seekingFinishQuest.InsertedEntries.Add(new InsertedItemEntry
+            {
+                SlotIndex = 0,
+                ItemId = 0,
+                GrantedCount = 60,
+            });
+            seekingFinishQuest.InsertedEntries.Add(new InsertedItemEntry
+            {
+                SlotIndex = 22,
+                ItemId = 100060157,
+                GrantedCount = 1,
+            });
+            var seekingFinishBody = QuestAckBuilder.BuildFinish(
+                seekingFinishQuest);
+            Check(
+                "A21 seeking FINISH_QUEST uses an 8B consumed entry",
+                seekingFinishBody.Length == 60
+                && BitConverter.ToUInt32(seekingFinishBody, 8) == 0
+                && seekingFinishBody[12] == 1
+                && seekingFinishBody[13] == 0
+                && BitConverter.ToUInt16(seekingFinishBody, 14) == 182
+                && BitConverter.ToUInt32(seekingFinishBody, 16) == 1
+                && seekingFinishBody[20] == 0
+                && seekingFinishBody[21] == 2
+                && BitConverter.ToUInt16(seekingFinishBody, 22) == 0
+                && BitConverter.ToUInt32(seekingFinishBody, 24) == 0
+                && BitConverter.ToUInt32(seekingFinishBody, 28) == 60
+                && BitConverter.ToUInt16(seekingFinishBody, 41) == 22
+                && BitConverter.ToUInt32(seekingFinishBody, 43) == 100060157
+                && BitConverter.ToUInt32(seekingFinishBody, 47) == 1,
+                ref failures);
+
+            var capturedSeekingQuest = new QuestFinishResult
+            {
+                QuestId = 1782,
+                FinishType = QuestFinishType.Seeking,
+                Exp = 771,
+                ReservedAfterExperience = 0,
+                ChainType = 0,
+                RewardAcquiredAtUnixTime = 0x6A7DE550,
+            };
+            capturedSeekingQuest.ConsumedEntries.Add(new ConsumedItemEntry
+            {
+                UpdateType = 0,
+                SlotIndex = 182,
+                ConsumedCount = 10,
+                ReservedTail = 0,
+            });
+            capturedSeekingQuest.InsertedEntries.Add(new InsertedItemEntry
+            {
+                SlotIndex = 0,
+                ItemId = 0,
+                GrantedCount = 80,
+            });
+            var capturedSeekingBody = QuestAckBuilder.BuildFinish(
+                capturedSeekingQuest);
+            var capturedSeekingExpected = new byte[]
+            {
+                0x01, 0xF6, 0x06, 0x00, 0x03, 0x03, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0xB6, 0x00,
+                0x0A, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x50, 0xE5, 0x7D, 0x6A, 0x00,
+                0x00,
+            };
+            Check(
+                "A21 FINISH_QUEST quest 1782 matches the captured 41B ACK",
+                capturedSeekingBody.Length == 41
+                && capturedSeekingBody.AsSpan().SequenceEqual(
+                    capturedSeekingExpected),
+                ref failures);
+
+            var beginnerArmorPrerequisite = QuestPrerequisiteCatalog.Get(13081);
+            var beginnerArmorBeforeJobGift = beginnerArmorPrerequisite?.Evaluate(
+                new QuestPrerequisiteEvaluationState(
+                    new HashSet<int>(),
+                    new Dictionary<int, int>()));
+            var beginnerArmorAfterJobGift = beginnerArmorPrerequisite?.Evaluate(
+                new QuestPrerequisiteEvaluationState(
+                    new HashSet<int> { 4728 },
+                    new Dictionary<int, int> { [4728] = 1 }));
+            var beginnerArmorReward = QuestData.ResolveReward(
+                13081,
+                rewardSelectIdx: -1,
+                playerLevel: 15,
+                playerJob: 11,
+                playerGrowType: 4);
+            Check(
+                "quest 13081 follows the 4728 prerequisite and job-specific reward",
+                beginnerArmorPrerequisite != null
+                && beginnerArmorPrerequisite.IsValid
+                && beginnerArmorBeforeJobGift.HasValue
+                && !beginnerArmorBeforeJobGift.Value.IsAllowed
+                && beginnerArmorBeforeJobGift.Value.Reason
+                    == QuestPrerequisiteBlockReason.MissingCompletedQuest
+                && beginnerArmorAfterJobGift.HasValue
+                && beginnerArmorAfterJobGift.Value.IsAllowed
+                && beginnerArmorReward.IsValid
+                && beginnerArmorReward.Reward.Exp == 2600
+                && beginnerArmorReward.Reward.Gold == 60
+                && beginnerArmorReward.Reward.Items.Count == 1
+                && beginnerArmorReward.Reward.Items[0].ItemId == 100060157
+                && beginnerArmorReward.Reward.Items[0].Count == 1,
+                ref failures);
+
+            var secondArmorPrerequisite = QuestPrerequisiteCatalog.Get(13082);
+            var secondArmorBeforeFirstPart = secondArmorPrerequisite?.Evaluate(
+                new QuestPrerequisiteEvaluationState(
+                    new HashSet<int>(),
+                    new Dictionary<int, int>()));
+            var secondArmorAfterFirstPart = secondArmorPrerequisite?.Evaluate(
+                new QuestPrerequisiteEvaluationState(
+                    new HashSet<int> { 13081 },
+                    new Dictionary<int, int> { [13081] = 1 }));
+            var secondArmorReward = QuestData.ResolveReward(
+                13082,
+                rewardSelectIdx: -1,
+                playerLevel: 16,
+                playerJob: 11,
+                playerGrowType: 4);
+            Check(
+                "quest 13082 follows part one and resolves the current reward",
+                secondArmorPrerequisite != null
+                && secondArmorPrerequisite.IsValid
+                && secondArmorBeforeFirstPart.HasValue
+                && !secondArmorBeforeFirstPart.Value.IsAllowed
+                && secondArmorBeforeFirstPart.Value.Reason
+                    == QuestPrerequisiteBlockReason.MissingCompletedQuest
+                && secondArmorAfterFirstPart.HasValue
+                && secondArmorAfterFirstPart.Value.IsAllowed
+                && secondArmorReward.IsValid
+                && secondArmorReward.Reward.Exp == 3119
+                && secondArmorReward.Reward.Gold == 65
+                && secondArmorReward.Reward.Items.Count == 1
+                && secondArmorReward.Reward.Items[0].ItemId == 100110146
+                && secondArmorReward.Reward.Items[0].Count == 1,
+                ref failures);
+
             Console.WriteLine(
                 failures == 0
                     ? "A21_TUTORIAL_PROTOCOL selftest passed."
@@ -424,5 +1511,56 @@ namespace DfoServer.SelfTests
             if (!condition)
                 failures++;
         }
+
+        private static bool QuestRewardsMatch(
+            QuestReward left,
+            QuestReward right)
+        {
+            if (left.Exp != right.Exp
+                || left.Gold != right.Gold
+                || left.ChainType != right.ChainType
+                || left.GrowNumber != right.GrowNumber
+                || left.Items == null
+                || right.Items == null
+                || left.Items.Count != right.Items.Count)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < left.Items.Count; index++)
+            {
+                if (left.Items[index].ItemId != right.Items[index].ItemId
+                    || left.Items[index].Count != right.Items[index].Count)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static DungeonRun CreateQuestRun(
+            short dungeonId,
+            byte difficulty,
+            ushort activeQuestMazeQuestId,
+            ushort snapshotQuestId)
+        {
+            var run = new DungeonRun(dungeonId, difficulty)
+            {
+                ActiveQuestMazeQuestId = activeQuestMazeQuestId,
+                QuestSnapshot = QuestRunSnapshot.Capture(
+                    new[]
+                    {
+                        new ActiveQuest
+                        {
+                            QuestId = snapshotQuestId,
+                        },
+                    }),
+            };
+            return run;
+        }
+
+        private static string FormatInts(int[] values)
+            => values == null ? "null" : $"[{string.Join(",", values)}]";
     }
 }

@@ -123,7 +123,46 @@ namespace DfoServer.Game.Quests
                 return QuestFinishResult.Fail(22);
             }
 
-            var reward = rewardResolution.Reward;
+            var resolvedReward = rewardResolution.Reward;
+            var rewardKind = completionDefinition.RewardDefinition.Kind;
+            var reward = ApplyCompletionRewardPolicy(
+                resolvedReward,
+                rewardKind);
+            var baseExperienceReward = reward.Exp;
+            if (!QuestCompletionExperienceBonusPolicy.TryApply(
+                    ref reward,
+                    questId,
+                    completionDefinition.Grade,
+                    rewardKind,
+                    owner.ExperienceBonus,
+                    out var experienceBonusError))
+            {
+                FileLogger.Log(
+                    $"[QuestCompletionApplicationService] FINISH rejected " +
+                    $"mainline EXP bonus: quest={questId} cid={characterId} " +
+                    $"error={experienceBonusError}");
+                return QuestFinishResult.Fail(22);
+            }
+            if (reward.Exp != baseExperienceReward)
+            {
+                FileLogger.Log(
+                    $"[QuestCompletionApplicationService] mainline EXP bonus: " +
+                    $"quest={questId} dungeon={owner.ExperienceBonus.DungeonId} " +
+                    $"difficulty={owner.ExperienceBonus.Difficulty} " +
+                    $"run={owner.ExperienceBonus.RunId}/" +
+                    $"{owner.ExperienceBonus.RunGeneration} " +
+                    $"rate={owner.ExperienceBonus.RatePercent} " +
+                    $"exp={baseExperienceReward}->{reward.Exp}");
+            }
+            if (rewardKind == GameWorld.QuestRewardKind.CircleDungeon)
+            {
+                FileLogger.Log(
+                    $"[QuestCompletionApplicationService] circle reward filtered: " +
+                    $"quest={questId} exp={reward.Exp} " +
+                    $"gold={resolvedReward.Gold}->0 " +
+                    $"items={resolvedReward.Items?.Count ?? 0}->0 " +
+                    $"chain={resolvedReward.ChainType}->0");
+            }
             var isTitleRewardQuest = GameWorld.QuestData.IsTitleRewardQuest(questId);
             var consumedEntries = new List<ConsumedItemEntry>();
             var insertedEntries = new List<InsertedItemEntry>();
@@ -145,8 +184,18 @@ namespace DfoServer.Game.Quests
                     ? completionDefinition.SeekingItems
                     : GameWorld.QuestData.GetSeekingConsumeItems(questId);
             var eventItems = GameWorld.QuestData.GetEventItems(questId);
-            var carryForwardEventItems = GameWorld.QuestData
-                .GetCarryForwardEventItems(questId);
+            IReadOnlyCollection<GameWorld.QuestRewardItem>
+                carryForwardEventItems =
+                rewardKind == GameWorld.QuestRewardKind.CircleDungeon
+                    ? Array.Empty<GameWorld.QuestRewardItem>()
+                    : GameWorld.QuestData.GetCarryForwardEventItems(questId);
+            // Circle completion only delivers EXP and this independent package.
+            IReadOnlyCollection<GameWorld.QuestRewardItem>
+                circleDungeonWorldmapRewardItems =
+                rewardKind == GameWorld.QuestRewardKind.CircleDungeon
+                    ? GameWorld.QuestData
+                        .GetCircleDungeonWorldmapRewardItems(questId)
+                    : Array.Empty<GameWorld.QuestRewardItem>();
 
             lock (lease.SyncRoot)
             {
@@ -175,6 +224,7 @@ namespace DfoServer.Game.Quests
                     seekItems,
                     eventItems,
                     carryForwardEventItems,
+                    circleDungeonWorldmapRewardItems,
                     completionCount,
                     isTitleRewardQuest,
                     questId,
@@ -466,7 +516,7 @@ namespace DfoServer.Game.Quests
                 TotalHonorExp = totalHonorExp,
                 GrowthCapsuleExp = growthCapsuleExpReward,
                 TotalGrowthCapsuleExp = totalGrowthCapsuleExp,
-                Gold = goldReward,
+                ReservedAfterExperience = 0,
                 NewLevel = newLevel,
                 NewExp = newExp,
                 ChainType = reward.ChainType,
@@ -503,6 +553,27 @@ namespace DfoServer.Game.Quests
             }
         }
 
+        internal static GameWorld.QuestReward ApplyCompletionRewardPolicy(
+            GameWorld.QuestReward reward,
+            GameWorld.QuestRewardKind rewardKind)
+        {
+            if (rewardKind != GameWorld.QuestRewardKind.CircleDungeon)
+                return reward;
+
+            return new GameWorld.QuestReward
+            {
+                Exp = reward.Exp,
+                Gold = 0,
+                ChainType = 0,
+                GrowNumber = 0,
+                CreatureKind = 0,
+                CreatureLevel = 0,
+                Items = new List<GameWorld.QuestRewardItem>(),
+                ConsumeItems = reward.ConsumeItems
+                    ?? new List<GameWorld.QuestRewardItem>(),
+            };
+        }
+
         private static void AddMissingCarryForwardEventItemRequests(
             InventoryService inventory,
             IReadOnlyCollection<GameWorld.QuestRewardItem> eventItems,
@@ -532,6 +603,8 @@ namespace DfoServer.Game.Quests
             IReadOnlyCollection<GameWorld.QuestRewardItem> seekItems,
             IReadOnlyCollection<GameWorld.QuestRewardItem> eventItems,
             IReadOnlyCollection<GameWorld.QuestRewardItem> carryForwardEventItems,
+            IReadOnlyCollection<GameWorld.QuestRewardItem>
+                circleDungeonWorldmapRewardItems,
             ushort completionCount,
             bool isTitleRewardQuest,
             ushort questId,
@@ -611,6 +684,18 @@ namespace DfoServer.Game.Quests
                     reward.Items,
                     completionCount,
                     isTitleRewardQuest,
+                    questId,
+                    out error))
+            {
+                return false;
+            }
+
+            if (reward.ChainType == 0
+                && !TryAddQuestRewardRequests(
+                    rewardRequests,
+                    circleDungeonWorldmapRewardItems,
+                    completionCount,
+                    isTitleRewardQuest: false,
                     questId,
                     out error))
             {
@@ -931,6 +1016,7 @@ namespace DfoServer.Game.Quests
                     UpdateType = 0,
                     SlotIndex = (ushort)entry.SlotIndex,
                     ConsumedCount = (uint)entry.Count,
+                    ReservedTail = 0,
                 });
             }
             return true;

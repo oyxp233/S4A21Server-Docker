@@ -106,7 +106,7 @@ namespace DfoServer.Game.Dungeon
             bool isSuperChampion,
             bool isNamedMonster,
             uint channelBonusExperience = 0,
-            uint objectKey = 0)
+            ushort actorSequenceId = 0)
         {
             MonsterBaseExperience = AddSaturating(
                 MonsterBaseExperience,
@@ -133,9 +133,11 @@ namespace DfoServer.Game.Dungeon
                 NamedMonsterBaseExperience = AddSaturating(
                     NamedMonsterBaseExperience,
                     baseExperience);
-            if (objectKey != 0)
+            if (actorSequenceId != 0)
                 _objectExperienceEntries.Add(
-                    new DungeonObjectExperienceEntry(objectKey, baseExperience));
+                    new DungeonObjectExperienceEntry(
+                        actorSequenceId,
+                        baseExperience));
         }
 
         internal DungeonParticipantExperienceSnapshot Capture()

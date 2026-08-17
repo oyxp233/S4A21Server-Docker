@@ -9,6 +9,7 @@ using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Builders.Party;
+using DfoServer.Network.Parsers.Dungeon;
 using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
@@ -32,6 +33,76 @@ namespace DfoServer.Network.Handlers.Dungeon
         {
             _svc = svc;
             _mapHandler = mapHandler;
+        }
+
+        internal async Task HandleRequestCircleEnter(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            byte[] body)
+        {
+            var wireType = (ushort)CmdPacketTypeA21.REQUEST_CIRCLE_ENTER;
+            var responseBody = CircleDungeonEntryResponseBuilder.BuildRejected();
+            var activeSelection = session?.Player?.CurrentDungeonSelection;
+            if (!CircleDungeonEntryRequest.TryParse(body, out var request))
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"REQUEST_CIRCLE_ENTER rejected: invalid body length=" +
+                    $"{body?.Length ?? 0} expected={CircleDungeonEntryRequest.BodySize}");
+            }
+            else if (session?.Player == null
+                || session.Player.CharacterId <= 0
+                || session.GameSession?.QuestManager == null)
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"REQUEST_CIRCLE_ENTER rejected: missing active game session " +
+                    $"dungeon={request.DungeonId} quest={request.CircleQuestId}");
+            }
+            else if (activeSelection == null
+                || !session.Player.IsCurrentDungeonSelection(activeSelection))
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"REQUEST_CIRCLE_ENTER rejected: no current dungeon selection " +
+                    $"cid={session.Player.CharacterId} dungeon={request.DungeonId} " +
+                    $"quest={request.CircleQuestId}");
+            }
+            else
+            {
+                var decision = CircleDungeonEntryPolicy.Evaluate(
+                    request.DungeonId,
+                    request.CircleQuestId);
+                if (decision.Allowed
+                    && activeSelection.TryBindCircleEntry(
+                        (int)request.DungeonId,
+                        decision.CircleQuestId))
+                {
+                    responseBody = CircleDungeonEntryResponseBuilder.BuildSuccess(
+                        decision.CircleQuestId);
+                    FileLogger.Log(
+                        $"[{DungeonSharedServices.ProtocolLogName}] " +
+                        $"REQUEST_CIRCLE_ENTER accepted for quest handshake: " +
+                        $"cid={session.Player.CharacterId} dungeon={request.DungeonId} " +
+                        $"quest={decision.CircleQuestId} " +
+                        $"selection={activeSelection.SelectionId} gate=" +
+                        $"{CircleDungeonEntryResponseBuilder.SuccessGateCandidate}");
+                }
+                else
+                {
+                    FileLogger.Log(
+                        $"[{DungeonSharedServices.ProtocolLogName}] " +
+                        $"REQUEST_CIRCLE_ENTER rejected: " +
+                        $"cid={session.Player.CharacterId} dungeon={request.DungeonId} " +
+                        $"quest={request.CircleQuestId} reason=" +
+                        $"{(decision.Allowed ? "selection_state_changed" : decision.RejectReason.ToString())}");
+                }
+            }
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                wireType,
+                responseBody));
         }
 
         internal async Task HandleEnterSelectDungeon(EnhancedClientSession session, GamePacketHeader header, byte[] body)
@@ -343,6 +414,23 @@ namespace DfoServer.Network.Handlers.Dungeon
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] TOWER_OF_DESPAIR_ENTRY ERROR: cid={session.Player.CharacterId} requested={req.DungeonId}: {ex.Message}");
             }
 
+            if (!DungeonData.MeetsMinimumRequiredLevel(
+                    req.DungeonId,
+                    session.Player.Level,
+                    out var minimumRequiredLevel))
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"SELECT_DUNGEON level rejected: " +
+                    $"cid={session.Player.CharacterId} dungeon={req.DungeonId} " +
+                    $"level={session.Player.Level} required={minimumRequiredLevel}");
+                await _svc.AdmissionRejects.SendAsync(
+                    session,
+                    header.type,
+                    DungeonAdmissionReject.DungeonUnavailable);
+                return;
+            }
+
             linkedSourceDungeonId =
                 await ResolveLinkedDungeonSelectionSourceAsync(
                     session,
@@ -361,6 +449,14 @@ namespace DfoServer.Network.Handlers.Dungeon
                     expectedSelection))
             {
                 return;
+            }
+
+            ushort preferredCircleQuestId = 0;
+            if (expectedSelection?.TryConsumeCircleEntry(
+                    req.DungeonId,
+                    out var pendingCircleQuestId) == true)
+            {
+                preferredCircleQuestId = pendingCircleQuestId;
             }
 
             List<ActiveQuest> activeQuests = null;
@@ -389,8 +485,43 @@ namespace DfoServer.Network.Handlers.Dungeon
                     $"quest load failed: {ex.Message}");
             }
 
+            (PvfLib.MazeInfo Maze, int Index)? preferredCircleSelection = null;
+            string preferredCircleDiagnostic = null;
+            if (preferredCircleQuestId != 0)
+            {
+                if (activeQuestIds?.Contains(preferredCircleQuestId) != true
+                    || !DungeonData.TrySelectActiveQuestMaze(
+                        req.DungeonId,
+                        req.Difficulty,
+                        preferredCircleQuestId,
+                        out var circleSelection,
+                        diagnostic => preferredCircleDiagnostic = diagnostic))
+                {
+                    FileLogger.Log(
+                        $"[{DungeonSharedServices.ProtocolLogName}] " +
+                        $"SELECT_DUNGEON circle route rejected: " +
+                        $"cid={session.Player.CharacterId} dungeon={req.DungeonId} " +
+                        $"quest={preferredCircleQuestId} active=" +
+                        $"{(activeQuestIds?.Contains(preferredCircleQuestId) == true ? 1 : 0)} " +
+                        $"diagnostic={preferredCircleDiagnostic ?? "not_active"}");
+                    await _svc.AdmissionRejects.SendAsync(
+                        session,
+                        header.type,
+                        DungeonAdmissionReject.DungeonUnavailable);
+                    return;
+                }
+
+                preferredCircleSelection = circleSelection;
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"SELECT_DUNGEON circle route bound: " +
+                    $"cid={session.Player.CharacterId} dungeon={req.DungeonId} " +
+                    $"quest={preferredCircleQuestId} maze={circleSelection.Index}");
+            }
+
             var admission = WorldMap.EvaluateDungeonAdmission(
                 req.DungeonId,
+                session.Player.Level,
                 activeQuestIds,
                 clearedQuestIds);
             if (!admission.Allowed)
@@ -512,15 +643,22 @@ namespace DfoServer.Network.Handlers.Dungeon
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] SELECT_DUNGEON: manual hell requested dungeon={req.DungeonId} flag1={req.HellPartyRequestFlag} flag2={req.HellPartyDifficultyFlag} tutorial={isA21TutorialEntry} enabled={run.HellMode}");
 
             run.QuestSnapshot = QuestRunSnapshot.Capture(activeQuests);
-            string mazeSelectionDiagnostic = null;
-            var selection = DungeonData.SelectDungeonMaze(
-                req.DungeonId,
-                req.Difficulty,
-                activeQuestIds,
-                clearedQuestIds,
-                diagnostic => mazeSelectionDiagnostic = diagnostic);
+            string mazeSelectionDiagnostic = preferredCircleDiagnostic;
+            var selection = preferredCircleSelection.HasValue
+                ? preferredCircleSelection.Value
+                : DungeonData.SelectDungeonMaze(
+                    req.DungeonId,
+                    req.Difficulty,
+                    activeQuestIds,
+                    clearedQuestIds,
+                    diagnostic => mazeSelectionDiagnostic = diagnostic);
             run.MazeIndex = selection.Index;
             run.MazeQuestConnected = DungeonData.IsQuestConnectedSelection(
+                req.DungeonId,
+                selection.Maze,
+                activeQuestIds,
+                req.Difficulty);
+            run.ActiveQuestMazeQuestId = DungeonData.ResolveActiveQuestMazeQuestId(
                 req.DungeonId,
                 selection.Maze,
                 activeQuestIds,
@@ -542,6 +680,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 $"{mazeSelectionDiagnostic ?? $"difficulty={req.Difficulty} selectedMaze={selection.Index}"} " +
                 $"flags=({req.HellPartyRequestFlag},{req.HellPartyDifficultyFlag}) hell={run.HellMode} " +
                 $"questConnected={run.MazeQuestConnected} " +
+                $"activeQuestMaze={run.ActiveQuestMazeQuestId} " +
                 $"start=({run.MazeStartX},{run.MazeStartY}) startMap={run.MazeStartMapId} " +
                 $"boss=({(bossPos != null && bossPos.Length >= 2 ? bossPos[0] : -1)}," +
                 $"{(bossPos != null && bossPos.Length >= 2 ? bossPos[1] : -1)})");
@@ -1162,6 +1301,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             {
                 MazeIndex = run.MazeIndex,
                 MazeQuestConnected = run.MazeQuestConnected,
+                ActiveQuestMazeQuestId = run.ActiveQuestMazeQuestId,
                 MazeStartMapId = run.MazeStartMapId,
                 MazeStartX = run.MazeStartX,
                 MazeStartY = run.MazeStartY,

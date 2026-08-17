@@ -72,13 +72,15 @@ namespace DfoServer.Game.Quests
         public ushort QuestId;
         // Application service projects the normalized PVF type before serialization.
         public QuestFinishType FinishType;
-        // Exp 为任务面板/ACK 的原始奖励，HonorExp 为其中转入账号荣誉的部分。
+        // Exp 为任务规则处理后的最终奖励，HonorExp 为其中转入账号荣誉的部分。
         public uint Exp;
         public uint HonorExp;
         public ulong TotalHonorExp;
         public uint GrowthCapsuleExp;
         public uint TotalGrowthCapsuleExp;
-        public uint Gold;
+        // A21 captures keep the 4B field after Exp at zero. Quest gold is
+        // projected only through an inserted reward entry with ItemId=0.
+        public uint ReservedAfterExperience;
         // 经验结算后的等级与总经验(与奖励同一事务已落库; Exp 为 0 时等于结算前取值)。
         public byte NewLevel;
         public uint NewExp;
@@ -102,6 +104,8 @@ namespace DfoServer.Game.Quests
         public byte UpdateType;
         public ushort SlotIndex;
         public uint ConsumedCount;
+        // All current A21 FINISH_QUEST capture samples keep this byte at zero.
+        public byte ReservedTail;
     }
 
     public sealed class InsertedItemEntry

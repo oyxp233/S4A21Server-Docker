@@ -1,13 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using DfoServer.GameWorld;
 using PvfLib;
 
 namespace DfoServer.Game.Inventory
 {
-    /// 校验 chn_rental 背包模板，并读取租赁星价。
+    /// 校验 A21 租赁目录中的装备模板，并读取 PVF 定义的幸运星价格。
     public static class RentalWeaponInventoryMapper
     {
+        private const string RentalCatalogPath = "etc/chnrentsystem/rentsysteminfo.etc";
+
         private sealed class RentalWeaponIdentity
         {
             public int StarPrice { get; set; }
@@ -29,29 +33,89 @@ namespace DfoServer.Game.Inventory
             if (IdentityById.Value.TryGetValue(inventoryTemplateId, out var identity) && identity.StarPrice > 0)
                 return identity.StarPrice;
 
-            var buyGold = ItemMetadataResolver.Resolve(inventoryTemplateId).BuyGold;
-            return buyGold > 0 ? buyGold : 0;
+            return 0;
         }
 
         private static Dictionary<int, RentalWeaponIdentity> BuildIdentityIndex()
         {
             var byId = new Dictionary<int, RentalWeaponIdentity>();
+            var catalog = ParseRentalCatalog(PvfArchiveAccessor.ReadText(RentalCatalogPath));
+            if (catalog.Count == 0)
+                throw new InvalidOperationException($"PVF {RentalCatalogPath} contains no rental package selections.");
+
             var lst = LstFile.Parse(PvfArchiveAccessor.ReadText("equipment/equipment.lst"));
+            var equipmentIds = new HashSet<int>();
             foreach (var entry in lst.Entries)
             {
-                if (entry.FilePath.IndexOf("chn_rental_", StringComparison.OrdinalIgnoreCase) < 0)
-                    continue;
+                equipmentIds.Add(entry.Id);
+            }
 
-                var equipment = EquipmentFile.Parse(
-                    PvfArchiveAccessor.ReadText(System.IO.Path.Combine("equipment", entry.FilePath)));
-
-                byId[entry.Id] = new RentalWeaponIdentity
+            foreach (var item in catalog)
+            {
+                if (!equipmentIds.Contains(item.Key))
                 {
-                    StarPrice = equipment.Price,
-                };
+                    throw new InvalidOperationException(
+                        $"PVF {RentalCatalogPath} references missing equipment item {item.Key}.");
+                }
+
+                byId[item.Key] = new RentalWeaponIdentity { StarPrice = item.Value };
             }
 
             return byId;
+        }
+
+        internal static IReadOnlyDictionary<int, int> ParseRentalCatalog(string text)
+        {
+            var catalog = new Dictionary<int, int>();
+            var inPackageSelection = false;
+            foreach (var rawLine in (text ?? string.Empty).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0)
+                    continue;
+
+                if (line.Equals("[package selection]", StringComparison.OrdinalIgnoreCase))
+                {
+                    inPackageSelection = true;
+                    continue;
+                }
+
+                if (line.StartsWith("[/", StringComparison.Ordinal))
+                {
+                    inPackageSelection = false;
+                    continue;
+                }
+
+                if (!inPackageSelection)
+                    continue;
+
+                var matches = Regex.Matches(line, @"-?\d+");
+                if (matches.Count == 0)
+                    continue;
+                if ((matches.Count & 1) != 0)
+                    throw new FormatException($"PVF {RentalCatalogPath} contains an incomplete rental item/price pair: {line}");
+
+                for (var index = 0; index < matches.Count; index += 2)
+                {
+                    if (!int.TryParse(matches[index].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var itemId)
+                        || !int.TryParse(matches[index + 1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var starPrice)
+                        || itemId <= 0
+                        || starPrice <= 0)
+                    {
+                        throw new FormatException($"PVF {RentalCatalogPath} contains an invalid rental item/price pair: {line}");
+                    }
+
+                    if (catalog.TryGetValue(itemId, out var previousPrice) && previousPrice != starPrice)
+                    {
+                        throw new FormatException(
+                            $"PVF {RentalCatalogPath} assigns conflicting prices to item {itemId}: {previousPrice} and {starPrice}.");
+                    }
+
+                    catalog[itemId] = starPrice;
+                }
+            }
+
+            return catalog;
         }
     }
 }

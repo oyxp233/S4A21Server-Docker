@@ -31,13 +31,13 @@ namespace DfoServer.Network.Handlers
         public async Task HandleShopPurchasePacket(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
             var (characterId, _) = InventoryHandler.ResolveOwner(session);
-            if (characterId <= 0 || body == null || body.Length < RentalCatalogCodec.ShopPacketQtyOffset + 2)
+            if (characterId <= 0 || body == null || body.Length < RentalCatalogCodec.ChargeRentPointRequestSize)
                 return;
 
             if (!RentalCatalogCodec.TryParseShopPacketBuyCount(body, out var buyCount))
             {
-                FileLogger.Log($"[LuckyStar] REJECT 0x0373 char={characterId} invalid qty bodyLen={body.Length} tail={BitConverter.ToString(body, Math.Max(0, body.Length - 8))}");
-                await Send0373Error(session);
+                FileLogger.Log($"[LuckyStar] REJECT CHARGE_RENTPOINT char={characterId} invalid qty bodyLen={body.Length} tail={BitConverter.ToString(body, Math.Max(0, body.Length - 8))}");
+                await SendChargeRentPointError(session);
                 return;
             }
 
@@ -50,14 +50,14 @@ namespace DfoServer.Network.Handlers
             if (characterId <= 0 || accountId <= 0)
                 return;
 
-            FileLogger.Log($"[LuckyStar] BUY request: char={characterId} buyCount={buyCount} via=0x0373");
+            FileLogger.Log($"[LuckyStar] BUY request: char={characterId} buyCount={buyCount} via=CHARGE_RENTPOINT");
             var totalGoldCost = RentalCatalogCodec.GoldCostPerStar * buyCount;
 
             if (!InventoryContext.TryGetLease(characterId, out var lease)
                 || !lease.IsOwnedBy(session.SessionId))
             {
                 FileLogger.Log($"[LuckyStar] BUY: online inventory missing char={characterId}");
-                await Send0373Error(session);
+                await SendChargeRentPointError(session);
                 return;
             }
 
@@ -105,7 +105,7 @@ namespace DfoServer.Network.Handlers
             {
                 if (!string.IsNullOrEmpty(rejectLog))
                     FileLogger.Log(rejectLog);
-                await Send0373Error(session);
+                await SendChargeRentPointError(session);
                 return;
             }
 
@@ -115,7 +115,6 @@ namespace DfoServer.Network.Handlers
                 session,
                 _dataSource,
                 characterId,
-                accountId,
                 (ushort)buyCount,
                 newLuckyStar,
                 _rentalTimeProvider,
@@ -124,9 +123,12 @@ namespace DfoServer.Network.Handlers
                 await _refresh.SendGoldUpdate(session);
         }
 
-        private static async Task Send0373Error(EnhancedClientSession session)
+        private static async Task SendChargeRentPointError(EnhancedClientSession session)
         {
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0373, new byte[] { 0x00, 0x04 }));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                (ushort)CmdPacketTypeA21.CHARGE_RENTPOINT,
+                new byte[] { 0x00 }));
         }
     }
 }

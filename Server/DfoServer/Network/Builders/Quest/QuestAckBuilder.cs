@@ -55,7 +55,7 @@ namespace DfoServer.Network.Builders
             w.WriteUInt16(r.QuestId);
             w.WriteByte((byte)r.FinishType);
             w.WriteUInt32(r.Exp);
-            w.WriteUInt32(r.Gold);
+            w.WriteUInt32(r.ReservedAfterExperience);
 
             w.WriteByte((byte)r.ConsumedEntries.Count);
             foreach (var ce in r.ConsumedEntries)
@@ -63,6 +63,7 @@ namespace DfoServer.Network.Builders
                 w.WriteByte(ce.UpdateType);
                 w.WriteUInt16(ce.SlotIndex);
                 w.WriteUInt32(ce.ConsumedCount);
+                w.WriteByte(ce.ReservedTail);
             }
 
             if (r.ChainType == 0)

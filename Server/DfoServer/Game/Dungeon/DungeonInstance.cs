@@ -13,6 +13,7 @@ namespace DfoServer.Game.Dungeon
 
         public int MazeIndex { get; init; } = -1;
         public bool MazeQuestConnected { get; init; }
+        public int ActiveQuestMazeQuestId { get; init; }
         public int MazeStartMapId { get; init; }
         public int MazeStartX { get; init; } = -1;
         public int MazeStartY { get; init; } = -1;
@@ -67,6 +68,7 @@ namespace DfoServer.Game.Dungeon
 
             run.MazeIndex = MazeIndex;
             run.MazeQuestConnected = MazeQuestConnected;
+            run.ActiveQuestMazeQuestId = ActiveQuestMazeQuestId;
             run.MazeStartMapId = MazeStartMapId;
             run.MazeStartX = MazeStartX;
             run.MazeStartY = MazeStartY;

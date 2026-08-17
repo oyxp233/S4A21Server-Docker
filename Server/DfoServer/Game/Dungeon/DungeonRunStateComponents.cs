@@ -113,6 +113,7 @@ namespace DfoServer.Game.Dungeon
         internal int MazeIndex { get; set; } = -1;
         internal int LayeredMapIndex { get; set; } = -1;
         internal bool MazeQuestConnected { get; set; }
+        internal int ActiveQuestMazeQuestId { get; set; }
         internal int MazeStartMapId { get; set; }
         internal int MazeStartX { get; set; } = -1;
         internal int MazeStartY { get; set; } = -1;

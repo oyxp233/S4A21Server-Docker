@@ -601,7 +601,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 {
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                         0x01,
-                        0x002B,
+                        (ushort)CmdPacketTypeA21.GET_ITEM,
                         new byte[] { 0x00, 0x04 }));
                 }
                 return;
@@ -612,21 +612,33 @@ namespace DfoServer.Network.Handlers.Dungeon
             // A21 客户端先消费 1B 成功 ACK，再解析 0x0027 拾取通知。
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x01,
-                0x002B,
+                (ushort)CmdPacketTypeA21.GET_ITEM,
                 DropItemBuilder.BuildGetItemSuccessAck()));
             if (!session.Player.IsCurrentDungeonRun(runIdentity))
                 return;
 
             if (pickup.IsGold)
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0027,
-                    DropItemBuilder.BuildPickupGold(req.SrcSlot, session.Player.UserId, pickup.GoldAmount, pickup.ExtraGold)));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.GET_ITEM,
+                    DropItemBuilder.BuildPickupGold(
+                        req.SrcSlot,
+                        session.Player.UserId,
+                        pickup.GoldAmount,
+                        pickup.ExtraGold)));
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] GET_ITEM: gold pickup srcSlot={req.SrcSlot} gold={pickup.GoldAmount} extra={pickup.ExtraGold}");
             }
             else
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0027,
-                    DropItemBuilder.BuildPickupItem(req.SrcSlot, session.Player.UserId, (ushort)pickup.InventorySlot, 7)));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.GET_ITEM,
+                    DropItemBuilder.BuildPickupItem(
+                        req.SrcSlot,
+                        session.Player.UserId,
+                        (ushort)pickup.InventorySlot,
+                        7)));
                 if (session.Player.IsCurrentDungeonRun(runIdentity)
                     && session.GameSession?.QuestManager != null
                     && pickup.PickedUpItemId > 0)

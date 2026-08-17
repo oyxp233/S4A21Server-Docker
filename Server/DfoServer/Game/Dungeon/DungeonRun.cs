@@ -189,6 +189,7 @@ namespace DfoServer.Game.Dungeon
         public int MazeIndex { get => Selection.MazeIndex; set => Selection.MazeIndex = value; }
         public int LayeredMapIndex { get => Selection.LayeredMapIndex; set => Selection.LayeredMapIndex = value; }
         public bool MazeQuestConnected { get => Selection.MazeQuestConnected; set => Selection.MazeQuestConnected = value; }
+        public int ActiveQuestMazeQuestId { get => Selection.ActiveQuestMazeQuestId; set => Selection.ActiveQuestMazeQuestId = value; }
         public int MazeStartMapId { get => Selection.MazeStartMapId; set => Selection.MazeStartMapId = value; }
         public int MazeStartX { get => Selection.MazeStartX; set => Selection.MazeStartX = value; }
         public int MazeStartY { get => Selection.MazeStartY; set => Selection.MazeStartY = value; }

@@ -66,19 +66,34 @@ namespace DfoServer.GameWorld
 
         public static bool IsTaskExclusiveDungeonAvailable(
             int dungeonId,
+            int characterLevel,
             ISet<int> activeQuestIds)
         {
             return EvaluateDungeonAdmission(
                 dungeonId,
+                characterLevel,
                 activeQuestIds,
                 clearedQuestIds: null).Allowed;
         }
 
         internal static DungeonAdmissionDecision EvaluateDungeonAdmission(
             int dungeonId,
+            int characterLevel,
             ISet<int> activeQuestIds,
             ISet<int> clearedQuestIds)
         {
+            if (!Dungeon.MeetsMinimumRequiredLevel(
+                    dungeonId,
+                    characterLevel,
+                    out var minimumRequiredLevel))
+            {
+                return new DungeonAdmissionDecision(
+                    allowed: false,
+                    mode: DungeonAdmissionMode.Unknown,
+                    reason: $"minimum_level_not_met:{characterLevel}/{minimumRequiredLevel}",
+                    requiredQuestIds: Array.Empty<int>());
+            }
+
             if (Index.Value.AdmissionsByDungeonId.TryGetValue(
                     dungeonId,
                     out var definition))

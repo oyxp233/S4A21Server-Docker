@@ -137,7 +137,7 @@ namespace DfoServer.Network.Handlers
             GrowthCapsuleSummary growthCapsule)
             => session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
-                0x0025,
+                (ushort)NotiPacketTypeA21.EXP,
                 ExpNotificationBuilder.Build(
                     result.NewLevel,
                     result.NewExp,

@@ -196,15 +196,22 @@ namespace DfoServer.Network.Builders
             var dropCount = drops?.Count ?? 0;
             w.WriteByte((byte)dropCount);
 
+            var dropGroupId = ResolveDropGroupId(drops);
+
             for (int i = 0; i < dropCount; i++)
             {
                 var d = drops[i];
                 w.WriteUInt16(d.SceneSlot);     // +0  sceneSlot
                 w.WriteUInt32(ResolveTemplateId(d.Core, d.TemplateId));    // +2  templateId (0=gold)
                 w.WriteByte(d.Core != null ? d.Core.Upgrade : d.UpgradeLevel);    // +6  upgradeLevel
-                w.WriteUInt32(ResolveDropValue(d.Core, d.StackCount));    // +7  value/count
+                // Ground-drop records carry the amount visible on the map.  For
+                // equipment this is the stack count (normally 1), not the
+                // inventory instance UID stored in ItemCore.Value.  A21's
+                // DIE_MONSTER reader consumes this field before it registers the
+                // local drop object used by GET_ITEM/pickup presentation.
+                w.WriteUInt32(d.StackCount);                              // +7  value/count
                 w.WriteZeroBytes(5);            // +11 reserved
-                w.WriteUInt32(0);               // +16 drop instance/reserved
+                w.WriteUInt32(dropGroupId);     // +16 A21 drop-group timestamp/id
                 w.WriteZeroBytes(24);           // +20 reserved
                 w.WriteUInt16(ownerActorId);    // +44 ownerActorId
                 w.WriteUInt16(0);                // +46 reserved
@@ -222,6 +229,20 @@ namespace DfoServer.Network.Builders
         private static uint ResolveTemplateId(ItemCore core, uint fallback)
         {
             return core != null && core.ItemId > 0 ? (uint)core.ItemId : fallback;
+        }
+
+        private static uint ResolveDropGroupId(IReadOnlyList<DropInfo> drops)
+        {
+            if (drops == null)
+                return 0;
+
+            for (var index = 0; index < drops.Count; index++)
+            {
+                if (drops[index].DropGroupId != 0)
+                    return drops[index].DropGroupId;
+            }
+
+            return 0;
         }
 
         private static uint ResolveDropValue(ItemCore core, uint fallbackStackCount)

@@ -803,9 +803,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     isSuperChampion,
                     isNamed,
                     channelBonus,
-                    objectKey: monster.Code > 0
-                        ? unchecked((uint)monster.Code)
-                        : sequenceId);
+                    actorSequenceId: sequenceId);
                 run.TotalGold = checked(run.TotalGold + goldGained);
             }
 
@@ -1240,7 +1238,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             return session.SendPacketAsync(
                 GamePacketEnvelopeBuilder.Build(
                     0x00,
-                    0x0026,
+                    (ushort)NotiPacketTypeA21.DIE_MONSTER,
                     DungeonNotificationBuilder.BuildMonsterDie(
                         context.SequenceId,
                         drops,

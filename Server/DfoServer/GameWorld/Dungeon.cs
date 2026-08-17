@@ -149,6 +149,16 @@ namespace DfoServer.GameWorld
         public static int GetDungeonMinimumRequiredLevel(int dungeonId)
             => DungeonCatalog.GetMinimumRequiredLevel(dungeonId);
 
+        public static bool MeetsMinimumRequiredLevel(
+            int dungeonId,
+            int characterLevel,
+            out int minimumRequiredLevel)
+        {
+            minimumRequiredLevel = GetDungeonMinimumRequiredLevel(dungeonId);
+            return minimumRequiredLevel <= 0
+                || characterLevel >= minimumRequiredLevel;
+        }
+
         public static bool IsSuitableLevelDungeon(int dungeonId, int characterLevel)
         {
             return characterLevel > 0
@@ -619,6 +629,30 @@ namespace DfoServer.GameWorld
                 maze,
                 activeQuestIds,
                 difficulty);
+
+        public static int ResolveActiveQuestMazeQuestId(
+            int dungeonId,
+            MazeInfo maze,
+            ICollection<int> activeQuestIds,
+            int difficulty)
+            => DungeonSelectionPlanner.ResolveActiveQuestConnectionId(
+                dungeonId,
+                maze,
+                activeQuestIds,
+                difficulty);
+
+        public static bool TrySelectActiveQuestMaze(
+            int dungeonId,
+            int difficulty,
+            int activeQuestId,
+            out (MazeInfo Maze, int Index) selection,
+            Action<string> diagnosticSink = null)
+            => DungeonSelectionPlanner.TrySelectActiveQuestMaze(
+                dungeonId,
+                difficulty,
+                activeQuestId,
+                out selection,
+                diagnosticSink);
 
         public static MazeInfo GetDungeonMaze(int dungeonId, int mazeIndex)
             => DungeonCatalog.GetMaze(dungeonId, mazeIndex);

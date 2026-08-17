@@ -57,6 +57,7 @@ namespace DfoServer.Game.Dungeon
                     SceneSlot = run.SceneSlotCounter,
                     TemplateId = (uint)itemTemplateId,
                     StackCount = (uint)count,
+                    DropGroupId = CurrentDropGroupId(),
                     Endurance = metadata.Durability,
                 };
                 run.Drops[drop.SceneSlot] = drop;
@@ -202,7 +203,7 @@ namespace DfoServer.Game.Dungeon
                             Success = true,
                             IsGold = true,
                             GoldAmount = grantedGold,
-                            ExtraGold = grantedExtraGold
+                            ExtraGold = grantedExtraGold,
                         };
                     }
 
@@ -240,7 +241,7 @@ namespace DfoServer.Game.Dungeon
                         Success = true,
                         IsGold = false,
                         InventorySlot = grant.SlotIndex,
-                        PickedUpItemId = pickedItemId
+                        PickedUpItemId = pickedItemId,
                     };
                 }
             }
@@ -361,8 +362,15 @@ namespace DfoServer.Game.Dungeon
         private static void RegisterDrops(DungeonRun run, List<DropInfo> drops)
         {
             if (drops == null || drops.Count == 0) return;
-            foreach (var drop in drops)
+            var groupId = CurrentDropGroupId();
+            for (var index = 0; index < drops.Count; index++)
+            {
+                var drop = drops[index];
+                if (drop.DropGroupId == 0)
+                    drop.DropGroupId = groupId;
+                drops[index] = drop;
                 run.Drops[drop.SceneSlot] = drop;
+            }
         }
 
         private static InventoryDropResult TryDropGold(DungeonRun run, InventoryService inventory, int count)
@@ -398,6 +406,7 @@ namespace DfoServer.Game.Dungeon
                     SceneSlot = run.SceneSlotCounter,
                     TemplateId = core != null ? unchecked((uint)core.ItemId) : 0,
                     StackCount = unchecked((uint)Math.Max(0, count)),
+                    DropGroupId = CurrentDropGroupId(),
                     Endurance = core != null ? core.Durability : (ushort)0,
                     UpgradeLevel = core != null ? core.Upgrade : (byte)0,
                     Core = core != null ? core.Copy() : null,
@@ -407,6 +416,9 @@ namespace DfoServer.Game.Dungeon
                 return drop;
             }
         }
+
+        private static uint CurrentDropGroupId()
+            => unchecked((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
         private static int NormalizePickupCount(uint stackCount)
         {

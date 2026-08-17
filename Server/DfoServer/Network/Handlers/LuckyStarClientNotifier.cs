@@ -13,19 +13,14 @@ namespace DfoServer.Network.Handlers
             EnhancedClientSession session,
             SqliteSelectCharacterDataSource dataSource,
             int characterId,
-            int accountId,
             ushort changeCount,
             ushort totalLuckyStar,
             IRentalTimeProvider rentalTimeProvider,
             byte[] requestBody = null)
         {
-            if (session == null || dataSource == null || characterId <= 0 || accountId <= 0 || changeCount == 0)
+            if (session == null || dataSource == null || characterId <= 0 || changeCount == 0)
                 return;
 
-            var accountCatalog = dataSource.LoadAccountMainOption(accountId);
-            var catalogAck = RentalCatalogCodec.BuildPurchaseAck(accountCatalog, changeCount, totalLuckyStar);
-
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x00C5, catalogAck));
             await NotifyRewardAsync(session, dataSource, characterId, changeCount, totalLuckyStar, rentalTimeProvider, requestBody);
         }
 
@@ -42,22 +37,36 @@ namespace DfoServer.Network.Handlers
             if (session == null || dataSource == null || characterId <= 0 || changeCount == 0)
                 return;
 
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0373,
-                Build0373SuccessAck(changeCount, totalLuckyStar, requestBody)));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                (ushort)CmdPacketTypeA21.CHARGE_RENTPOINT,
+                BuildChargeRentPointSuccessBody(changeCount, totalLuckyStar, requestBody)));
             await RentalInfoPanelNotifier.SyncAsync(session, dataSource, characterId, totalLuckyStar, rentalTimeProvider);
         }
 
-        private static byte[] Build0373SuccessAck(ushort changeCount, ushort totalLuckyStar, byte[] requestBody)
+        internal static byte[] BuildChargeRentPointSuccessBody(
+            ushort changeCount,
+            ushort totalLuckyStar,
+            byte[] requestBody)
         {
-            var requestLength = Math.Max(requestBody?.Length ?? 0, RentalCatalogCodec.ShopPacketQtyOffset + 4);
-            var body = new byte[1 + requestLength];
+            var mode = 2;
+            var quantity = (int)changeCount;
+            if (requestBody != null
+                && requestBody.Length >= RentalCatalogCodec.ChargeRentPointRequestSize)
+            {
+                mode = BitConverter.ToInt32(
+                    requestBody,
+                    RentalCatalogCodec.ChargeRentPointModeOffset);
+                quantity = BitConverter.ToInt32(
+                    requestBody,
+                    RentalCatalogCodec.ChargeRentPointQuantityOffset);
+            }
+
+            var body = new byte[13];
             body[0] = 0x01;
-
-            if (requestBody != null && requestBody.Length > 0)
-                Buffer.BlockCopy(requestBody, 0, body, 1, requestBody.Length);
-
-            Buffer.BlockCopy(BitConverter.GetBytes((int)totalLuckyStar), 0, body, 1 + 12, 4);
-            Buffer.BlockCopy(BitConverter.GetBytes((int)changeCount), 0, body, 1 + RentalCatalogCodec.ShopPacketQtyOffset, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(mode), 0, body, 1, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(quantity), 0, body, 5, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes((int)totalLuckyStar), 0, body, 9, 4);
             return body;
         }
 

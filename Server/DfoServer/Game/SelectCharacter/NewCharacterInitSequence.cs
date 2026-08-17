@@ -1,4 +1,5 @@
 using DfoServer.Game.Inventory;
+using DfoServer.Network;
 using System.Collections.Generic;
 
 namespace DfoServer.Game.SelectCharacter
@@ -45,7 +46,7 @@ namespace DfoServer.Game.SelectCharacter
             Raw(0x00, 0x0002, 1);
             Raw(0x00, 0x0003);
             Raw(0x00, 0x00CA);
-            Raw(0x00, 0x0005);
+            Raw(0x00, (ushort)NotiPacketTypeA21.DUNGEON_PERMISSION);
             Item(InventoryListType.Main);
             Item(InventoryListType.Avatar);
             Item(InventoryListType.PersonalCargo);
@@ -68,7 +69,7 @@ namespace DfoServer.Game.SelectCharacter
             Raw(0x00, 0x0381, 0);
             Raw(0x00, 0x0381, 1);
             Raw(0x00, 0x021F);                      
-            Raw(0x00, 0x0357);                      
+            Raw(0x00, (ushort)NotiPacketTypeA21.EQUIPMENT_RENTAL_LIST);
             Raw(0x00, 0x00FB);                      
             Raw(0x00, 0x00CD);                      
             Raw(0x00, 0x019F);                      
@@ -76,7 +77,6 @@ namespace DfoServer.Game.SelectCharacter
             Raw(0x00, 0x0300);                      
             Raw(0x01, 0x0312);                      
             Raw(0x00, 0x03D8);                      
-            Raw(0x00, 0x019D);                      
             Raw(0x00, 0x025B);                      
             Raw(0x00, 0x0331);                      
             Raw(0x00, 0x01EB);                      
