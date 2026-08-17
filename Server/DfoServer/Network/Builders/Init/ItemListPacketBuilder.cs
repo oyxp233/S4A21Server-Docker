@@ -31,6 +31,8 @@ namespace DfoServer.Network.Builders
                     return BuildPetItemListBody(inventory);
                 case InventoryListType.AccountCargo:
                     return BuildAccountCargoItemListBody(inventory);
+                case InventoryListType.GuildMedal:
+                    return BuildGuildMedalItemListBody(inventory);
                 default:
                     throw new ArgumentOutOfRangeException(nameof(listType), listType, "Unsupported inventory list type.");
             }
@@ -92,18 +94,30 @@ namespace DfoServer.Network.Builders
         {
             if (inventory == null) throw new ArgumentNullException(nameof(inventory));
 
+            return BuildShortItemListBody(inventory, InventoryListType.Pet);
+        }
+
+        internal static byte[] BuildGuildMedalItemListBody(InventoryService inventory)
+        {
+            if (inventory == null) throw new ArgumentNullException(nameof(inventory));
+
+            return BuildShortItemListBody(inventory, InventoryListType.GuildMedal);
+        }
+
+        private static byte[] BuildShortItemListBody(InventoryService inventory, InventoryListType listType)
+        {
             var entries = new GamePacketWriter();
             ushort count = 0;
             var nowUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-            foreach (var item in inventory.GetItems(InventoryListType.Pet))
+            foreach (var item in inventory.GetItems(listType))
             {
-                if (TryWriteOnlineEntry(entries, inventory, InventoryListType.Pet, item.Key, item.Value, nowUnixTime))
+                if (TryWriteOnlineEntry(entries, inventory, listType, item.Key, item.Value, nowUnixTime))
                     count++;
             }
 
             var writer = new GamePacketWriter();
-            writer.WriteByte((byte)InventoryListType.Pet);
+            writer.WriteByte((byte)listType);
             writer.WriteUInt16(count);
             writer.WriteBytes(entries.ToArray());
             return writer.ToArray();

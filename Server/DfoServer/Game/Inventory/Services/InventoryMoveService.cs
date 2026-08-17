@@ -1028,7 +1028,8 @@ namespace DfoServer.Game.Inventory
                 || listType == InventoryListType.PersonalCargo
                 || listType == InventoryListType.Equipment
                 || listType == InventoryListType.Pet
-                || listType == InventoryListType.AccountCargo;
+                || listType == InventoryListType.AccountCargo
+                || listType == InventoryListType.GuildMedal;
         }
 
         private static InventoryMoveServiceResult CreateResult(InventoryMoveRequest request)

@@ -73,17 +73,19 @@ namespace DfoServer.Game.Inventory
             if (request.ExpectedItemTemplateId > 0 && source.Core.ItemId != request.ExpectedItemTemplateId)
                 return false;
 
+            var sourceItemTemplateId = source.Core.ItemId;
+            var sourceInstanceValue = source.Core.InstanceValue;
             var requestedCount = Math.Max(1, request.RequestedCount);
             if (!ValidateSourceCount(source.Core, requestedCount))
                 return false;
 
-            var stackable = StackableItemProvider.Load(source.Core.ItemId);
+            var stackable = StackableItemProvider.Load(sourceItemTemplateId);
             if (stackable == null)
                 return false;
 
             var stackableType = InventoryPackageRewardResolver.NormalizeStackableType(stackable.StackableType);
             InventoryPackageRewardResolver.ResolveNeedMaterial(
-                source.Core.ItemId,
+                sourceItemTemplateId,
                 stackable,
                 out var materialItemTemplateId,
                 out var materialCountPerUse);
@@ -106,7 +108,7 @@ namespace DfoServer.Game.Inventory
                     out var material))
                 return false;
 
-            var isSeriaLuckValueSource = source.Core.ItemId == SeriaLuckItemConstants.ItemTemplateId;
+            var isSeriaLuckValueSource = sourceItemTemplateId == SeriaLuckItemConstants.ItemTemplateId;
             var seriaLuckValueBefore = 0;
             if (isSeriaLuckValueSource
                 && !TryLoadSeriaLuckValue(
@@ -127,7 +129,7 @@ namespace DfoServer.Game.Inventory
             for (var useIndex = 0; useIndex < requestedCount; useIndex++)
             {
                 if (!InventoryPackageRewardResolver.TryResolvePackageRewards(
-                        source.Core.ItemId,
+                        sourceItemTemplateId,
                         stackable,
                         stackableType,
                         selectedItemTemplateIds,
@@ -137,7 +139,7 @@ namespace DfoServer.Game.Inventory
                     var selectedText = selectedItemTemplateIds.Count == 0
                         ? "none"
                         : string.Join(",", selectedItemTemplateIds.Select(id => $"0x{id:X8}"));
-                    FileLogger.Log($"  [BoosterOnline] unsupported/empty item=0x{source.Core.ItemId:X8} type={stackableType} selected={selectedText} rewards(random={stackable.BoosterRewards.Count},select={stackable.BoosterSelectionRewards.Count},package={stackable.PackageRewards.Count},randombox={stackable.RandomBoxRewards.Count})");
+                    FileLogger.Log($"  [BoosterOnline] unsupported/empty item=0x{sourceItemTemplateId:X8} type={stackableType} selected={selectedText} rewards(random={stackable.BoosterRewards.Count},select={stackable.BoosterSelectionRewards.Count},package={stackable.PackageRewards.Count},randombox={stackable.RandomBoxRewards.Count})");
                     return false;
                 }
 
@@ -174,9 +176,9 @@ namespace DfoServer.Game.Inventory
 
             result.ErrorCode = 0;
             result.SourceSlotIndex = source.SlotIndex;
-            result.SourceItemTemplateId = source.Core.ItemId;
+            result.SourceItemTemplateId = sourceItemTemplateId;
             result.SourceRemainingStackCount = applied.SourceDelete?.RemainingCount ?? 0;
-            result.SourceInstanceValue = source.Core.InstanceValue;
+            result.SourceInstanceValue = sourceInstanceValue;
             result.ConsumedSourceCount = requestedCount;
             result.ConsumedMaterialItemTemplateId = materialItemTemplateId;
             result.ConsumedMaterialCount = material?.RequiredCount ?? 0;
@@ -216,7 +218,9 @@ namespace DfoServer.Game.Inventory
             if (!TryGetMainSource(inventory, slotIndex, out var source))
                 return false;
 
-            var stackable = StackableItemProvider.Load(source.Core.ItemId);
+            var sourceItemTemplateId = source.Core.ItemId;
+            var sourceInstanceValue = source.Core.InstanceValue;
+            var stackable = StackableItemProvider.Load(sourceItemTemplateId);
             if (stackable == null)
                 return false;
 
@@ -236,7 +240,7 @@ namespace DfoServer.Game.Inventory
                 var selectedText = selectedItemTemplateIds == null
                     ? "null"
                     : string.Join(",", selectedItemTemplateIds.Select(id => $"0x{id:X8}"));
-                FileLogger.Log($"  [OpenPkg0207Online] PVF validation failed source=0x{source.Core.ItemId:X8} selected={selectedText}");
+                FileLogger.Log($"  [OpenPkg0207Online] PVF validation failed source=0x{sourceItemTemplateId:X8} selected={selectedText}");
                 return false;
             }
 
@@ -257,9 +261,9 @@ namespace DfoServer.Game.Inventory
 
             result.ErrorCode = 0;
             result.SourceSlotIndex = source.SlotIndex;
-            result.SourceItemTemplateId = source.Core.ItemId;
+            result.SourceItemTemplateId = sourceItemTemplateId;
             result.SourceRemainingStackCount = applied.SourceDelete?.RemainingCount ?? 0;
-            result.SourceInstanceValue = source.Core.InstanceValue;
+            result.SourceInstanceValue = sourceInstanceValue;
             result.ConsumedSourceCount = 1;
             AddGrantResults(inventory, applied.GrantBatch, result.Rewards, result.ActivatedPremiums);
             return true;
@@ -278,7 +282,8 @@ namespace DfoServer.Game.Inventory
             if (!TryGetMainSource(inventory, request.SlotIndex, out var source))
                 return false;
 
-            if (!AvatarPackageDefinitionResolver.TryResolve(source.Core.ItemId, out var definition))
+            var packageItemTemplateId = source.Core.ItemId;
+            if (!AvatarPackageDefinitionResolver.TryResolve(packageItemTemplateId, out var definition))
                 return false;
 
             if (!ValidateAvatarPackageChoices(definition, request, out var optionByItemId))
@@ -315,7 +320,7 @@ namespace DfoServer.Game.Inventory
             result = new AvatarPackageOpenResult
             {
                 SlotIndex = request.SlotIndex,
-                PackageItemTemplateId = source.Core.ItemId,
+                PackageItemTemplateId = packageItemTemplateId,
                 SourceRemainingStackCount = applied.SourceDelete?.RemainingCount ?? 0,
             };
             AddPackageGrantResults(inventory, applied.GrantBatch, result.GrantedItems, result.ActivatedPremiums);
@@ -342,7 +347,8 @@ namespace DfoServer.Game.Inventory
             if (source.Core.ExpireTime > 0 && source.Core.ExpireTime <= DateTimeOffset.Now.ToUnixTimeSeconds())
                 return false;
 
-            if (!SelectablePackageDefinitionResolver.TryResolve(source.Core.ItemId, out var definition))
+            var packageItemTemplateId = source.Core.ItemId;
+            if (!SelectablePackageDefinitionResolver.TryResolve(packageItemTemplateId, out var definition))
                 return false;
 
             var rewardRequests = new List<InventoryRewardGrantRequest>();
@@ -437,7 +443,7 @@ namespace DfoServer.Game.Inventory
             result = new SelectablePackageOpenResult
             {
                 SlotIndex = request.SlotIndex,
-                PackageItemTemplateId = source.Core.ItemId,
+                PackageItemTemplateId = packageItemTemplateId,
                 SourceRemainingStackCount = applied.SourceDelete?.RemainingCount ?? 0,
                 RewardItemTemplateId = rewardForResult.ItemTemplateId,
             };
@@ -1086,6 +1092,7 @@ namespace DfoServer.Game.Inventory
             CopyListParam(source, inventory, InventoryListType.Pet);
             CopyListParam(source, inventory, InventoryListType.PersonalCargo);
             CopyListParam(source, inventory, InventoryListType.AccountCargo);
+            CopyListParam(source, inventory, InventoryListType.GuildMedal);
 
             CopyItems(source, inventory, InventoryListType.Main);
             CopyItems(source, inventory, InventoryListType.Equipment);
@@ -1093,6 +1100,7 @@ namespace DfoServer.Game.Inventory
             CopyItems(source, inventory, InventoryListType.Pet);
             CopyItems(source, inventory, InventoryListType.PersonalCargo);
             CopyItems(source, inventory, InventoryListType.AccountCargo);
+            CopyItems(source, inventory, InventoryListType.GuildMedal);
 
             foreach (var item in source.GetMainVirtualCounts())
                 inventory.AttachMainVirtualCount(item.SlotIndex, item.ItemId, item.Count);

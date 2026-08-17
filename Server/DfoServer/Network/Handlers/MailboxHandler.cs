@@ -27,6 +27,7 @@ namespace DfoServer.Network.Handlers
         private const int MailboxSenderNameSize = 30;
         private const int MailboxLetterTextSize = 512;
         private const int MinExpirationUnixTime = 1000000000;
+        private static readonly bool A21MailboxFullListEnabled = false;
         private const int OfficialMailSenderCharacterId = 0;
         private const string OfficialMailSenderName = "DNFadmin";
         private const string DefaultMailboxSafetyText = "DNF\u8FD0\u8425\u8005\u4E0D\u4F1A\u4EE5\u4EFB\u4F55\u5F62\u5F0F\u7D22\u8981\u6216\u8BE2\u95EE\u60A8\u7684\u8D26\u53F7\u5BC6\u7801,\u8BF7\u60A8\u4E0D\u8981\u90AE\u5BC4\u5199\u6709DNF\u8D26\u53F7\u5BC6\u7801\u7B49\u91CD\u8981\u4FE1\u606F\u7684\u4FE1\u4EF6";
@@ -122,6 +123,18 @@ namespace DfoServer.Network.Handlers
 
             var notLoaded = ClampUInt16(page.NotLoadedCount);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, BuildOpenMailboxAck(notLoaded)));
+            if (!A21MailboxFullListEnabled)
+            {
+                // A21 邮箱列表/附件预览结构尚未确认，先发送空列表避免客户端解析错误崩溃。
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    MailboxListNotificationType,
+                    BuildMailboxListNotification(Array.Empty<MailboxListEntry>(), isFirstLoad: false, notLoadedCount: notLoaded)))
+                    .ConfigureAwait(false);
+                FileLogger.Log($"[Mailbox] OPEN suppressed full list for A21 cid={characterId} entries={entries.Count}");
+                return;
+            }
+
             await SendMailboxListNotifications(session, entries, notLoaded).ConfigureAwait(false);
         }
 

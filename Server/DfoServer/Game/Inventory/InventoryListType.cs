@@ -16,5 +16,6 @@ namespace DfoServer.Game.Inventory
         QuickSlot = 29,
         KnightShieldEquipped = 33,
         KnightShieldCatalog = 34,
+        GuildMedal = 38,
     }
 }

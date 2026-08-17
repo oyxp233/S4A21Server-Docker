@@ -151,6 +151,25 @@ namespace DfoServer.Game.CharacterData
                 {
                     ApplyNameTagState(NameTagStateRepository.Load(conn, characterId), snap);
                 }
+
+                if (snap.EquippedEntries.Count == 0)
+                {
+                    var equippedItems = InventoryItemRepository.LoadEquippedItems(conn, characterId);
+                    var avatarDetails = AvatarDetailRepository.LoadForCharacter(conn, characterId);
+                    var creatureDetails = CreatureDetailRepository.LoadForCharacter(conn, characterId);
+                    var fromDb = projectionBuilder.BuildUserInfoAddition(
+                        equippedItems,
+                        avatarDetails,
+                        creatureDetails);
+                    snap.EquippedEntries.AddRange(fromDb.EquippedEntries);
+                    foreach (var pair in fromDb.AvatarDetails)
+                        snap.AvatarDetails[pair.Key] = pair.Value;
+                    foreach (var pair in fromDb.CreatureDetails)
+                        snap.CreatureDetails[pair.Key] = pair.Value;
+                    DfoServer.FileLogger.Log(
+                        $"[A21UserInfo1] cid={characterId} equipped fallback from DB count={fromDb.EquippedEntries.Count}");
+                }
+
                 using (var cmd = new SqliteCommand("SELECT dim_key, val1, val2 FROM character_dimensions WHERE character_id=@cid ORDER BY sort_order", conn))
                 {
                     cmd.Parameters.AddWithValue("@cid", characterId);

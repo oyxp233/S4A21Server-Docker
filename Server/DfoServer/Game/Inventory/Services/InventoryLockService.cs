@@ -322,7 +322,8 @@ namespace DfoServer.Game.Inventory
                 || listType == InventoryListType.PersonalCargo
                 || listType == InventoryListType.Equipment
                 || listType == InventoryListType.Pet
-                || listType == InventoryListType.AccountCargo;
+                || listType == InventoryListType.AccountCargo
+                || listType == InventoryListType.GuildMedal;
         }
 
         private static bool IsSupportedEquipmentLockListType(InventoryListType listType)
@@ -331,7 +332,8 @@ namespace DfoServer.Game.Inventory
                 || listType == InventoryListType.PersonalCargo
                 || listType == InventoryListType.Equipment
                 || listType == InventoryListType.Avatar
-                || listType == InventoryListType.Pet;
+                || listType == InventoryListType.Pet
+                || listType == InventoryListType.GuildMedal;
         }
 
         internal static bool CanApplySortItemLock(InventoryListType listType, short slotIndex)
@@ -363,6 +365,7 @@ namespace DfoServer.Game.Inventory
             yield return InventoryListType.PersonalCargo;
             yield return InventoryListType.Pet;
             yield return InventoryListType.AccountCargo;
+            yield return InventoryListType.GuildMedal;
         }
 
         private static IEnumerable<InventoryListType> EnumerateEquipmentLockListTypes(InventoryListType? listType)
@@ -379,6 +382,7 @@ namespace DfoServer.Game.Inventory
             yield return InventoryListType.Equipment;
             yield return InventoryListType.Avatar;
             yield return InventoryListType.Pet;
+            yield return InventoryListType.GuildMedal;
         }
 
         private static InventoryListType InventoryRefreshSenderMap(InventoryListType listType)

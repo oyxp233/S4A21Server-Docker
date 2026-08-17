@@ -66,6 +66,12 @@ namespace DfoServer.Game.Inventory
                             characterId,
                             InventoryListType.PersonalCargo,
                             CargoModel.DefaultCapacity);
+                        InventoryContainerStateRepository.UpsertCharacterContainerState(
+                            connection,
+                            transaction,
+                            characterId,
+                            InventoryListType.GuildMedal,
+                            0);
                     }
 
                     EnsureMainVirtualCurrencySlots(connection, transaction, characterId);

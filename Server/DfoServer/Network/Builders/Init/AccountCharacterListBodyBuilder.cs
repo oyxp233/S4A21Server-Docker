@@ -157,8 +157,7 @@ namespace DfoServer.Network.Builders
             {
                 if (entry == null)
                     continue;
-                if (entry.Slot <= (byte)EquipmentType.TitleName
-                    || entry.Slot == (byte)EquipmentType.SupportWeapon)
+                if (EquipmentTypeInfo.IsA21RosterAppearanceSlot(entry.Slot))
                 {
                     result.Add(entry);
                 }

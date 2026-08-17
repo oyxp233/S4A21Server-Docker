@@ -8,8 +8,6 @@ namespace DfoServer.Game.Inventory
 {
     internal sealed class Noti2InventoryProjectionBuilder
     {
-        private const byte TitleAppearanceSlot = (byte)EquipmentType.TitleName;
-
         internal UserInfoAdditionSnapshot BuildUserInfoAddition(InventoryService inventory)
         {
             if (inventory == null)
@@ -37,9 +35,11 @@ namespace DfoServer.Game.Inventory
                 if (item == null)
                     continue;
 
-                entries.Add(new KeyValuePair<short, ItemCore>(
-                    (short)EquipmentTypeInfo.ToA21AppearanceSlot(item.SlotIndex),
-                    item.Core));
+                var slot = (short)EquipmentTypeInfo.ToA21AppearanceSlot(item.SlotIndex);
+                if (!EquipmentTypeInfo.IsA21Noti2EquippedSlot(slot))
+                    continue;
+
+                entries.Add(new KeyValuePair<short, ItemCore>(slot, item.Core));
             }
 
             return BuildUserInfoAddition(
@@ -58,9 +58,13 @@ namespace DfoServer.Game.Inventory
             if (core == null || core.ItemId <= 0)
                 return null;
 
+            var slot = (short)EquipmentTypeInfo.ToA21AppearanceSlot(slotIndex);
+            if (!EquipmentTypeInfo.IsA21Noti2EquippedSlot(slot))
+                return null;
+
             return new EquippedEntrySnapshot
             {
-                Slot = (short)EquipmentTypeInfo.ToA21AppearanceSlot(slotIndex),
+                Slot = slot,
                 Core = core.Copy(),
             };
         }
@@ -274,10 +278,7 @@ namespace DfoServer.Game.Inventory
 
         private static bool ShouldEmitAppearanceSlot(int slotIndex)
         {
-            return slotIndex >= 0
-                && slotIndex <= byte.MaxValue
-                && (slotIndex <= TitleAppearanceSlot
-                    || slotIndex == (int)EquipmentType.SupportWeapon);
+            return EquipmentTypeInfo.IsA21RosterAppearanceSlot(slotIndex);
         }
 
         private static byte[] BuildAppearanceExpansionData(ItemCore core, AvatarDetail avatarDetail)

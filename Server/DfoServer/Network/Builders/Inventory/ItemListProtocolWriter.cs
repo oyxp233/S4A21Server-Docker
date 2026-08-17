@@ -50,7 +50,7 @@ namespace DfoServer.Network.Builders
             writer.WriteUInt16(core.Rune);
             WriteNoti2RandomOptionBlock(writer, core);
             WriteNoti2TailBlock(writer, core);
-            WriteA21Noti2EntryTail(writer, slot);
+            WriteA21Noti2EntryTail(writer, slot, core);
         }
 
         public static void WriteCommonEntry84(GamePacketWriter writer, short slot, ItemCore core)
@@ -61,7 +61,7 @@ namespace DfoServer.Network.Builders
                 core,
                 ResolveWireInstanceValue(core),
                 ResolveCommonMarker16(core));
-            WriteA21CommonPadding(writer);
+            WriteA21CommonTail(writer, core);
         }
 
         public static void WriteAvatarEntry126(
@@ -80,7 +80,7 @@ namespace DfoServer.Network.Builders
                 core,
                 remainingSeconds,
                 ResolveZeroDefaultMarker16(core.Marker16));
-            WriteA21CommonPadding(writer);
+            WriteA21CommonTail(writer, core);
             writer.WriteInt32(A21AvatarJewelBytes);
             WriteFixedBytes(writer, avatarDetail?.JewelSocket, A21AvatarJewelBytes);
             writer.WriteInt32(4);
@@ -97,7 +97,7 @@ namespace DfoServer.Network.Builders
                 core?.Value ?? 0,
                 ResolveZeroDefaultMarker16(
                     core?.Marker16 ?? ItemCore.Marker16Default));
-            WriteA21CommonPadding(writer);
+            WriteA21CommonTail(writer, core);
         }
 
         public static void WritePetCreatureEntry84(
@@ -110,7 +110,7 @@ namespace DfoServer.Network.Builders
                 throw new ArgumentNullException(nameof(core));
 
             WriteEntry84(writer, slot, core, core.Value, ResolvePetCreatureMarker16(core, creatureDetail));
-            WriteA21CommonPadding(writer);
+            WriteA21CommonTail(writer, core);
         }
 
         public static void WriteVirtualCountEntry84(GamePacketWriter writer, short slot, int itemId, int count)
@@ -164,9 +164,13 @@ namespace DfoServer.Network.Builders
             WriteTailBlock(writer, core);
         }
 
-        private static void WriteA21CommonPadding(GamePacketWriter writer)
+        private static void WriteA21CommonTail(GamePacketWriter writer, ItemCore core)
         {
-            writer.WriteZeroBytes(A21CommonEntryExtra);
+            writer.WriteUInt32(core?.A21Tail_Unknown84 ?? 0u);
+            for (var index = 0; index < ItemCore.GuardianGemSlotCount; index++)
+                writer.WriteUInt16(core?.GetGuardianGemKey(index) ?? (ushort)0);
+            writer.WriteByte(core?.A21Tail_Unknown96 ?? 0);
+            writer.WriteUInt32(core?.A21Tail_Unknown97 ?? 0u);
         }
 
         private static void WriteEnchantBlock(GamePacketWriter writer, ItemCore core)
@@ -196,7 +200,8 @@ namespace DfoServer.Network.Builders
 
         private static void WriteA21Noti2EntryTail(
             GamePacketWriter writer,
-            short slot)
+            short slot,
+            ItemCore core)
         {
             if (EquipmentTypeInfo.IsCostumeBarSlot(slot)
                 || slot == (short)EquipmentType.Creature)
@@ -205,9 +210,25 @@ namespace DfoServer.Network.Builders
                 return;
             }
 
+            if (slot == (short)EquipmentType.GuildMedal)
+            {
+                WriteA21Noti2GuildMedalTail(writer, core);
+                return;
+            }
+
             writer.WriteUInt32(0);
             writer.WriteUInt32(8);
             writer.WriteZeroBytes(9);
+        }
+
+        private static void WriteA21Noti2GuildMedalTail(GamePacketWriter writer, ItemCore core)
+        {
+            writer.WriteUInt32(core?.A21Tail_Unknown84 ?? 0u);
+            var keyCount = core?.GetGuardianGemKeyWriteCount() ?? 0;
+            writer.WriteUInt32((uint)(keyCount * 2));
+            for (var index = 0; index < keyCount; index++)
+                writer.WriteUInt16(core.GetGuardianGemKey(index));
+            writer.WriteByte(core?.A21Tail_Unknown96 ?? 0);
         }
 
         private static void WriteNoti2ChronicleBlock(GamePacketWriter writer, ItemCore core)

@@ -51,6 +51,7 @@ namespace DfoServer.Game.SelectCharacter
             Item(InventoryListType.PersonalCargo);
             Item(InventoryListType.Pet);
             Item(InventoryListType.AccountCargo);
+            Item(InventoryListType.GuildMedal);
             Raw(0x00, 0x0245);
             Raw(0x00, 0x0465);
             Raw(0x00, 0x021E);
@@ -63,7 +64,6 @@ namespace DfoServer.Game.SelectCharacter
             Raw(0x00, 0x015F);                      
             Raw(0x00, 0x00AC);                      
             Raw(0x00, 0x00AE);                      
-            Raw(0x00, 0x02DA);                      
             Raw(0x00, 0x017B);                      
             Raw(0x00, 0x0381, 0);
             Raw(0x00, 0x0381, 1);
@@ -86,6 +86,8 @@ namespace DfoServer.Game.SelectCharacter
             Raw(0x00, 0x02D5, 1);                   
             Raw(0x00, 0x02D5, 2);                   
             Raw(0x00, 0x01A8);                      
+            Raw(0x00, 0x0009);
+            Raw(0x00, 0x0344);
             Raw(0x00, 0x007C);                      
             Raw(0x00, 0x0002, 2);
             Raw(0x00, 0x0035);

@@ -16,7 +16,8 @@ namespace DfoServer.Game.ItemUpgrade
         SkinAvatar = 8,
         AuroraAvatar = 9,
         WeaponAvatar = 10,
-        AuroraIllusionAvatar = 11,
+        AuraSkinAvatar = 11,
+        AuroraIllusionAvatar = AuraSkinAvatar,
         Weapon = 12,
         TitleName = 13,
         Coat = 14,
@@ -36,7 +37,9 @@ namespace DfoServer.Game.ItemUpgrade
         ArtifactGreen = 28,
         NameTag = 29,
         Charm = 30,
-        Unknown = 31,
+        GuildMedal = 31,
+        Flag = GuildMedal,
+        Unknown = -1,
     }
 
     public static class EquipmentTypeInfo
@@ -54,9 +57,10 @@ namespace DfoServer.Game.ItemUpgrade
             ["[skin avatar]"] = EquipmentType.SkinAvatar,
             ["[aurora avatar]"] = EquipmentType.AuroraAvatar,
             ["[weapon avatar]"] = EquipmentType.WeaponAvatar,
-            ["[aurora illusion avatar]"] = EquipmentType.AuroraIllusionAvatar,
-            ["[aurora skin avatar]"] = EquipmentType.AuroraIllusionAvatar,
-            ["[aurora change avatar]"] = EquipmentType.AuroraIllusionAvatar,
+            ["[aura skin avatar]"] = EquipmentType.AuraSkinAvatar,
+            ["[aurora illusion avatar]"] = EquipmentType.AuraSkinAvatar,
+            ["[aurora skin avatar]"] = EquipmentType.AuraSkinAvatar,
+            ["[aurora change avatar]"] = EquipmentType.AuraSkinAvatar,
             ["[weapon]"] = EquipmentType.Weapon,
             ["[title name]"] = EquipmentType.TitleName,
             ["[coat]"] = EquipmentType.Coat,
@@ -76,6 +80,7 @@ namespace DfoServer.Game.ItemUpgrade
             ["[artifact green]"] = EquipmentType.ArtifactGreen,
             ["[name tag]"] = EquipmentType.NameTag,
             ["[charm]"] = EquipmentType.Charm,
+            ["[flag]"] = EquipmentType.GuildMedal,
         };
 
         private static readonly Dictionary<EquipmentType, string> TypeToText = BuildReverseMap();
@@ -97,7 +102,7 @@ namespace DfoServer.Game.ItemUpgrade
             return TypeToText.TryGetValue(type, out var token) ? token : null;
         }
 
-        // PVF/旧外观编码中的 200–230 使用插槽前的编号；A21 在槽 11 插入光环幻化。
+        // PVF/旧外观编码中的 200-230 使用插槽前的编号；A21 在槽 11 插入光环皮肤。
         public static int ToA21AppearanceSlot(int slot)
         {
             if (slot >= 200 && slot <= 230)
@@ -109,16 +114,29 @@ namespace DfoServer.Game.ItemUpgrade
             return slot;
         }
 
+        public static bool IsA21RosterAppearanceSlot(int slot)
+        {
+            return slot >= (short)EquipmentType.HatAvatar
+                && slot <= (short)EquipmentType.TitleName;
+        }
+
+        public static bool IsA21Noti2EquippedSlot(int slot)
+        {
+            return (slot >= (short)EquipmentType.HatAvatar
+                    && slot <= (short)EquipmentType.ArtifactGreen)
+                || slot == (short)EquipmentType.GuildMedal;
+        }
+
         public static bool IsCostumeBarSlot(short slot)
         {
             return slot >= (short)EquipmentType.HatAvatar
-                && slot <= (short)EquipmentType.AuroraIllusionAvatar;
+                && slot <= (short)EquipmentType.AuraSkinAvatar;
         }
 
         public static bool IsAvatarPart(EquipmentType type)
         {
             return type >= EquipmentType.HatAvatar
-                && type <= EquipmentType.AuroraIllusionAvatar;
+                && type <= EquipmentType.AuraSkinAvatar;
         }
 
         public static bool IsWeapon(EquipmentType type)

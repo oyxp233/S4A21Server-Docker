@@ -10,6 +10,7 @@ namespace DfoServer.Network.Builders
     {
         public ushort NotiType => 0x0061;
         private const int MailboxPageSize = 20;
+        private static readonly bool A21MailboxFullListEnabled = false;
         private readonly MailboxRepository _repository;
 
         public MailboxBodyBuilder()
@@ -34,6 +35,14 @@ namespace DfoServer.Network.Builders
 
             try
             {
+                if (!A21MailboxFullListEnabled)
+                {
+                    // A21 邮箱 0x0061 完整列表结构尚未逆完；进城阶段先发 6B 空 seed，避免带附件邮件导致客户端崩溃。
+                    body = new byte[6];
+                    FileLogger.Log($"[MailboxInit] a21 empty 6B cid={characterId}");
+                    return true;
+                }
+
                 // Full 0x0061 state is needed during enter-town init. The old 6-byte seed only
                 // updated the mailbox container count and did not make the town mailbox object
                 // show its floating envelope until the player opened and closed the mailbox UI.

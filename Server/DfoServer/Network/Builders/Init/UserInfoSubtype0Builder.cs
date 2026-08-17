@@ -1,6 +1,7 @@
 using DfoServer.Game.Appearance;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Inventory;
+using DfoServer.Game.ItemUpgrade;
 using DfoServer.Game.SelectCharacter;
 using System;
 using System.Collections.Generic;
@@ -128,38 +129,47 @@ namespace DfoServer.Network.Builders
         private static List<CharacterAppearanceEntry> GetAppearanceEntries(CharacterRecord record)
         {
             var result = new List<CharacterAppearanceEntry>();
-            if (record.Appearance != null)
+            if (record?.Appearance != null)
             {
                 foreach (var e in record.Appearance)
-                {
-                    if (e != null)
-                        result.Add(e);
-                }
+                    AddA21AppearanceEntry(result, e);
             }
 
-            if (result.Count == 0 && record.CharacterId > 0)
+            if (result.Count == 0 && record != null && record.CharacterId > 0)
             {
                 var fromDb = AppearanceService.LoadCharacterAppearanceFromDb(record);
                 if (fromDb != null)
                 {
                     foreach (var e in fromDb)
-                    {
-                        if (e != null)
-                            result.Add(e);
-                    }
+                        AddA21AppearanceEntry(result, e);
                 }
             }
 
             return result;
         }
 
-        
-        
-        
-        
-        
-        
-        
+        private static void AddA21AppearanceEntry(
+            List<CharacterAppearanceEntry> result,
+            CharacterAppearanceEntry entry)
+        {
+            if (entry == null || entry.DisplayItemId <= 0)
+                return;
+
+            var slot = EquipmentTypeInfo.ToA21AppearanceSlot(entry.Slot);
+            if (!EquipmentTypeInfo.IsA21RosterAppearanceSlot(slot))
+                return;
+
+            result.Add(new CharacterAppearanceEntry(
+                (byte)slot,
+                entry.DisplayItemId,
+                entry.ExpansionLen,
+                entry.ExpansionData,
+                entry.State,
+                entry.LinkItemId,
+                entry.EnchantValue,
+                entry.Flag20));
+        }
+
         internal static void WriteAppearanceEntry(GamePacketWriter writer, CharacterAppearanceEntry e)
         {
             writer.WriteByte(e.Slot);

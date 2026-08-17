@@ -89,10 +89,15 @@ namespace DfoServer.Game.Inventory
         {
             if (string.Equals(ItemKind, "equipment", StringComparison.Ordinal))
             {
+                if (IsFlagEquipmentType())
+                { slotStart = 0; slotEnd = 48; return; }
+
                 slotStart = 9; slotEnd = 64; return;
             }
             var st = NormalizeStackableType();
             TryGetPrimaryStackableTag(out var primaryTag);
+            if (string.Equals(primaryTag, "flag gem", StringComparison.OrdinalIgnoreCase))
+            { slotStart = 49; slotEnd = 97; return; }
             if (string.Equals(primaryTag, "material expert job", StringComparison.OrdinalIgnoreCase))
             { slotStart = 233; slotEnd = 288; return; }
             if (string.Equals(primaryTag, "avatar emblem", StringComparison.OrdinalIgnoreCase))
@@ -130,6 +135,12 @@ namespace DfoServer.Game.Inventory
 
         private string NormalizeStackableType()
             => (StackableType ?? string.Empty).Replace("`", string.Empty).Trim();
+
+        private bool IsFlagEquipmentType()
+        {
+            var normalized = (EquipmentType ?? string.Empty).Replace("`", string.Empty).Trim();
+            return normalized.StartsWith("[flag]", StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     internal sealed class ItemSellRates
@@ -1117,6 +1128,9 @@ namespace DfoServer.Game.Inventory
                 || equipmentType == "artifact green")
                 return ItemCore.KindCreatureEquipment;
 
+            if (equipmentType == "flag")
+                return ItemCore.KindGuildMedal;
+
             return ItemCore.KindEquipment;
         }
 
@@ -1128,6 +1142,9 @@ namespace DfoServer.Game.Inventory
             var stackableType = NormalizePvfKindTag(metadata.StackableType);
             if (stackableType == "avatar emblem")
                 return ItemCore.KindAvatarEmblem;
+
+            if (IsGuardianGemStackable(stackableType))
+                return ItemCore.KindGuardianGem;
 
             if (stackableType == "material expert job")
                 return ItemCore.KindExpertJobMaterial;
@@ -1141,6 +1158,31 @@ namespace DfoServer.Game.Inventory
                     : ItemCore.KindMaterial;
 
             return ItemCore.KindConsumable;
+        }
+
+        private static bool IsGuardianGemStackable(string stackableType)
+        {
+            return string.Equals(stackableType, "flag gem", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsGuardianGemStackable(ItemMetadata metadata, string stackableType)
+        {
+            if (string.Equals(stackableType, "guardian gem", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(stackableType, "guild gem", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(stackableType, "gem", StringComparison.OrdinalIgnoreCase)
+                || stackableType.IndexOf("guardian gem", StringComparison.OrdinalIgnoreCase) >= 0
+                || stackableType.IndexOf("守护珠", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            var path = metadata?.PvfFilePath;
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            var normalizedPath = path.Replace('\\', '/').ToLowerInvariant();
+            return normalizedPath.IndexOf("guardian", StringComparison.Ordinal) >= 0
+                && normalizedPath.IndexOf("gem", StringComparison.Ordinal) >= 0;
         }
 
         private static bool IsSpecialMaterialItem(int itemTemplateId)

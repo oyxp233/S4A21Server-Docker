@@ -116,16 +116,17 @@ namespace DfoServer.Network.Builders
             switch (itemSpace)
             {
                 case InventoryListType.Avatar:
-                    return 0x7E;
+                    return ItemListProtocolWriter.AvatarEntrySize;
                 case InventoryListType.Equipment:
                 case InventoryListType.Main:
                 case InventoryListType.PersonalCargo:
                 case InventoryListType.AccountCargo:
                 case InventoryListType.QuickSlot:
                 case InventoryListType.Pet:
-                    return 0x54;
+                case InventoryListType.GuildMedal:
+                    return ItemListProtocolWriter.CommonEntrySize;
                 default:
-                    return 0x54;
+                    return ItemListProtocolWriter.CommonEntrySize;
             }
         }
 

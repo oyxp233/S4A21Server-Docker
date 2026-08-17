@@ -35,7 +35,7 @@ namespace DfoServer.Game.Inventory
         public const int MainSlotCount = MainSlotEnd + 1;
 
         public const short BodySlotStart = 0;
-        public const short BodySlotEnd = (short)EquipmentType.Charm;
+        public const short BodySlotEnd = (short)EquipmentType.GuildMedal;
         public const int BodySlotCount = BodySlotEnd - BodySlotStart + 1;
 
         public const short AvatarSlotStart = 0;
@@ -46,10 +46,15 @@ namespace DfoServer.Game.Inventory
         public const short CreatureSlotEnd = 239;
         public const int CreatureSlotCount = CreatureSlotEnd - CreatureSlotStart + 1;
 
+        public const short GuildMedalSlotStart = 0;
+        public const short GuildMedalSlotEnd = 97;
+        public const int GuildMedalSlotCount = GuildMedalSlotEnd - GuildMedalSlotStart + 1;
+
         private readonly ItemCore[] _main = new ItemCore[MainSlotCount];
         private readonly ItemCore[] _body = new ItemCore[BodySlotCount];
         private readonly ItemCore[] _avatar = new ItemCore[AvatarSlotCount];
         private readonly ItemCore[] _creature = new ItemCore[CreatureSlotCount];
+        private readonly ItemCore[] _guildMedal = new ItemCore[GuildMedalSlotCount];
         private readonly Dictionary<short, VirtualCountItem> _mainVirtualCounts =
             new Dictionary<short, VirtualCountItem>();
         private readonly HashSet<short> _dirtyMainVirtualSlots = new HashSet<short>();
@@ -624,6 +629,9 @@ namespace DfoServer.Game.Inventory
                 case InventoryListType.Pet:
                     items = _creature;
                     return true;
+                case InventoryListType.GuildMedal:
+                    items = _guildMedal;
+                    return true;
                 default:
                     items = null;
                     return false;
@@ -636,6 +644,7 @@ namespace DfoServer.Game.Inventory
             InitEmptySlots(_body);
             InitEmptySlots(_avatar);
             InitEmptySlots(_creature);
+            InitEmptySlots(_guildMedal);
         }
 
         private static void InitEmptySlots(ItemCore[] items, short slotStart, short slotEnd)
@@ -670,6 +679,7 @@ namespace DfoServer.Game.Inventory
             _listParams[InventoryListType.PersonalCargo] = CargoModel.DefaultCapacity;
             _listParams[InventoryListType.Pet] = 0;
             _listParams[InventoryListType.Equipment] = 0;
+            _listParams[InventoryListType.GuildMedal] = 0;
         }
 
         private static bool TryGetArrayIndex(InventoryListType listType, short slotIndex, int slotCount, out int index)

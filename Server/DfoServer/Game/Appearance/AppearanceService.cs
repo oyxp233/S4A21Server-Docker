@@ -16,8 +16,6 @@ namespace DfoServer.Game.Appearance
 {
     public static class AppearanceService
     {
-        private const byte TitleAppearanceSlot = (byte)EquipmentType.TitleName;
-
         public static byte[] UpdateAndBroadcast(
             PlayerContext player,
             ICharacterRepository characterRepository,
@@ -302,8 +300,7 @@ namespace DfoServer.Game.Appearance
 
                 // 外观列表的 itemId 保持真实穿戴模板；替换称号动画还会由 subtype0 tail 首字段刷新。
                 // slot23 是客户端原生副武器外观槽；守护者主盾也通过同一标准装备槽进入快照。
-                if (entry.Slot > TitleAppearanceSlot
-                    && entry.Slot != (byte)EquipmentType.SupportWeapon)
+                if (!EquipmentTypeInfo.IsA21RosterAppearanceSlot(entry.Slot))
                     continue;
                 var core = entry.Core;
                 if (core == null || core.ItemId == 0)
@@ -407,13 +404,7 @@ WHERE character_id = @cid;";
             if (record.Subtype0Tail == null)
                 record.Subtype0Tail = new UserInfoMinimumTailSnapshot();
 
-            var writer = new GamePacketWriter();
-            writer.WriteByte(0x00);
-            writer.WriteUInt16(0x0001);
-            writer.WriteUInt16(player.UserId);
-            writer.WriteDstr(player.Name);
-            writer.WriteBytes(UserInfoSubtype0Builder.BuildRemainingBytes(record));
-            return writer.ToArray();
+            return UserInfoSubtype0Builder.BuildNotificationBody(record);
         }
     }
 }

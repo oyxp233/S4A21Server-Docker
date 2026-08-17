@@ -45,6 +45,7 @@ namespace DfoServer.Network.Builders
                 writer.WriteByte(entry.EnchantUpgradeCount);
                 writer.WriteByte(entry.AmplifyType);
                 writer.WriteUInt16(entry.AmplifyValue);
+                writer.WriteInt32(0); // A21 条目尾部保留 4 字节，先按 0 补齐
             }
             return writer.ToArray();
         }

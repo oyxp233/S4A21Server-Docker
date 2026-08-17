@@ -23,13 +23,13 @@ namespace DfoServer.Network.Builders
                 permissions);
 
             var count = persistent.Count;
-            var body = new byte[2 + count * 3];
+            var body = new byte[2 + count * 5];
             Buffer.BlockCopy(BitConverter.GetBytes((ushort)count), 0, body, 0, 2);
             for (var i = 0; i < count; i++)
             {
-                var off = 2 + i * 3;
-                Buffer.BlockCopy(BitConverter.GetBytes(persistent[i].DungeonId), 0, body, off, 2);
-                body[off + 2] = persistent[i].ClearState;
+                var off = 2 + i * 5;
+                Buffer.BlockCopy(BitConverter.GetBytes((int)persistent[i].DungeonId), 0, body, off, 4);
+                body[off + 4] = persistent[i].ClearState;
             }
             return body;
         }

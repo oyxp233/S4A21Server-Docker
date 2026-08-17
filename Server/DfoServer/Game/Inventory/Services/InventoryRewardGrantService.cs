@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DfoServer.Game.Currency;
+using DfoServer.Infrastructure;
 using PremiumService = DfoServer.Game.Premium.PremiumService;
 using ReviveCoinService = DfoServer.Game.ReviveCoin.ReviveCoinService;
 
@@ -496,6 +497,14 @@ namespace DfoServer.Game.Inventory
             var insertCount = InventoryStackRuleService.NormalizeInsertCount(core, count);
             if (!InventoryInsertService.TryPlanInsertByDefaultRule(planningInventory, core, insertCount, out var insertPlan))
             {
+                LogInventoryInsertFailure(
+                    planningInventory,
+                    itemTemplateId,
+                    core,
+                    count,
+                    insertCount,
+                    insertPlan != null ? insertPlan.Error : InventoryInsertError.InvalidTargetList,
+                    "plan");
                 error = InventoryRewardGrantError.InsertPlanFailed;
                 return false;
             }
@@ -503,6 +512,14 @@ namespace DfoServer.Game.Inventory
             if (!InventoryInsertService.TryApplyInsertPlan(planningInventory, core, insertPlan, out var reserveResult)
                 || !reserveResult.Success)
             {
+                LogInventoryInsertFailure(
+                    planningInventory,
+                    itemTemplateId,
+                    core,
+                    count,
+                    insertCount,
+                    reserveResult != null ? reserveResult.Error : InventoryInsertError.UpdateFailed,
+                    "reserve");
                 error = InventoryRewardGrantError.InsertPlanFailed;
                 return false;
             }
@@ -824,6 +841,7 @@ namespace DfoServer.Game.Inventory
             CopyListParam(source, inventory, InventoryListType.Pet);
             CopyListParam(source, inventory, InventoryListType.PersonalCargo);
             CopyListParam(source, inventory, InventoryListType.AccountCargo);
+            CopyListParam(source, inventory, InventoryListType.GuildMedal);
 
             CopyItems(source, inventory, InventoryListType.Main);
             CopyItems(source, inventory, InventoryListType.Equipment);
@@ -831,6 +849,7 @@ namespace DfoServer.Game.Inventory
             CopyItems(source, inventory, InventoryListType.Pet);
             CopyItems(source, inventory, InventoryListType.PersonalCargo);
             CopyItems(source, inventory, InventoryListType.AccountCargo);
+            CopyItems(source, inventory, InventoryListType.GuildMedal);
 
             foreach (var item in source.GetMainVirtualCounts())
                 inventory.AttachMainVirtualCount(item.SlotIndex, item.ItemId, item.Count);
@@ -904,6 +923,66 @@ namespace DfoServer.Game.Inventory
             }
 
             return true;
+        }
+
+        private static void LogInventoryInsertFailure(
+            InventoryService inventory,
+            int itemTemplateId,
+            ItemCore core,
+            int requestedCount,
+            int insertCount,
+            InventoryInsertError insertError,
+            string stage)
+        {
+            try
+            {
+                var itemKind = core != null ? core.ItemKind : ItemCore.KindUnknown;
+                var listText = "n/a";
+                var rangeText = "n/a";
+                var freeText = "n/a";
+                var listParamText = "n/a";
+
+                if (inventory != null
+                    && ItemSlotBoundService.TryGetSlotRange(
+                        itemKind,
+                        inventory.GetListParam16(InventoryListType.Main),
+                        out var listType,
+                        out var range))
+                {
+                    listText = $"{(byte)listType}(0x{(byte)listType:X2})";
+                    rangeText = $"{range.Start}-{range.End}";
+                    freeText = CountFreeSlots(inventory, listType, range).ToString();
+                    listParamText = inventory.GetListParam16(listType).ToString();
+                }
+
+                FileLogger.Log(
+                    $"[InventoryReward] insert failed stage={stage} " +
+                    $"item=0x{itemTemplateId:X8} kind={itemKind} requested={requestedCount} " +
+                    $"insertCount={insertCount} error={insertError} list={listText} " +
+                    $"range={rangeText} free={freeText} listParam16={listParamText}");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"[InventoryReward] insert failure logging failed: {ex.Message}");
+            }
+        }
+
+        private static int CountFreeSlots(
+            InventoryService inventory,
+            InventoryListType listType,
+            ItemSlotRange range)
+        {
+            if (inventory == null || range.Count <= 0)
+                return 0;
+
+            var free = 0;
+            for (var slot = range.Start; slot <= range.End; slot++)
+            {
+                if (inventory.GetItem(listType, (short)slot) == null)
+                    free++;
+            }
+
+            return free;
         }
 
         private static bool TryResolveMainVirtualReward(int itemTemplateId, out short slotIndex, out int slotItemId)

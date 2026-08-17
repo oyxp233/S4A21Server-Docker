@@ -55,8 +55,8 @@ namespace DfoServer.Network.Builders
             writer.WriteUInt32(addition.StatWeight);
             writer.WriteUInt32(100);
             writer.WriteByte(0);
-            writer.WriteByte(addition.ExEquipSlotStat);
             writer.WriteByte(0);
+            writer.WriteByte(addition.ExEquipSlotStat);
 
             writer.WriteByte((byte)Math.Min(byte.MaxValue, equipped.Count));
             foreach (var entry in equipped)

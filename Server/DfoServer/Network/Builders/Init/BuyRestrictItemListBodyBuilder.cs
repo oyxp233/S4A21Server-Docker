@@ -5,7 +5,7 @@ namespace DfoServer.Network.Builders
 {
     public sealed class BuyRestrictItemListBodyBuilder : IInitPacketBuilder
     {
-        public ushort NotiType => 0x02DA;
+        public ushort NotiType => 0x0344;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {

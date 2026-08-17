@@ -33,6 +33,7 @@ namespace DfoServer.Network.Builders
             Register(new CreatureListBodyBuilder());           
             Register(new ExpertJobInfoBodyBuilder());          
             Register(new ItemLockListBodyBuilder());           
+            Register(new EmptyPartyInfoBodyBuilder());
             Register(new ItemValueListBodyBuilder(0x00AC));    
             Register(new ItemValueListBodyBuilder(0x00AE));    
             Register(new AchievementListBodyBuilder());    
@@ -47,7 +48,7 @@ namespace DfoServer.Network.Builders
             Register(new SimpleByteBodyBuilder(0x0331, s => s.GoldLimitUpgradeLevel));
 
             
-            Register(new EmptyBodyBuilder(0x007C));
+            Register(new EnterGameWorldCompleteBodyBuilder());
 
             
             Register(new BossTowerBodyBuilder());                                       

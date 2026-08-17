@@ -39,6 +39,10 @@ namespace DfoServer.Game.Inventory
         internal const int PetConsumableSlotEnd = 239;
         internal const int AvatarEmblemSlotStart = 289;
         internal const int AvatarEmblemSlotEnd = 351;
+        internal const int GuildMedalInventorySlotStart = 0;
+        internal const int GuildMedalInventorySlotEnd = 48;
+        internal const int GuardianGemInventorySlotStart = 49;
+        internal const int GuardianGemInventorySlotEnd = 97;
 
         internal static bool IsMainQuickSlot(int slotIndex)
         {
@@ -72,6 +76,14 @@ namespace DfoServer.Game.Inventory
                 case ItemCore.KindAvatarEmblem:
                     range = new ItemSlotRange(AvatarEmblemSlotStart, AvatarEmblemSlotEnd);
                     return true;
+                case ItemCore.KindGuildMedal:
+                    listType = InventoryListType.GuildMedal;
+                    range = new ItemSlotRange(GuildMedalInventorySlotStart, GuildMedalInventorySlotEnd);
+                    return true;
+                case ItemCore.KindGuardianGem:
+                    listType = InventoryListType.GuildMedal;
+                    range = new ItemSlotRange(GuardianGemInventorySlotStart, GuardianGemInventorySlotEnd);
+                    return true;
                 case ItemCore.KindAvatar:
                     listType = InventoryListType.Avatar;
                     range = GetAvatarOpenRange(0);
@@ -101,6 +113,9 @@ namespace DfoServer.Game.Inventory
         {
             if (listType == InventoryListType.Equipment)
                 return TryGetBodyItemKindBySlot(slotIndex, out var bodyKind) && bodyKind == itemKind;
+            if (listType == InventoryListType.GuildMedal)
+                return TryGetGuildMedalItemKindBySlot(slotIndex, out var guildItemKind)
+                    && guildItemKind == itemKind;
 
             return TryGetSlotRange(itemKind, mainExpandStageKey, out var expectedListType, out var range)
                 && expectedListType == listType
@@ -126,6 +141,8 @@ namespace DfoServer.Game.Inventory
                     return TryGetBodyItemKindBySlot(slotIndex, out itemKind);
                 case InventoryListType.Pet:
                     return TryGetPetItemKindBySlot(slotIndex, out itemKind);
+                case InventoryListType.GuildMedal:
+                    return TryGetGuildMedalItemKindBySlot(slotIndex, out itemKind);
                 default:
                     return false;
             }
@@ -152,6 +169,8 @@ namespace DfoServer.Game.Inventory
 
             if (listType == InventoryListType.PersonalCargo || listType == InventoryListType.AccountCargo)
                 return ItemMetadataResolver.TryResolveItemKind(itemTemplateId, out itemKind);
+            if (listType == InventoryListType.GuildMedal && GetGuildMedalOpenRange().Contains(slotIndex))
+                return TryGetGuildMedalItemKindBySlot(slotIndex, out itemKind);
 
             return TryGetItemKindBySlot(listType, slotIndex, MainExpandStageFull, out itemKind)
                 || ItemMetadataResolver.TryResolveItemKind(itemTemplateId, out itemKind);
@@ -179,10 +198,20 @@ namespace DfoServer.Game.Inventory
                 case InventoryListType.AccountCargo:
                     range = new ItemSlotRange(AccountCargoModel.SlotStart, AccountCargoModel.SlotEnd);
                     return true;
+                case InventoryListType.GuildMedal:
+                    range = GetGuildMedalOpenRange();
+                    return true;
                 default:
                     range = default;
                     return false;
             }
+        }
+
+        internal static ItemSlotRange GetGuildMedalOpenRange()
+        {
+            return new ItemSlotRange(
+                GuildMedalInventorySlotStart,
+                GuardianGemInventorySlotEnd);
         }
 
         internal static ItemSlotRange GetAvatarOpenRange(int avatarListParam16)
@@ -270,7 +299,7 @@ namespace DfoServer.Game.Inventory
         private static bool TryGetBodyItemKindBySlot(short slotIndex, out byte itemKind)
         {
             if (slotIndex >= (short)EquipmentType.HatAvatar
-                && slotIndex <= (short)EquipmentType.AuroraIllusionAvatar)
+                && slotIndex <= (short)EquipmentType.AuraSkinAvatar)
             {
                 itemKind = ItemCore.KindAvatar;
                 return true;
@@ -290,7 +319,8 @@ namespace DfoServer.Game.Inventory
 
             if ((slotIndex >= (short)EquipmentType.Weapon
                     && slotIndex <= (short)EquipmentType.SupportWeapon)
-                || slotIndex == (short)EquipmentType.Charm)
+                || slotIndex == (short)EquipmentType.Charm
+                || slotIndex == (short)EquipmentType.GuildMedal)
             {
                 itemKind = ItemCore.KindEquipment;
                 return true;
@@ -317,6 +347,24 @@ namespace DfoServer.Game.Inventory
             if (slotIndex >= PetConsumableSlotStart && slotIndex <= PetConsumableSlotEnd)
             {
                 itemKind = ItemCore.KindCreatureConsumable;
+                return true;
+            }
+
+            itemKind = ItemCore.KindUnknown;
+            return false;
+        }
+
+        private static bool TryGetGuildMedalItemKindBySlot(short slotIndex, out byte itemKind)
+        {
+            if (slotIndex >= GuildMedalInventorySlotStart && slotIndex <= GuildMedalInventorySlotEnd)
+            {
+                itemKind = ItemCore.KindGuildMedal;
+                return true;
+            }
+
+            if (slotIndex >= GuardianGemInventorySlotStart && slotIndex <= GuardianGemInventorySlotEnd)
+            {
+                itemKind = ItemCore.KindGuardianGem;
                 return true;
             }
 

@@ -1,4 +1,6 @@
 using DfoServer.Network;
+using DfoServer.Sqlite;
+using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -122,6 +124,13 @@ namespace DfoServer
                 }
             }
 
+            // 数据库迁移命令只处理显式请求，不影响正常启动参数。
+            var migrateIndex = Array.IndexOf(args, "--migrate-a21-inventory-db");
+            if (migrateIndex >= 0)
+            {
+                Environment.Exit(RunA21InventoryDatabaseMigration(args, migrateIndex));
+                return;
+            }
             GameNetworkConfig.Configure(args);
             GameNetworkConfig.ValidateRelayConfiguration();
 
@@ -303,6 +312,91 @@ namespace DfoServer
             // 服务停止后不再产生常规业务日志，此时完成队列并等待后台写入结束，避免退出时丢失尾部日志。
             FileLogger.Shutdown(TimeSpan.FromSeconds(5));
             Console.WriteLine("Server stopped.");
+        }
+
+        private static int RunA21InventoryDatabaseMigration(string[] args, int commandIndex)
+        {
+            var databasePath = GetOptionValue(args, "--database-path")
+                ?? GetFollowingValue(args, commandIndex)
+                ?? Infrastructure.ServerPaths.DatabasePath;
+
+            databasePath = Path.GetFullPath(databasePath);
+            if (!File.Exists(databasePath))
+            {
+                Console.Error.WriteLine("[DbMigration] database not found: " + databasePath);
+                return 1;
+            }
+
+            try
+            {
+                using (var connection = new SqliteConnection(
+                    Infrastructure.SqliteDatabaseBootstrap.BuildConnectionString(databasePath)))
+                {
+                    connection.Open();
+                    var before = SqliteMigrations.ReadVersion(connection);
+                    if (SqliteMigrations.HasCurrentBaseline(connection))
+                    {
+                        SqliteMigrations.Apply(connection);
+                        var after = SqliteMigrations.ReadVersion(connection);
+
+                        if (before == after)
+                        {
+                            Console.WriteLine(
+                                $"[DbMigration] no migration needed: {databasePath} schema v{after}");
+                        }
+                        else
+                        {
+                            Console.WriteLine(
+                                $"[DbMigration] migrated: {databasePath} schema v{before} -> v{after}");
+                        }
+                    }
+                    else if (LegacyInventoryItemCoreMigration.CanApply(connection))
+                    {
+                        var result = LegacyInventoryItemCoreMigration.Apply(
+                            connection,
+                            File.ReadAllText(Infrastructure.ServerPaths.SchemaFilePath));
+                        Console.WriteLine(
+                            $"[DbMigration] legacy inventory normalized: {databasePath} " +
+                            $"schema v{result.BeforeVersion} -> v{result.AfterVersion}; " +
+                            $"paddedItemCoreRows={result.PaddedItemCoreRows}; " +
+                            $"droppedLegacyTables={result.DroppedLegacyTables}");
+                    }
+                    else
+                    {
+                        SqliteMigrations.Apply(connection);
+                    }
+                }
+
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[DbMigration] failed: " + ex.Message);
+                return 1;
+            }
+        }
+
+        private static string GetFollowingValue(string[] args, int index)
+        {
+            if (index < 0 || index + 1 >= args.Length)
+                return null;
+
+            var value = args[index + 1];
+            return value.StartsWith("--", StringComparison.Ordinal) ? null : value;
+        }
+
+        private static string GetOptionValue(string[] args, string optionName)
+        {
+            for (var i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], optionName, StringComparison.Ordinal))
+                {
+                    var value = args[i + 1];
+                    return value.StartsWith("--", StringComparison.Ordinal) ? null : value;
+                }
+            }
+
+            return null;
         }
     }
 }

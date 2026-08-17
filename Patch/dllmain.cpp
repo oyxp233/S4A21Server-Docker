@@ -5,6 +5,12 @@
 
 EXPAPI(A)
 
+EXTERN_C __declspec(dllexport) BOOL ClientPatchPluginInit()
+{
+    JPEntry();
+    return TRUE;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
     switch (ul_reason_for_call)

@@ -316,7 +316,8 @@ namespace DfoServer.Network.Handlers
                 || listType == InventoryListType.PersonalCargo
                 || listType == InventoryListType.Equipment
                 || listType == InventoryListType.Avatar
-                || listType == InventoryListType.Pet;
+                || listType == InventoryListType.Pet
+                || listType == InventoryListType.GuildMedal;
         }
 
         private static bool IsNewItemListUpdateSpace(InventoryListType itemSpace)
@@ -327,7 +328,8 @@ namespace DfoServer.Network.Handlers
                 || itemSpace == InventoryListType.QuickSlot
                 || itemSpace == InventoryListType.Avatar
                 || itemSpace == InventoryListType.Equipment
-                || itemSpace == InventoryListType.Pet;
+                || itemSpace == InventoryListType.Pet
+                || itemSpace == InventoryListType.GuildMedal;
         }
 
         private CreatureItemListSnapshot LoadCreatureItemListSnapshot(EnhancedClientSession session, int characterId)

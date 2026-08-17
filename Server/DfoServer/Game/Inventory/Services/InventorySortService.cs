@@ -126,6 +126,8 @@ namespace DfoServer.Game.Inventory
                 case InventoryListType.AccountCargo:
                     range = ItemSlotBoundService.GetAccountCargoOpenRange(inventory.GetListParam16(InventoryListType.AccountCargo));
                     return range.Count > 0;
+                case InventoryListType.GuildMedal:
+                    return TryGetGuildMedalSortRange(category, out range);
                 default:
                     return false;
             }
@@ -179,6 +181,29 @@ namespace DfoServer.Game.Inventory
                     out var listType,
                     out range)
                 && listType == InventoryListType.Pet
+                && range.Count > 0;
+        }
+
+        private static bool TryGetGuildMedalSortRange(byte category, out ItemSlotRange range)
+        {
+            range = default;
+            byte itemKind;
+            switch (category)
+            {
+                case ItemCore.KindGuildMedal:
+                case ItemCore.KindGuardianGem:
+                    itemKind = category;
+                    break;
+                default:
+                    return false;
+            }
+
+            return ItemSlotBoundService.TryGetSlotRange(
+                    itemKind,
+                    ItemSlotBoundService.MainExpandStageFull,
+                    out var listType,
+                    out range)
+                && listType == InventoryListType.GuildMedal
                 && range.Count > 0;
         }
 
@@ -241,7 +266,8 @@ namespace DfoServer.Game.Inventory
                 || listType == InventoryListType.PersonalCargo
                 || listType == InventoryListType.Equipment
                 || listType == InventoryListType.Pet
-                || listType == InventoryListType.AccountCargo;
+                || listType == InventoryListType.AccountCargo
+                || listType == InventoryListType.GuildMedal;
         }
 
         private static bool SucceedNoOp(InventorySortServiceResult result)
