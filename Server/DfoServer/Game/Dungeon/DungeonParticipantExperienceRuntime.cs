@@ -1,7 +1,20 @@
 using System;
+using System.Collections.Generic;
 
 namespace DfoServer.Game.Dungeon
 {
+    public readonly struct DungeonObjectExperienceEntry
+    {
+        public DungeonObjectExperienceEntry(uint objectKey, uint experience)
+        {
+            ObjectKey = objectKey;
+            Experience = experience;
+        }
+
+        public uint ObjectKey { get; }
+        public uint Experience { get; }
+    }
+
     internal readonly struct DungeonParticipantExperienceSnapshot
     {
         internal DungeonParticipantExperienceSnapshot(
@@ -11,7 +24,8 @@ namespace DfoServer.Game.Dungeon
             uint championBaseExperience,
             uint superChampionBaseExperience,
             uint namedMonsterBaseExperience,
-            uint monsterChannelBonusExperience = 0)
+            uint monsterChannelBonusExperience = 0,
+            IReadOnlyList<DungeonObjectExperienceEntry> objectExperienceEntries = null)
         {
             MonsterBaseExperience = monsterBaseExperience;
             MonsterGrowthContractBonusExperience =
@@ -21,6 +35,8 @@ namespace DfoServer.Game.Dungeon
             ChampionBaseExperience = championBaseExperience;
             SuperChampionBaseExperience = superChampionBaseExperience;
             NamedMonsterBaseExperience = namedMonsterBaseExperience;
+            ObjectExperienceEntries = objectExperienceEntries
+                ?? Array.Empty<DungeonObjectExperienceEntry>();
         }
 
         internal uint MonsterBaseExperience { get; }
@@ -35,6 +51,8 @@ namespace DfoServer.Game.Dungeon
         internal uint ChampionBaseExperience { get; }
         internal uint SuperChampionBaseExperience { get; }
         internal uint NamedMonsterBaseExperience { get; }
+        internal IReadOnlyList<DungeonObjectExperienceEntry>
+            ObjectExperienceEntries { get; }
 
         private static uint AddSaturating(uint left, uint right)
         {
@@ -50,6 +68,8 @@ namespace DfoServer.Game.Dungeon
         private DungeonParticipantExperienceBonusSnapshot _bonusSnapshot =
             DungeonParticipantExperienceBonusSnapshot.None;
         private bool _bonusSnapshotFrozen;
+        private readonly List<DungeonObjectExperienceEntry>
+            _objectExperienceEntries = new List<DungeonObjectExperienceEntry>();
 
         internal uint MonsterBaseExperience { get; private set; }
         internal uint MonsterGrowthContractBonusExperience { get; private set; }
@@ -85,7 +105,8 @@ namespace DfoServer.Game.Dungeon
             bool isChampion,
             bool isSuperChampion,
             bool isNamedMonster,
-            uint channelBonusExperience = 0)
+            uint channelBonusExperience = 0,
+            uint objectKey = 0)
         {
             MonsterBaseExperience = AddSaturating(
                 MonsterBaseExperience,
@@ -112,6 +133,9 @@ namespace DfoServer.Game.Dungeon
                 NamedMonsterBaseExperience = AddSaturating(
                     NamedMonsterBaseExperience,
                     baseExperience);
+            if (objectKey != 0)
+                _objectExperienceEntries.Add(
+                    new DungeonObjectExperienceEntry(objectKey, baseExperience));
         }
 
         internal DungeonParticipantExperienceSnapshot Capture()
@@ -122,7 +146,8 @@ namespace DfoServer.Game.Dungeon
                 ChampionBaseExperience,
                 SuperChampionBaseExperience,
                 NamedMonsterBaseExperience,
-                MonsterChannelBonusExperience);
+                MonsterChannelBonusExperience,
+                _objectExperienceEntries.ToArray());
 
         // Compatibility setters keep existing fixture/setup APIs usable. New
         // production code records awards only through RecordMonster.

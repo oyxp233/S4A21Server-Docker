@@ -802,7 +802,10 @@ namespace DfoServer.Network.Handlers.Dungeon
                     isChampion,
                     isSuperChampion,
                     isNamed,
-                    channelBonus);
+                    channelBonus,
+                    objectKey: monster.Code > 0
+                        ? unchecked((uint)monster.Code)
+                        : sequenceId);
                 run.TotalGold = checked(run.TotalGold + goldGained);
             }
 

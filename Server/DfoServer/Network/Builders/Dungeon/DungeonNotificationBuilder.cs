@@ -16,7 +16,7 @@ namespace DfoServer.Network.Builders
         public static byte[] BuildDungeonInfo(
             int dungeonId,
             byte difficulty,
-            byte modeFlag = 0,
+            byte mazeIndex = 0,
             byte bossX = 0,
             byte bossY = 0,
             byte hellPartyRoomX = 0xFF,
@@ -40,8 +40,8 @@ namespace DfoServer.Network.Builders
 
             writer.WriteInt16((short)dungeonId);       // +0
             writer.WriteByte(difficulty);              // +2
-            writer.WriteByte(modeFlag);                // +3
-            writer.WriteUInt16(0);                     // +4 reserved
+            writer.WriteUInt16(0);                     // +3 reserved
+            writer.WriteByte(mazeIndex);               // +5 selected maze index
             writer.WriteByte(bossX);                   // +6
             writer.WriteByte(bossY);                   // +7
             writer.WriteInt32(0);                      // +8 reserved
@@ -338,7 +338,8 @@ namespace DfoServer.Network.Builders
             int channelExp = 0,
             uint monsterExp = 0, int bossExp = 0, int championExp = 0, int superChampionExp = 0,
             int freeCardGold = 0, int freeCardItemId = 0, int freeCardItemCount = 0,
-            int paidCardCost = 0)
+            int paidCardCost = 0,
+            IReadOnlyList<DungeonObjectExperienceEntry> objectExperienceEntries = null)
         {
             var w = new GamePacketWriter();
 
@@ -365,51 +366,84 @@ namespace DfoServer.Network.Builders
             w.WriteByte(0);
 
             // === POST-BASE (32B = 8u32) ===
-            for (int i = 0; i < 8; i++)
+            // A21 在此区后读取 1B 条目数；旧版把 score 四元组写在这里，
+            // 会让客户端把 score 的首字节当成条目数。抓包显示第 7 个
+            // 后置槽是 boss/champion/super-champion 经验合计，其余未知槽保持 0。
+            var specialMonsterExp = SaturatingSum(
+                bossExp,
+                championExp,
+                superChampionExp);
+            for (var i = 0; i < 6; i++)
                 w.WriteInt32(0);
-
-            // === SCORE (16B = 4u32) ===
+            w.WriteInt32(specialMonsterExp);
             w.WriteInt32(0);
-            w.WriteInt32(championExp);
-            w.WriteInt32(superChampionExp);
-            w.WriteInt32(bossExp);
 
-            // === QUEST (4B) ===
-            w.WriteUInt32(0);
+            // === RESERVED (4B) ===
+            w.WriteUInt32((uint)Math.Max(0, superChampionExp));
 
-            // === DROPS (1B) ===
+            // === OBJECT/MONSTER EXPERIENCE ENTRIES ===
+            var entries = objectExperienceEntries
+                ?? Array.Empty<DungeonObjectExperienceEntry>();
+            if (entries.Count > byte.MaxValue)
+                throw new ArgumentOutOfRangeException(
+                    nameof(objectExperienceEntries),
+                    "A21 CLEAR_DUNGEON_REWARD supports at most 255 entries.");
+
+            w.WriteByte((byte)entries.Count);
             w.WriteByte(0);
+            w.WriteByte(0);
+            w.WriteByte(0);
+            foreach (var entry in entries)
+            {
+                w.WriteUInt32(entry.ObjectKey);
+                w.WriteUInt32(entry.Experience);
+            }
+
+            // === CARD/BUFF/TAIL (A21 fixed 115B when no bonus item) ===
+            w.WriteByte(0);                    // reserved before free-card data
 
             byte freeCnt = (byte)(freeCardItemId > 0 ? 2 : 1);
-            w.WriteByte(freeCnt);           // seat0.cnt
-            w.WriteInt32(0);
+            w.WriteByte(freeCnt);
+            w.WriteInt32(0);                    // free-card item id
             w.WriteInt32(freeCardGold);
             if (freeCardItemId > 0)
             {
                 w.WriteInt32(freeCardItemId);
                 w.WriteInt32(freeCardItemCount);
             }
-            for (int i = 1; i < 8; i++)
-                w.WriteByte(0);
 
-            // === PAID-CARD COMMISSION (4B) ===
+            // Seven fixed 9B card-seat entries: flag + item id + count.
+            for (var i = 0; i < 7; i++)
+            {
+                w.WriteByte(1);
+                w.WriteInt32(0);
+                w.WriteInt32(0);
+            }
+
             w.WriteInt32(Math.Max(0, paidCardCost));
 
-            // === BUFF TABLE 2 (8B) ===
+            for (int i = 0; i < 8; i++)
+                w.WriteByte(0);
             for (int i = 0; i < 8; i++)
                 w.WriteByte(0);
 
-            for (int i = 0; i < 8; i++)
+            w.WriteInt32(0);                // tail card item id
+            w.WriteByte(0);                 // end flag A
+            w.WriteByte(0);                 // end flag B
+            w.WriteUInt32(0);               // A21 sample tail monster-exp field
+            w.WriteUInt32((uint)specialMonsterExp); // reserved/summary experience field
+            for (var i = 0; i < 8; i++)
                 w.WriteByte(0);
 
-            // === TAIL (14B) ===
-            w.WriteInt32(0);                // cardItemId
-            w.WriteByte(0);                 // endFlagA
-            w.WriteByte(0);                 // endFlagB
-            w.WriteUInt32(monsterExp);
-            w.WriteInt32(0);
+            return w.ToArray();
+        }
 
-            return w.ToArray();             // 222B, free card has item 时会更长
+        private static int SaturatingSum(int first, int second, int third)
+        {
+            var value = (long)Math.Max(0, first)
+                + Math.Max(0, second)
+                + Math.Max(0, third);
+            return value >= int.MaxValue ? int.MaxValue : (int)value;
         }
     }
 }

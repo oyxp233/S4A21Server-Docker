@@ -68,6 +68,8 @@ namespace DfoServer.Game.Dungeon
         internal uint NamedMonsterTotalExp;
         internal uint MonsterGrowthContractBonusExp;
         internal uint MonsterChannelBonusExp;
+        internal IReadOnlyList<DungeonObjectExperienceEntry>
+            ObjectExperienceEntries = Array.Empty<DungeonObjectExperienceEntry>();
         internal int ClearTimeMilliseconds;
     }
 }

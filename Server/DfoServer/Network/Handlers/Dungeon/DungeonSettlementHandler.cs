@@ -160,8 +160,11 @@ namespace DfoServer.Network.Handlers.Dungeon
                                 DungeonNotificationBuilder.BuildPlayResult(
                                     session.Player.UserId,
                                     settlement.ClearTimeMilliseconds,
-                                    rankIndex: unchecked((byte)
-                                        settlement.PresentationRankBonusIndex),
+                                    // A21 PLAY_RESULT offset 0 is the wire
+                                    // presentation flag, not the server rank
+                                    // bonus index. The latter only affects the
+                                    // authoritative EXP calculation.
+                                    rankIndex: 0,
                                     timeBonusPoint: (byte)Math.Max(
                                         0,
                                         Math.Min(255, settlement.TimeBonusPoint)),
@@ -212,11 +215,14 @@ namespace DfoServer.Network.Handlers.Dungeon
                                         settlement.BossTotalExp),
                                     championExp: ToInt32Saturated(
                                         settlement.ChampionTotalExp),
-                                    superChampionExp: 0,
+                                    superChampionExp: ToInt32Saturated(
+                                        settlement.SuperChampionTotalExp),
                                     freeCardGold: settlement.FreeGold.GoldAmount,
                                     freeCardItemId: settlement.FreeItem.ItemId,
                                     freeCardItemCount: settlement.FreeItem.StackCount,
-                                    paidCardCost: settlement.PaidCardCost)))))
+                                    paidCardCost: settlement.PaidCardCost,
+                                    objectExperienceEntries:
+                                        settlement.ObjectExperienceEntries)))))
                 {
                     run.Effects.TryFail(presentationReservation);
                     return;
@@ -901,6 +907,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     monsterExperience.MonsterGrowthContractBonusExperience,
                 MonsterChannelBonusExp =
                     monsterExperience.MonsterChannelBonusExperience,
+                ObjectExperienceEntries =
+                    monsterExperience.ObjectExperienceEntries,
                 ClearTimeMilliseconds = clearTimeMilliseconds,
             };
         }

@@ -168,72 +168,81 @@ namespace DfoServer.Game.Dungeon
 
         internal PickupResult TryPickup(DungeonRun run, ushort srcSlot, InventoryLease lease)
         {
-            if (run == null || !run.Drops.TryGetValue(srcSlot, out var drop))
+            if (run == null)
                 return PickupResult.NotFound;
             if (lease == null)
                 return PickupResult.PersistenceFailed;
 
-            var carryLimit = drop.IsGold
-                ? InventoryGoldCarryLimitLoader.Load(lease.Inventory)
-                : int.MaxValue;
-            lock (lease.SyncRoot)
+            // The ground-drop dictionary and the inventory mutation form one
+            // process-local claim boundary. Without this lock, two GET_ITEM
+            // requests can both read the same drop before either removes it.
+            lock (run.SyncRoot)
             {
-                if (drop.IsGold)
+                if (!run.Drops.TryGetValue(srcSlot, out var drop))
+                    return PickupResult.NotFound;
+
+                var carryLimit = drop.IsGold
+                    ? InventoryGoldCarryLimitLoader.Load(lease.Inventory)
+                    : int.MaxValue;
+                lock (lease.SyncRoot)
                 {
-                    var baseGold = (int)drop.StackCount;
-                    var bonusPct = drop.IsPlayerDropped ? 0 : GetEquippedGoldBonus(lease.Inventory);
-                    var extraGold = baseGold * bonusPct / 100;
-                    if (!lease.Inventory.TryGrantGold(baseGold + extraGold, carryLimit, out var grantedGold, out _))
-                        return PickupResult.PersistenceFailed;
+                    if (drop.IsGold)
+                    {
+                        var baseGold = (int)drop.StackCount;
+                        var bonusPct = drop.IsPlayerDropped ? 0 : GetEquippedGoldBonus(lease.Inventory);
+                        var extraGold = baseGold * bonusPct / 100;
+                        if (!lease.Inventory.TryGrantGold(baseGold + extraGold, carryLimit, out var grantedGold, out _))
+                            return PickupResult.PersistenceFailed;
+
+                        run.Drops.Remove(srcSlot);
+                        var grantedBaseGold = Math.Min(baseGold, grantedGold);
+                        var grantedExtraGold = Math.Min(extraGold, Math.Max(0, grantedGold - grantedBaseGold));
+                        return new PickupResult
+                        {
+                            Success = true,
+                            IsGold = true,
+                            GoldAmount = grantedGold,
+                            ExtraGold = grantedExtraGold
+                        };
+                    }
+
+                    var pickupCount = NormalizePickupCount(drop.StackCount);
+                    if (!CanPlanPickupDrop(lease.Inventory, drop, pickupCount))
+                        return PickupResult.InventoryFull;
+
+                    var pickedItemId = drop.Core != null ? drop.Core.ItemId : (int)drop.TemplateId;
+                    InventoryRewardGrantResult grant;
+                    bool inserted;
+                    if (drop.Core != null)
+                    {
+                        inserted = InventoryRewardGrantService.TryInsertExisting(
+                            lease.Inventory,
+                            drop.Core.Copy(),
+                            pickupCount,
+                            out grant);
+                    }
+                    else
+                    {
+                        inserted = InventoryRewardGrantService.TryCreateAndInsert(
+                            lease.Inventory,
+                            (int)drop.TemplateId,
+                            ItemCreateReason.DungeonDrop,
+                            pickupCount,
+                            out grant);
+                    }
+
+                    if (!inserted || !grant.Success)
+                        return PickupResult.InventoryFull;
 
                     run.Drops.Remove(srcSlot);
-                    var grantedBaseGold = Math.Min(baseGold, grantedGold);
-                    var grantedExtraGold = Math.Min(extraGold, Math.Max(0, grantedGold - grantedBaseGold));
                     return new PickupResult
                     {
                         Success = true,
-                        IsGold = true,
-                        GoldAmount = grantedGold,
-                        ExtraGold = grantedExtraGold
+                        IsGold = false,
+                        InventorySlot = grant.SlotIndex,
+                        PickedUpItemId = pickedItemId
                     };
                 }
-
-                var pickupCount = NormalizePickupCount(drop.StackCount);
-                if (!CanPlanPickupDrop(lease.Inventory, drop, pickupCount))
-                    return PickupResult.InventoryFull;
-
-                var pickedItemId = drop.Core != null ? drop.Core.ItemId : (int)drop.TemplateId;
-                InventoryRewardGrantResult grant;
-                bool inserted;
-                if (drop.Core != null)
-                {
-                    inserted = InventoryRewardGrantService.TryInsertExisting(
-                        lease.Inventory,
-                        drop.Core.Copy(),
-                        pickupCount,
-                        out grant);
-                }
-                else
-                {
-                    inserted = InventoryRewardGrantService.TryCreateAndInsert(
-                        lease.Inventory,
-                        (int)drop.TemplateId,
-                        ItemCreateReason.DungeonDrop,
-                        pickupCount,
-                        out grant);
-                }
-
-                if (!inserted || !grant.Success)
-                    return PickupResult.InventoryFull;
-
-                run.Drops.Remove(srcSlot);
-                return new PickupResult
-                {
-                    Success = true,
-                    IsGold = false,
-                    InventorySlot = grant.SlotIndex,
-                    PickedUpItemId = pickedItemId
-                };
             }
         }
 

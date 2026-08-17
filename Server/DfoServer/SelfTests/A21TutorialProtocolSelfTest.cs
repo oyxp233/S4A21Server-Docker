@@ -1,4 +1,5 @@
 using DfoServer.Game.Dungeon;
+using DfoServer.Game.Quests;
 using DfoServer.Game.Session;
 using DfoServer.GameWorld;
 using DfoServer.Network;
@@ -38,21 +39,24 @@ namespace DfoServer.SelfTests
                 ref failures);
 
             var info = DungeonNotificationBuilder.BuildDungeonInfo(
-                10000,
+                144,
                 difficulty: 0,
-                bossX: 2,
+                mazeIndex: 1,
+                bossX: 5,
                 bossY: 0,
                 hellPartyRoomX: 0xFF,
                 hellPartyRoomY: 0xFF);
+            var infoExpected = new byte[]
+            {
+                0x90, 0x00, 0x00, 0x00, 0x00, 0x01, 0x05, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            };
             Check(
-                "A21 DUNGEON_INFO is fixed 32B with boss at offset 6",
+                "A21 DUNGEON_INFO dungeon 144 keeps maze index at offset 5",
                 info.Length == 32
-                && BitConverter.ToUInt16(info, 0) == 10000
-                && info[6] == 2
-                && info[7] == 0
-                && info[12] == 1
-                && info[18] == 0xFF
-                && info[19] == 0xFF,
+                && info.AsSpan().SequenceEqual(infoExpected),
                 ref failures);
 
             var maze = new Dungeon.MazeSumInfo
@@ -302,6 +306,106 @@ namespace DfoServer.SelfTests
                 exp.Length == ExpNotificationBuilder.BodyLength
                 && exp.Length == 83
                 && BitConverter.ToUInt32(exp, ExpNotificationBuilder.ChannelBonusExpOffset) == 73,
+                ref failures);
+
+            var playResult = DungeonNotificationBuilder.BuildPlayResult(
+                userId: 0x0439,
+                clearTimeMs: 0x182,
+                rankIndex: 0,
+                timeBonusPoint: 0x63,
+                clientRankPoint: 1);
+            Check(
+                "A21 PLAY_RESULT keeps presentation flag zero at body offset 0",
+                playResult.Length == 16
+                && playResult[0] == 0
+                && BitConverter.ToUInt16(playResult, 9) == 0x0439,
+                ref failures);
+
+            var clearReward = DungeonNotificationBuilder.BuildClearDungeonReward(
+                clearBaseExp: 1786,
+                scoreBonusExp: 535,
+                monsterExp: 999,
+                bossExp: 135,
+                championExp: 340,
+                paidCardCost: 580,
+                objectExperienceEntries: new[]
+                {
+                    new DungeonObjectExperienceEntry(10004, 85),
+                    new DungeonObjectExperienceEntry(10003, 85),
+                });
+            var clearTailOffset = 159 + 2 * 8;
+            Check(
+                "A21 CLEAR_DUNGEON_REWARD writes count/reserved/object entries and 115B tail",
+                clearReward.Length == 290
+                && clearReward[155] == 2
+                && clearReward[156] == 0
+                && BitConverter.ToUInt32(clearReward, 159) == 10004
+                && BitConverter.ToUInt32(clearReward, 163) == 85
+                && BitConverter.ToInt32(clearReward, 143) == 475
+                && clearReward[clearTailOffset] == 0
+                && clearReward[clearTailOffset + 1] == 1
+                && BitConverter.ToInt32(clearReward, clearTailOffset + 6) == 0
+                && BitConverter.ToInt32(clearReward, clearTailOffset + 73) == 580
+                && BitConverter.ToUInt32(clearReward, clearTailOffset + 103) == 475,
+                ref failures);
+
+            Check(
+                "A21 FINISH_QUEST application projection follows the capture-backed PVF types",
+                QuestCompletionApplicationService.ProjectFinishType("seeking") == QuestFinishType.Seeking
+                && QuestCompletionApplicationService.ProjectFinishType("condition under clear") == QuestFinishType.ConditionUnderClear
+                && QuestCompletionApplicationService.ProjectFinishType("hunt monster") == QuestFinishType.HuntMonster
+                && QuestCompletionApplicationService.ProjectFinishType("meet npc") == QuestFinishType.MeetNpc
+                && QuestCompletionApplicationService.ProjectFinishType("hunt enemy") == QuestFinishType.HuntEnemy
+                && QuestCompletionApplicationService.ProjectFinishType("custom quest") == QuestFinishType.CustomQuest
+                && QuestCompletionApplicationService.ProjectFinishType("use item") == QuestFinishType.UseItem,
+                ref failures);
+
+            var finishQuest = new QuestFinishResult
+            {
+                QuestId = 1016,
+                FinishType = QuestFinishType.MeetNpc,
+                Exp = 10,
+                Gold = 0,
+                ChainType = 0,
+                RewardAcquiredAtUnixTime = 0x6A7DE18E,
+            };
+            finishQuest.InsertedEntries.Add(new InsertedItemEntry
+            {
+                SlotIndex = 65,
+                ItemId = 10088609,
+                GrantedCount = 3,
+            });
+            finishQuest.InsertedEntries.Add(new InsertedItemEntry
+            {
+                SlotIndex = 66,
+                ItemId = 10088610,
+                GrantedCount = 3,
+            });
+            finishQuest.InsertedEntries.Add(new InsertedItemEntry
+            {
+                SlotIndex = 9,
+                ItemId = 100260012,
+                GrantedCount = 1,
+            });
+            var finishQuestBody = QuestAckBuilder.BuildFinish(finishQuest);
+            var finishQuestExpected = new byte[]
+            {
+                0x01, 0xF8, 0x03, 0x04, 0x0A, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+                0x41, 0x00, 0xA1, 0xF0, 0x99, 0x00, 0x03, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x8E, 0xE1, 0x7D,
+                0x6A, 0x00, 0x00,
+                0x42, 0x00, 0xA2, 0xF0, 0x99, 0x00, 0x03, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x8E, 0xE1, 0x7D,
+                0x6A, 0x00, 0x00,
+                0x09, 0x00, 0xAC, 0xD8, 0xF9, 0x05, 0x01, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x8E, 0xE1, 0x7D,
+                0x6A, 0x00, 0x00,
+            };
+            Check(
+                "A21 FINISH_QUEST quest 1016 matches the captured 71B ACK",
+                finishQuestBody.Length == 71
+                && finishQuestBody.AsSpan().SequenceEqual(finishQuestExpected),
                 ref failures);
 
             Console.WriteLine(

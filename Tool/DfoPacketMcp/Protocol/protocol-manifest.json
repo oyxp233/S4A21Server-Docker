@@ -1,9 +1,0 @@
-{
-  "formatVersion": 1,
-  "protocolVersion": "0.2.9",
-  "hashAlgorithm": "SHA256",
-  "sha256": "1DB08FA640D286705B0FB2C254216A5F04661406DA6BF516E59B7344C19ED738",
-  "definitionCount": 3208,
-  "supportedDefinitionCount": 439,
-  "sourceIndependent": true
-}

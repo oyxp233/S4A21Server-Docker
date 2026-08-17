@@ -53,7 +53,7 @@ namespace DfoServer.Network.Builders
             var w = new GamePacketWriter();
             w.WriteByte(0x01);
             w.WriteUInt16(r.QuestId);
-            w.WriteByte(0x00); // completionType=0 (type 0/25)
+            w.WriteByte((byte)r.FinishType);
             w.WriteUInt32(r.Exp);
             w.WriteUInt32(r.Gold);
 
@@ -65,7 +65,6 @@ namespace DfoServer.Network.Builders
                 w.WriteUInt32(ce.ConsumedCount);
             }
 
-            w.WriteByte((byte)r.ChainType);
             if (r.ChainType == 0)
             {
                 w.WriteByte((byte)r.InsertedEntries.Count);
@@ -73,20 +72,25 @@ namespace DfoServer.Network.Builders
                 {
                     w.WriteUInt16(ie.SlotIndex);
                     w.WriteUInt32((uint)ie.ItemId);
-                    w.WriteUInt32(ie.CountOrSeed);
-                    w.WriteByte(0);   // upgradeLevel
-                    w.WriteUInt16(ie.EquipDurability);
-                    w.WriteUInt32(0); // reserved
-                    w.WriteByte(0);   // extraFlags
+                    w.WriteUInt32(ie.GrantedCount);
+                    w.WriteByte(0); // upgradeLevel
+                    w.WriteUInt16(0); // durability
+                    w.WriteUInt32(r.RewardAcquiredAtUnixTime);
+                    w.WriteUInt16(0); // A21 entry tail
                 }
             }
             else if (r.ChainType == 1 || r.ChainType == 2
                 || r.ChainType == 20
                 || r.ChainType == GameWorld.QuestData.ChainTypeSlotExpansion)
             {
+                w.WriteByte((byte)r.ChainType);
                 w.WriteByte((byte)r.GrowNumber);
                 w.WriteByte(0); // npcCount layer 1
                 w.WriteByte(0); // npcCount layer 2
+            }
+            else
+            {
+                w.WriteByte((byte)r.ChainType);
             }
             return w.ToArray();
         }

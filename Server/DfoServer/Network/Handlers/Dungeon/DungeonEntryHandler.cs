@@ -881,7 +881,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             EnhancedClientSession s,
             Network.Parsers.Dungeon.SelectDungeonRequest req,
             int[] bossPos,
-            byte mazeModeFlag)
+            byte selectedMazeIndex)
         {
             var run = s.Player.CurrentRun;
             if (run == null)
@@ -891,7 +891,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 DungeonMechanismCoordinator.ResolveSelectionMinimapIconGroups(
                     run,
                     req.DungeonId,
-                    mazeModeFlag);
+                    selectedMazeIndex);
             if (StrikerSupportTagCharacterPacketBuilder.TryBuildOwnerSupportBody(
                     s.Player.CharacterId,
                     _svc.Database,
@@ -908,7 +908,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x001C, DungeonNotificationBuilder.BuildDungeonInfo(
                 dungeonId: req.DungeonId,
                 difficulty: req.Difficulty,
-                modeFlag: mazeModeFlag,
+                mazeIndex: selectedMazeIndex,
                 bossX: bossPos != null ? (byte)bossPos[0] : (byte)0,
                 bossY: bossPos != null ? (byte)bossPos[1] : (byte)0,
                 hellPartyRoomX: run.HellMode ? run.HellMapX : (byte)0xFF,
@@ -949,7 +949,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             GamePacketHeader header,
             Network.Parsers.Dungeon.SelectDungeonRequest req,
             int[] bossPos,
-            byte mazeModeFlag,
+            byte selectedMazeIndex,
             DungeonEntryExperienceBonusPlan experienceBonusPlan)
         {
             if (System.Environment.GetEnvironmentVariable("DFO_PARTY_DUNGEON_COOP") == "0") return;
@@ -1047,7 +1047,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                         throw new InvalidOperationException("Party member run could not enter the active state.");
                     RegisterActiveParticipant(bs, br);
                     bs.Player.UserState = 0x01;
-                    await SendDungeonSelectPacketsTo(bs, req, bossPos, mazeModeFlag);
+                    await SendDungeonSelectPacketsTo(bs, req, bossPos, selectedMazeIndex);
                     if (!leader.Player.IsCurrentDungeonRun(leaderRunIdentity))
                         return;
                     if (!bs.Player.IsCurrentDungeonRun(memberRunIdentity))

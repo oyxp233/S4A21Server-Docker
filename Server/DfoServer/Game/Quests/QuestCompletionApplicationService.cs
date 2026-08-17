@@ -334,7 +334,7 @@ namespace DfoServer.Game.Quests
                                     {
                                         SlotIndex = 0,
                                         ItemId = 0,
-                                        CountOrSeed = goldReward,
+                                        GrantedCount = goldReward,
                                     });
                                 }
                             }
@@ -460,6 +460,7 @@ namespace DfoServer.Game.Quests
             return new QuestFinishResult
             {
                 QuestId = questId,
+                FinishType = ProjectFinishType(completionDefinition.Type),
                 Exp = expReward,
                 HonorExp = honorExpReward,
                 TotalHonorExp = totalHonorExp,
@@ -469,11 +470,37 @@ namespace DfoServer.Game.Quests
                 NewLevel = newLevel,
                 NewExp = newExp,
                 ChainType = reward.ChainType,
+                RewardAcquiredAtUnixTime = insertedEntries.Count > 0
+                    ? unchecked((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+                    : 0,
                 GrowNumber = reward.GrowNumber,
                 PetCreatureEvolution = petEvolution,
                 ConsumedEntries = consumedEntries,
                 InsertedEntries = insertedEntries,
             };
+        }
+
+        internal static QuestFinishType ProjectFinishType(string normalizedQuestType)
+        {
+            switch (normalizedQuestType ?? string.Empty)
+            {
+                case "seeking":
+                    return QuestFinishType.Seeking;
+                case "condition under clear":
+                    return QuestFinishType.ConditionUnderClear;
+                case "hunt monster":
+                    return QuestFinishType.HuntMonster;
+                case "meet npc":
+                    return QuestFinishType.MeetNpc;
+                case "hunt enemy":
+                    return QuestFinishType.HuntEnemy;
+                case "custom quest":
+                    return QuestFinishType.CustomQuest;
+                case "use item":
+                    return QuestFinishType.UseItem;
+                default:
+                    return QuestFinishType.Seeking;
+            }
         }
 
         private static void AddMissingCarryForwardEventItemRequests(
@@ -1023,19 +1050,11 @@ namespace DfoServer.Game.Quests
             if (grant.Kind == InventoryRewardGrantKind.Premium)
                 return null;
 
-            var core = grant.Core;
-            var isEquipment = grant.Kind == InventoryRewardGrantKind.InventoryItem
-                && core != null
-                && !InventoryStackRuleService.IsStackable(core);
             return new InsertedItemEntry
             {
                 SlotIndex = (ushort)grant.SlotIndex,
                 ItemId = grant.ItemTemplateId,
-                IsEquipment = isEquipment,
-                CountOrSeed = isEquipment
-                    ? (uint)Math.Max(0, core.InstanceValue)
-                    : (uint)Math.Max(0, grant.GrantedCount),
-                EquipDurability = isEquipment ? core.Durability : (ushort)0,
+                GrantedCount = (uint)Math.Max(0, grant.GrantedCount),
             };
         }
 

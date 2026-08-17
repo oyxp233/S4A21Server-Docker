@@ -3,6 +3,17 @@ using DfoServer.Game.Inventory;
 
 namespace DfoServer.Game.Quests
 {
+    public enum QuestFinishType : byte
+    {
+        Seeking = 0x00,
+        ConditionUnderClear = 0x01,
+        HuntMonster = 0x02,
+        MeetNpc = 0x04,
+        HuntEnemy = 0x06,
+        CustomQuest = 0x0A,
+        UseItem = 0x0B,
+    }
+
     // 任务四个命令(接取/放弃/触发器/完成)的结构化处理结果。
     // QuestService 只产出这些对象; 序列化成应答包字节的工作全部在
     // QuestAckBuilder。ErrorCode==0 表示成功, 非零值直接进失败应答包。
@@ -59,6 +70,8 @@ namespace DfoServer.Game.Quests
     {
         public byte ErrorCode;
         public ushort QuestId;
+        // Application service projects the normalized PVF type before serialization.
+        public QuestFinishType FinishType;
         // Exp 为任务面板/ACK 的原始奖励，HonorExp 为其中转入账号荣誉的部分。
         public uint Exp;
         public uint HonorExp;
@@ -70,6 +83,8 @@ namespace DfoServer.Game.Quests
         public byte NewLevel;
         public uint NewExp;
         public int ChainType;
+        // A21 ordinary reward entries share one acquisition timestamp per completion.
+        public uint RewardAcquiredAtUnixTime;
         // chainType 1/2=转职号, 20=专家职类型, 30=开孔的装备栏位号。
         public int GrowNumber;
         public PetCreatureEvolutionResult PetCreatureEvolution;
@@ -93,8 +108,7 @@ namespace DfoServer.Game.Quests
     {
         public ushort SlotIndex;
         public int ItemId;
-        public bool IsEquipment;
-        public uint CountOrSeed;
-        public ushort EquipDurability;
+        // FINISH_QUEST projects the amount granted, not an equipment instance seed.
+        public uint GrantedCount;
     }
 }
