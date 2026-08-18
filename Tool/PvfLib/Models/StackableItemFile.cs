@@ -292,6 +292,7 @@ namespace PvfLib
         public int PhysicalDefense { get; set; }
         public int MagicalDefense { get; set; }
         public List<StackableStatusIncreaseEntry> StatusIncreases { get; set; } = new List<StackableStatusIncreaseEntry>();
+        public List<StackableStatusIncreaseEntry> GuardianGemEnchantEntries { get; set; } = new List<StackableStatusIncreaseEntry>();
 
         #endregion
         #region 解析
@@ -384,6 +385,7 @@ namespace PvfLib
                     case "equipment reinforcement ticket": stk.EquipmentReinforcementTicket = ParseUpgradeTicket(node, content); break;
                     case "equipment amplify reinforcement ticket": stk.EquipmentAmplifyReinforcementTicket = ParseUpgradeTicket(node, content); break;
                     case "equipment separate reinforcement ticket": stk.EquipmentSeparateReinforcementTicket = ParseUpgradeTicket(node, content); break;
+                    case "enchant": stk.GuardianGemEnchantEntries.AddRange(ParseGuardianGemEnchantEntries(node, content)); break;
                     case "enchant random": stk.EnchantRandomUpgrade = ParseEnchantRandomUpgrade(node, content); break;
                     case "amplification random value": stk.AmplificationRandomValues = ParseAmplificationRandomValues(node, content); break;
                     case "check usable itemlevel": stk.CheckUsableItemLevels = ParseIntList(node, content); break;
@@ -474,6 +476,59 @@ namespace PvfLib
             }
 
             return result;
+        }
+
+        private static List<StackableStatusIncreaseEntry> ParseGuardianGemEnchantEntries(
+            ScriptNode node,
+            string content)
+        {
+            var result = new List<StackableStatusIncreaseEntry>();
+            if (node == null || node.Children == null)
+                return result;
+
+            foreach (var child in node.Children)
+            {
+                var effectType = NormalizeGuardianGemEffectType(child.Tag);
+                if (string.IsNullOrWhiteSpace(effectType))
+                    continue;
+
+                result.Add(new StackableStatusIncreaseEntry
+                {
+                    EffectType = effectType,
+                    Values = ParseIntList(child, content),
+                });
+            }
+
+            foreach (var item in node.DataItems)
+            {
+                var raw = item.GetContent(content);
+                var match = Regex.Match(
+                    raw ?? string.Empty,
+                    @"^\s*`?\[(?<type>[^\]\r\n]+)\]`?(?<values>(?:\s+-?\d+)*)\s*$");
+                if (!match.Success)
+                    continue;
+
+                var effectType = NormalizeGuardianGemEffectType(match.Groups["type"].Value);
+                if (string.IsNullOrWhiteSpace(effectType))
+                    continue;
+
+                result.Add(new StackableStatusIncreaseEntry
+                {
+                    EffectType = effectType,
+                    Values = ParseInts(match.Groups["values"].Value),
+                });
+            }
+
+            return result;
+        }
+
+        private static string NormalizeGuardianGemEffectType(string text)
+        {
+            var value = StripBacktick(text ?? string.Empty).Trim();
+            if (value.Length >= 2 && value[0] == '[' && value[value.Length - 1] == ']')
+                value = value.Substring(1, value.Length - 2).Trim();
+
+            return value;
         }
 
         private static List<BoosterRewardEntry> ParseBoosterInfo(ScriptNode node, string content)

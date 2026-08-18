@@ -1252,7 +1252,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (body == null || body.Length <= 13)
                 return false;
 
-            // 86 client CMD 0x03B6: body[12] is always 7; body[13] is 0 for checked, 1 for unchecked.
+            // A21 客户端 VERY_DIFFICULT_HELL_PARTY: body[12] 固定为7, body[13] 为0表示勾选, 为1表示取消。
             return body[13] == 0;
         }
 

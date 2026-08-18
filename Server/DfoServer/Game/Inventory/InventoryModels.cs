@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DfoServer.Game.ItemUpgrade;
 
 namespace DfoServer.Game.Inventory
 {
@@ -405,6 +406,76 @@ namespace DfoServer.Game.Inventory
         public InventoryMutationResult MaterialItem { get; set; }
 
         public bool MaterialConsumed { get; set; }
+    }
+
+    public sealed class GuardianGemUseCommand
+    {
+        public int EquippedMedalItemTemplateId { get; set; }
+
+        public short MaterialSlotIndex { get; set; }
+
+        public int GuardianGemItemTemplateId { get; set; }
+
+        public byte SocketIndex { get; set; }
+    }
+
+    public sealed class GuardianGemUseResult
+    {
+        public const byte ErrorInvalidRequest = 0x04;
+        public const byte ErrorGuardianGemMissing = 0x12;
+
+        public bool Success { get; set; }
+
+        public byte ErrorCode { get; set; }
+
+        public GuardianGemUseCommand Command { get; set; }
+
+        public short TargetSlotIndex { get; set; } = (short)EquipmentType.GuildMedal;
+
+        public int TargetItemTemplateId { get; set; }
+
+        public short MaterialSlotIndex { get; set; }
+
+        public int MaterialItemTemplateId { get; set; }
+
+        public byte SocketIndex { get; set; }
+
+        public int PreviousGuardianGemItemId { get; set; }
+
+        public int MaterialRemainingCount { get; set; }
+
+        public static GuardianGemUseResult Error(GuardianGemUseCommand command, byte errorCode)
+        {
+            return new GuardianGemUseResult
+            {
+                Command = command,
+                ErrorCode = errorCode,
+                TargetItemTemplateId = command != null ? command.EquippedMedalItemTemplateId : 0,
+                MaterialSlotIndex = command != null ? command.MaterialSlotIndex : (short)0,
+                MaterialItemTemplateId = command != null ? command.GuardianGemItemTemplateId : 0,
+                SocketIndex = command != null ? command.SocketIndex : (byte)0,
+            };
+        }
+
+        public static GuardianGemUseResult Ok(
+            GuardianGemUseCommand command,
+            int previousGuardianGemItemId,
+            int materialRemainingCount)
+        {
+            return new GuardianGemUseResult
+            {
+                Success = true,
+                Command = command,
+                ErrorCode = 0,
+                TargetSlotIndex = (short)EquipmentType.GuildMedal,
+                TargetItemTemplateId = command != null ? command.EquippedMedalItemTemplateId : 0,
+                MaterialSlotIndex = command != null ? command.MaterialSlotIndex : (short)0,
+                MaterialItemTemplateId = command != null ? command.GuardianGemItemTemplateId : 0,
+                SocketIndex = command != null ? command.SocketIndex : (byte)0,
+                PreviousGuardianGemItemId = previousGuardianGemItemId,
+                MaterialRemainingCount = materialRemainingCount,
+            };
+        }
     }
 
     public sealed class EquipmentEmblemApplyRequest

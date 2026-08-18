@@ -475,11 +475,12 @@ namespace DfoServer.Network.Handlers
 
         public async Task Handle_ADD_EQUIPMENT_EFFECT(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
-            FileLogger.Log($"[{ProtocolName}] ADD_EQUIPMENT_EFFECT 0x0342 raw({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
+            var commandType = (ushort)CmdPacketType.ADD_EQUIPMENT_EFFECT;
+            FileLogger.Log($"[{ProtocolName}] ADD_EQUIPMENT_EFFECT type=0x{commandType:X4} raw({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
 
             if (!EquipmentEffectRuneUseRequest.TryParseAddEquipmentEffectBody(body, out var request))
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0342, new byte[] { 0x00 }));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x00 }));
                 return;
             }
 
@@ -488,7 +489,7 @@ namespace DfoServer.Network.Handlers
                 || result == null
                 || !result.Handled)
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0342, new byte[] { 0x00, 0x04 }));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x00, 0x04 }));
                 FileLogger.Log($"[{ProtocolName}] ADD_EQUIPMENT_EFFECT: unhandled sourceSlot={request.SourceSlotIndex} target={request.TargetListType}:{request.TargetSlotIndex}");
                 return;
             }
@@ -500,7 +501,7 @@ namespace DfoServer.Network.Handlers
                 request.SourceInstanceValue,
                 result.SourceItemTemplateId,
                 result,
-                0x0342,
+                commandType,
                 result.Success ? BuildAddEquipmentEffectAck(body) : new byte[] { 0x00, 0x04 });
         }
 
@@ -704,7 +705,7 @@ namespace DfoServer.Network.Handlers
                     }
 
                     await SendPackageMainItemUpdates(session, result.SlotIndex, result.SourceRemainingStackCount, result.GrantedItems);
-                    await SendAvatarOrPetUpdateListForGrantedItems(session, result.GrantedItems);
+                    await SendSpecialUpdateListForGrantedItems(session, result.GrantedItems);
 
                     if (result.ActivatedPremiums.Count > 0)
                         await Game.Premium.PremiumService.ActivateAndNotify(
@@ -755,7 +756,7 @@ namespace DfoServer.Network.Handlers
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x00A0, SelectablePackageAckBuilder.BuildSuccess(result.SlotIndex, result.GrantedItems)));
 
                     await SendPackageMainItemUpdates(session, result.SlotIndex, result.SourceRemainingStackCount, result.GrantedItems);
-                    await SendAvatarOrPetUpdateListForGrantedItems(session, result.GrantedItems);
+                    await SendSpecialUpdateListForGrantedItems(session, result.GrantedItems);
 
                     if (result.ActivatedPremiums.Count > 0)
                         await Game.Premium.PremiumService.ActivateAndNotify(
@@ -1097,8 +1098,9 @@ namespace DfoServer.Network.Handlers
         private async Task SendBoosterUseResult(EnhancedClientSession session, ushort responseType, BoosterUseResult result)
         {
             var wallet = PersistHappyTokenCeraRewards(session, result);
-            var useNativeMagicBoxBatchAck = responseType == 0x03F3 && ShouldUseNativeMagicBoxBatchAck(result);
-            var grantedItems = responseType == 0x03F3 && !useNativeMagicBoxBatchAck
+            var magicBoxBatchType = (ushort)CmdPacketType.USE_RANDOMBOX_ITEM_EXPAND;
+            var useNativeMagicBoxBatchAck = responseType == magicBoxBatchType && ShouldUseNativeMagicBoxBatchAck(result);
+            var grantedItems = responseType == magicBoxBatchType && !useNativeMagicBoxBatchAck
                 ? ToPackageGrantedItems(result)
                 : ToBoosterPopupGrantedItems(result);
 
@@ -1117,17 +1119,17 @@ namespace DfoServer.Network.Handlers
                         SelectablePackageAckBuilder.BuildSuccess(result.SourceSlotIndex, grantedItems)));
                 }
             }
-            else if (responseType == 0x03F3)
+            else if (responseType == magicBoxBatchType)
             {
                 if (useNativeMagicBoxBatchAck)
                 {
                     var ackBody = MagicBoxOpenAckBuilder.BuildBatch(result);
-                    FileLogger.Log($"[{ProtocolName}] OPEN_MAGIC_BOX ACK: type=0x03F3 bodyLen={ackBody.Length} head={FormatPacketHead(ackBody, 24)}{FormatBoosterOpenState(result)} {FormatBoosterRows(result, false)}");
-                    await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x03F3, ackBody));
+                    FileLogger.Log($"[{ProtocolName}] OPEN_MAGIC_BOX ACK: type=0x{responseType:X4} bodyLen={ackBody.Length} head={FormatPacketHead(ackBody, 24)}{FormatBoosterOpenState(result)} {FormatBoosterRows(result, false)}");
+                    await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, responseType, ackBody));
                 }
                 else if (grantedItems.Count > 0)
                 {
-                    FileLogger.Log($"[{ProtocolName}] OPEN_MAGIC_BOX legacy popup: type=0x03F3 rows={grantedItems.Count}{FormatBoosterOpenState(result)}");
+                    FileLogger.Log($"[{ProtocolName}] OPEN_MAGIC_BOX legacy popup: type=0x{responseType:X4} rows={grantedItems.Count}{FormatBoosterOpenState(result)}");
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x00A0,
                         SelectablePackageAckBuilder.BuildSuccess(result.SourceSlotIndex, grantedItems)));
                 }
@@ -1165,7 +1167,7 @@ namespace DfoServer.Network.Handlers
                     $"[{ProtocolName}] HAPPY_TOKEN_CERA_UPDATE: cera={wallet.Cera} " +
                     $"token={wallet.TokenCera} happy={wallet.HappyTokenCera}");
             }
-            await SendAvatarOrPetUpdateListForBoosterRewards(session, result);
+            await SendSpecialUpdateListForBoosterRewards(session, result);
             if (ShouldSendCreatureListRefreshForBoosterRewards(result))
                 await _refresh.SendCreatureItemListRefresh(session);
 
@@ -1254,7 +1256,8 @@ namespace DfoServer.Network.Handlers
 
         internal static bool ShouldSendSourceAckForBoosterResponse(ushort responseType)
         {
-            return responseType != 0x00D0 && responseType != 0x03F3;
+            return responseType != (ushort)CmdPacketType.USE_RANDOMBOX_ITEM
+                && responseType != (ushort)CmdPacketType.USE_RANDOMBOX_ITEM_EXPAND;
         }
 
         internal static bool ShouldUseNativeMagicBoxBatchAck(BoosterUseResult result)
@@ -1264,15 +1267,16 @@ namespace DfoServer.Network.Handlers
 
         internal static bool ShouldSendObtainedItemsPopupForBoosterResponse(ushort responseType)
         {
-            return responseType != 0x00D0 && responseType != 0x03F3;
+            return responseType != (ushort)CmdPacketType.USE_RANDOMBOX_ITEM
+                && responseType != (ushort)CmdPacketType.USE_RANDOMBOX_ITEM_EXPAND;
         }
 
         internal static bool ShouldSendObtainedItemsPopupForBoosterResponse(ushort responseType, BoosterUseResult result)
         {
-            if (responseType == 0x00D0)
+            if (responseType == (ushort)CmdPacketType.USE_RANDOMBOX_ITEM)
                 return false;
 
-            if (responseType == 0x03F3)
+            if (responseType == (ushort)CmdPacketType.USE_RANDOMBOX_ITEM_EXPAND)
                 return !ShouldUseNativeMagicBoxBatchAck(result);
 
             return true;
@@ -1365,46 +1369,56 @@ namespace DfoServer.Network.Handlers
                 await _refresh.SendUpdateItemList(session, InventoryListType.Main, slots);
         }
 
-        private async Task SendAvatarOrPetUpdateListForGrantedItems(EnhancedClientSession session, IReadOnlyList<PackageGrantedItem> grantedItems)
+        private async Task SendSpecialUpdateListForGrantedItems(EnhancedClientSession session, IReadOnlyList<PackageGrantedItem> grantedItems)
         {
             if (grantedItems == null)
                 return;
 
             var avatarSlots = new HashSet<short>();
             var petSlots = new HashSet<short>();
+            var guildMedalSlots = new HashSet<short>();
             foreach (var item in grantedItems)
             {
                 if (item.ListType == InventoryListType.Avatar)
                     avatarSlots.Add(item.SlotIndex);
                 else if (item.ListType == InventoryListType.Pet)
                     petSlots.Add(item.SlotIndex);
+                else if (item.ListType == InventoryListType.GuildMedal)
+                    guildMedalSlots.Add(item.SlotIndex);
             }
 
             if (avatarSlots.Count > 0)
                 await _refresh.SendUpdateItemList(session, InventoryListType.Avatar, avatarSlots);
             if (petSlots.Count > 0)
                 await _refresh.SendUpdateItemList(session, InventoryListType.Pet, petSlots);
+            if (guildMedalSlots.Count > 0)
+                await _refresh.SendUpdateItemList(session, InventoryListType.GuildMedal, guildMedalSlots);
         }
 
-        private async Task SendAvatarOrPetUpdateListForBoosterRewards(EnhancedClientSession session, BoosterUseResult result)
+        private async Task SendSpecialUpdateListForBoosterRewards(EnhancedClientSession session, BoosterUseResult result)
         {
             if (result?.Rewards == null)
                 return;
 
             var avatarSlots = new HashSet<short>();
             var petSlots = new HashSet<short>();
+            var guildMedalSlots = new HashSet<short>();
             foreach (var item in result.Rewards)
             {
                 if (item.ListType == InventoryListType.Avatar)
                     avatarSlots.Add(item.SlotIndex);
                 else if (item.ListType == InventoryListType.Pet)
                     petSlots.Add(item.SlotIndex);
+                else if (item.ListType == InventoryListType.GuildMedal)
+                    guildMedalSlots.Add(item.SlotIndex);
             }
 
             if (avatarSlots.Count > 0)
                 await _refresh.SendUpdateItemList(session, InventoryListType.Avatar, avatarSlots);
             if (petSlots.Count > 0)
                 await _refresh.SendUpdateItemList(session, InventoryListType.Pet, petSlots);
+            if (guildMedalSlots.Count > 0)
+                await _refresh.SendUpdateItemList(session, InventoryListType.GuildMedal, guildMedalSlots);
         }
 
         private static string FormatBoosterRows(BoosterUseResult result, bool singleAckRows)
@@ -1606,6 +1620,7 @@ namespace DfoServer.Network.Handlers
             if (body == null || body.Length < 72)
                 return;
 
+            var commandType = (ushort)CmdPacketType.BIND_PLUS;
             short consumeStackableSlot = body[13];
             int requestedItemId = BitConverter.ToInt32(body, 16);
             ushort option = BitConverter.ToUInt16(body, 20);
@@ -1625,7 +1640,7 @@ namespace DfoServer.Network.Handlers
                 var dupErr = new GamePacketWriter();
                 dupErr.WriteByte(0x00);
                 dupErr.WriteByte(0x16);
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x03EA, dupErr.ToArray()));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, dupErr.ToArray()));
                 return;
             }
 
@@ -1650,7 +1665,7 @@ namespace DfoServer.Network.Handlers
 
             if (!TryGetOwnedInventoryLease(session, cid, out var lease))
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x03EA, BuildCompoundAvatarErrorBody(includeTailByte: false)));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, BuildCompoundAvatarErrorBody(includeTailByte: false)));
                 return;
             }
 
@@ -1673,7 +1688,7 @@ namespace DfoServer.Network.Handlers
             if (!committed || result == null || !result.Success)
             {
                 FileLogger.Log($"  [CompoundAvatarSet] REJECT: error={result?.Error} persistenceFailed={persistenceFailed} consumeSlot={consumeStackableSlot} requested=0x{requestedItemId:X8} abilityNo={option}");
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x03EA, BuildCompoundAvatarErrorBody(includeTailByte: false)));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, BuildCompoundAvatarErrorBody(includeTailByte: false)));
                 return;
             }
 
@@ -1690,7 +1705,7 @@ namespace DfoServer.Network.Handlers
             w2.WriteZeroBytes(24);
 
             var respBody2 = w2.ToArray();
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x03EA, respBody2));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, respBody2));
             await _refresh.SendUpdateItemList(session, InventoryListType.Main, result.ConsumeSlot);
             FileLogger.Log($"  [CompoundAvatarSet] OK: consumed {consumeSlots.Length} avatar items + 1x slot {consumeStackableSlot}(template {result.ConsumedItemTemplateId}), abilityNo={option}, added item {result.NewItemIds[0]} at slot {result.NewSlots[0]}");
 

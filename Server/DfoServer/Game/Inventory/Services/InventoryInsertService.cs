@@ -607,6 +607,17 @@ namespace DfoServer.Game.Inventory
             if (!ItemSlotBoundService.TryGetItemSpacePhysicalRange(targetListType, out var physicalRange))
                 return Fail(plan, InventoryInsertError.InvalidTargetList);
 
+            if (targetListType == InventoryListType.Equipment)
+            {
+                if (range.Start == (short)EquipmentType.GuildMedal
+                    && range.End == (short)EquipmentType.GuildMedal)
+                    return true;
+
+                if (range.Start <= (short)EquipmentType.Charm
+                    && range.End >= (short)EquipmentType.Charm)
+                    return Fail(plan, InventoryInsertError.InvalidTargetSlot);
+            }
+
             if (range.Start < physicalRange.Start || range.End > physicalRange.End)
                 return Fail(plan, InventoryInsertError.InvalidTargetSlot);
 
@@ -635,8 +646,7 @@ namespace DfoServer.Game.Inventory
                 && (InventoryService.IsVirtualMainSlot(targetSlotIndex) || InventoryService.IsReservedMainSlot(targetSlotIndex)))
                 return Fail(plan, InventoryInsertError.InvalidTargetSlot);
 
-            if (!ItemSlotBoundService.TryGetItemSpacePhysicalRange(targetListType, out var physicalRange)
-                || !physicalRange.Contains(targetSlotIndex))
+            if (!ItemSlotBoundService.IsInItemSpacePhysicalRange(targetListType, targetSlotIndex))
                 return Fail(plan, InventoryInsertError.InvalidTargetSlot);
 
             if (targetListType == InventoryListType.PersonalCargo && !inventory.Cargo.IsOpenSlot(targetSlotIndex))
@@ -682,8 +692,7 @@ namespace DfoServer.Game.Inventory
                 && (InventoryService.IsVirtualMainSlot(targetSlotIndex) || InventoryService.IsReservedMainSlot(targetSlotIndex)))
                 return Fail(result, InventoryInsertError.InvalidTargetSlot);
 
-            if (!ItemSlotBoundService.TryGetItemSpacePhysicalRange(targetListType, out var physicalRange)
-                || !physicalRange.Contains(targetSlotIndex))
+            if (!ItemSlotBoundService.IsInItemSpacePhysicalRange(targetListType, targetSlotIndex))
                 return Fail(result, InventoryInsertError.InvalidTargetSlot);
 
             if (targetListType == InventoryListType.PersonalCargo && !inventory.Cargo.IsOpenSlot(targetSlotIndex))

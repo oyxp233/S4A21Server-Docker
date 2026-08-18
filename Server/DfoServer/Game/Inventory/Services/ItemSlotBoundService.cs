@@ -207,6 +207,37 @@ namespace DfoServer.Game.Inventory
             }
         }
 
+        internal static bool IsInItemSpacePhysicalRange(InventoryListType listType, short slotIndex)
+        {
+            if (listType == InventoryListType.Equipment
+                && slotIndex == (short)EquipmentType.GuildMedal)
+                return true;
+
+            return TryGetItemSpacePhysicalRange(listType, out var range)
+                && range.Contains(slotIndex);
+        }
+
+        internal static bool IsInItemSpacePhysicalRange(InventoryListType listType, ItemSlotRange range)
+        {
+            if (range.Count <= 0)
+                return false;
+
+            if (listType == InventoryListType.Equipment)
+            {
+                if (range.Start == (short)EquipmentType.GuildMedal
+                    && range.End == (short)EquipmentType.GuildMedal)
+                    return true;
+
+                if (range.Start <= (short)EquipmentType.Charm
+                    && range.End >= (short)EquipmentType.Charm)
+                    return false;
+            }
+
+            return TryGetItemSpacePhysicalRange(listType, out var physicalRange)
+                && range.Start >= physicalRange.Start
+                && range.End <= physicalRange.End;
+        }
+
         internal static ItemSlotRange GetGuildMedalOpenRange()
         {
             return new ItemSlotRange(
@@ -317,10 +348,15 @@ namespace DfoServer.Game.Inventory
                 return true;
             }
 
+            if (slotIndex == (short)EquipmentType.GuildMedal)
+            {
+                itemKind = ItemCore.KindGuildMedal;
+                return true;
+            }
+
             if ((slotIndex >= (short)EquipmentType.Weapon
                     && slotIndex <= (short)EquipmentType.SupportWeapon)
-                || slotIndex == (short)EquipmentType.Charm
-                || slotIndex == (short)EquipmentType.GuildMedal)
+                || slotIndex == (short)EquipmentType.Charm)
             {
                 itemKind = ItemCore.KindEquipment;
                 return true;

@@ -533,8 +533,7 @@ namespace DfoServer.Game.Inventory
             if (item == null || item.IsEmpty)
                 return Fail(result, InventoryMoveServiceError.InvalidRequest);
 
-            if (!ItemSlotBoundService.TryGetItemSpacePhysicalRange(targetListType, out var physicalRange)
-                || !physicalRange.Contains(targetSlotIndex))
+            if (!ItemSlotBoundService.IsInItemSpacePhysicalRange(targetListType, targetSlotIndex))
                 return Fail(result, InventoryMoveServiceError.InvalidDestinationSlot);
 
             if (targetListType == InventoryListType.Main)

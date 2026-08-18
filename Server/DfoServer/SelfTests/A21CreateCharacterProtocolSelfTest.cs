@@ -45,6 +45,32 @@ namespace DfoServer.SelfTests
                     11,
                     ItemSlotBoundService.MainExpandStageFull),
                 ref failures);
+            Check(
+                "A21 keeps charm slot 30 outside the equipment physical range",
+                !ItemSlotBoundService.IsInItemSpacePhysicalRange(
+                    InventoryListType.Equipment,
+                    (short)EquipmentType.Charm),
+                ref failures);
+            Check(
+                "A21 maps guild medal slot 31 into the equipment physical range",
+                ItemSlotBoundService.IsInItemSpacePhysicalRange(
+                    InventoryListType.Equipment,
+                    (short)EquipmentType.GuildMedal)
+                && ItemSlotBoundService.IsValidSlotForKind(
+                    ItemCore.KindGuildMedal,
+                    InventoryListType.Equipment,
+                    (short)EquipmentType.GuildMedal,
+                    ItemSlotBoundService.MainExpandStageFull),
+                ref failures);
+            Check(
+                "A21 keeps only guild medal slot 31 open in the equipment physical range",
+                ItemSlotBoundService.IsInItemSpacePhysicalRange(
+                    InventoryListType.Equipment,
+                    new ItemSlotRange((short)EquipmentType.GuildMedal, (short)EquipmentType.GuildMedal))
+                && !ItemSlotBoundService.IsInItemSpacePhysicalRange(
+                    InventoryListType.Equipment,
+                    new ItemSlotRange((short)EquipmentType.Charm, (short)EquipmentType.GuildMedal)),
+                ref failures);
 
             var initialEquipment = InitialCharacterEquipment.Get(13);
             Check(

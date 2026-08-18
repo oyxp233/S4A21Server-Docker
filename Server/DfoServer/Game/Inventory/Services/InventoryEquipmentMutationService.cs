@@ -403,6 +403,105 @@ namespace DfoServer.Game.Inventory
             return true;
         }
 
+        internal static bool TryUseGuardianGem(
+            InventoryService inventory,
+            GuardianGemUseCommand command,
+            out GuardianGemUseResult result)
+        {
+            result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorInvalidRequest);
+            if (inventory == null || command == null)
+                return false;
+
+            if (command.SocketIndex >= ItemCore.GuardianGemSlotCount
+                || !ItemSlotBoundService.IsValidSlotForKind(
+                    ItemCore.KindGuardianGem,
+                    InventoryListType.GuildMedal,
+                    command.MaterialSlotIndex,
+                    ItemSlotBoundService.MainExpandStageFull))
+            {
+                result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorInvalidRequest);
+                return false;
+            }
+
+            var targetSlotIndex = (short)EquipmentType.GuildMedal;
+            var target = inventory.GetItem(InventoryListType.Equipment, targetSlotIndex);
+            if (target == null
+                || target.ItemKind != ItemCore.KindGuildMedal
+                || target.ItemId != command.EquippedMedalItemTemplateId)
+            {
+                result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorInvalidRequest);
+                return false;
+            }
+
+            if (IsItemLocked(inventory, target))
+            {
+                result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorInvalidRequest);
+                return false;
+            }
+
+            var material = inventory.GetItem(InventoryListType.GuildMedal, command.MaterialSlotIndex);
+            if (material == null
+                || material.ItemKind != ItemCore.KindGuardianGem
+                || material.ItemId != command.GuardianGemItemTemplateId
+                || material.Count <= 0)
+            {
+                result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorGuardianGemMissing);
+                return false;
+            }
+
+            if (!TryGetGuardianGemEffectTypes(material.ItemId, out var newEffectTypes))
+            {
+                result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorGuardianGemMissing);
+                return false;
+            }
+
+            var updatedTarget = target.Copy();
+            var previousGuardianGemItemId = updatedTarget.GetGuardianGemItemId(command.SocketIndex);
+
+            for (var index = 0; index < ItemCore.GuardianGemSlotCount; index++)
+            {
+                if (index == command.SocketIndex)
+                    continue;
+
+                var existingGuardianGemItemId = updatedTarget.GetGuardianGemItemId(index);
+                if (existingGuardianGemItemId <= 0)
+                    continue;
+
+                if (!TryGetGuardianGemEffectTypes(existingGuardianGemItemId, out var existingEffectTypes))
+                {
+                    result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorInvalidRequest);
+                    return false;
+                }
+
+                if (newEffectTypes.Overlaps(existingEffectTypes))
+                {
+                    result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorGuardianGemMissing);
+                    return false;
+                }
+            }
+
+            updatedTarget.SetGuardianGemItemId(command.SocketIndex, command.GuardianGemItemTemplateId);
+            if (!inventory.SetItem(InventoryListType.Equipment, targetSlotIndex, updatedTarget))
+            {
+                result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorInvalidRequest);
+                return false;
+            }
+
+            if (!InventoryDeleteService.TryDecreaseStack(
+                    inventory,
+                    InventoryListType.GuildMedal,
+                    command.MaterialSlotIndex,
+                    1,
+                    out var delete))
+            {
+                result = GuardianGemUseResult.Error(command, GuardianGemUseResult.ErrorGuardianGemMissing);
+                return false;
+            }
+
+            result = GuardianGemUseResult.Ok(command, previousGuardianGemItemId, delete.RemainingCount);
+            return true;
+        }
+
         internal static bool TryUseEquipmentEffectRune(
             InventoryService inventory,
             EquipmentEffectRuneUseRequest request,
@@ -1516,6 +1615,44 @@ namespace DfoServer.Game.Inventory
 
             updatedGold -= goldCost;
             return inventory.SetMainVirtualCount(GoldSlot, updatedGold);
+        }
+
+        private static bool TryGetGuardianGemEffectTypes(int itemTemplateId, out HashSet<string> effectTypes)
+        {
+            effectTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (itemTemplateId <= 0)
+                return false;
+
+            var stackable = StackableItemProvider.Load(itemTemplateId);
+            if (stackable == null || stackable.GuardianGemEnchantEntries == null)
+                return false;
+
+            foreach (var entry in stackable.GuardianGemEnchantEntries)
+            {
+                if (entry == null)
+                    continue;
+
+                var effectType = NormalizeGuardianGemEffectType(entry.EffectType);
+                if (!string.IsNullOrWhiteSpace(effectType))
+                    effectTypes.Add(effectType);
+            }
+
+            return effectTypes.Count > 0;
+        }
+
+        private static string NormalizeGuardianGemEffectType(string effectType)
+        {
+            if (string.IsNullOrWhiteSpace(effectType))
+                return string.Empty;
+
+            var value = effectType.Trim();
+            if (value.Length >= 2 && value[0] == '[' && value[value.Length - 1] == ']')
+                value = value.Substring(1, value.Length - 2).Trim();
+
+            if (value.Length >= 2 && value[0] == '`' && value[value.Length - 1] == '`')
+                value = value.Substring(1, value.Length - 2).Trim();
+
+            return value;
         }
 
         private static bool IsItemLocked(InventoryService inventory, ItemCore core)

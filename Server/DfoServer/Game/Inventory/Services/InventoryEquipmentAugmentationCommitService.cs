@@ -76,6 +76,18 @@ namespace DfoServer.Game.Inventory
             return applied && committed;
         }
 
+        internal static bool TryCommitGuardianGem(InventoryLease lease, GuardianGemUseCommand command, out GuardianGemUseResult result, out bool persistenceFailed)
+        {
+            result = null;
+            persistenceFailed = false;
+            var applied = false;
+            GuardianGemUseResult value = null;
+            var committed = TryCommit(lease, "use-guardian-gem", () => applied = InventoryEquipmentMutationService.TryUseGuardianGem(lease.Inventory, command, out value));
+            result = value;
+            persistenceFailed = applied && !committed;
+            return applied && committed;
+        }
+
         private static bool TryCommit(InventoryLease lease, string operation, System.Func<bool> apply)
         {
             if (lease?.Inventory == null || apply == null)

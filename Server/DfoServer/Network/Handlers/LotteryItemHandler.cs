@@ -196,7 +196,7 @@ namespace DfoServer.Network.Handlers
         {
             return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x01,
-                0x03F6,
+                (ushort)CmdPacketType.INCREASE_CHANCE_LOTTERY_RESET,
                 IncreaseChanceLotteryPacketBuilder.BuildResetResponse(result, showSuccess)));
         }
 

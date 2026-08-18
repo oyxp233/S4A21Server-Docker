@@ -341,7 +341,7 @@ namespace DfoServer.Network
             d[0x00A6] = _partyHandler.Handle_CALL_PARTY_MEMBER_REALTIME_INFO;  // 166 请求成员实时信息(HP%)
             d[0x0079] = _partyHandler.Handle_CHANGE_HOST;           // 121 委托队长(body=1字节槽位)
             // P2P 上报类: df 只喂统计计数器, 不回包不转发。收下即忽略, 消掉 Unhandled 日志。
-            d[0x0351] = (s, h, b) => Task.CompletedTask;            // P2P_HOLE_PUNCHING_SUCCESS_RATE
+            d[(ushort)CmdPacketType.P2P_HOLE_PUNCHING_SUCCESS_RATE] = (s, h, b) => Task.CompletedTask;
             d[0x0061] = (s, h, b) => Task.CompletedTask;            // PEER_CONNECT_RESULT
             d[0x0031] = (s, h, b) => Task.CompletedTask;            // REPORT_BAD_P2P_USER
             d[0x01DF] = (s, h, b) => Task.CompletedTask;            // P2P_STATISTICS
@@ -426,7 +426,8 @@ namespace DfoServer.Network
             d[0x00CC] = _inventoryHandler.Handle_ENUM_CMDPACKET_PURIFY_ITEM;
             d[0x00CD] = _inventoryHandler.Handle_ENUM_CMDPACKET_INVEST_ITEM_AMPLIFY_OPTION;
             d[0x00D0] = _inventoryHandler.Handle_OPEN_MAGIC_BOX_SINGLE;
-            d[0x03F6] = _lotteryItemHandler.HandleIncreaseChanceLotteryReset;
+            d[(ushort)CmdPacketType.INCREASE_CHANCE_LOTTERY_RESET] =
+                _lotteryItemHandler.HandleIncreaseChanceLotteryReset;
             d[(ushort)CmdPacketType.CRANE_START_USE] = _craneMiniGameHandler.HandleStartUse;
             d[(ushort)CmdPacketType.CRANE_PICKUP] = _craneMiniGameHandler.HandlePickup;
             d[0x0050] = _inventoryHandler.Handle_ENUM_CMDPACKET_UPGRADE_ITEM;      //80
@@ -436,6 +437,7 @@ namespace DfoServer.Network
             d[(ushort)CmdPacketType.UPGRADE_CHRONICLE] = _inventoryHandler.Handle_UPGRADE_CHRONICLE;
             d[(ushort)CmdPacketType.ENCHANT_3RD_CHRONICLE_ITEM] = _inventoryHandler.Handle_ENCHANT_3RD_CHRONICLE_ITEM;
             d[0x0110] = _inventoryHandler.Handle_ENUM_CMDPACKET_ENCHANT_BY_BEAD;   //272
+            d[(ushort)CmdPacketType.USE_GEM] = _inventoryHandler.Handle_USE_GEM;   //826 守护珠镶嵌
             d[0x0191] = _inventoryHandler.Handle_UNSEAL_RANDOM_OPTION;             //401
             d[0x0197] = _inventoryHandler.Handle_REGENERATION_RANDOM_OPTION;       //407 equipment compound
             d[(ushort)CmdPacketTypeA21.TITLE_BOOK_PUT] = _inventoryHandler.Handle_TITLE_BOOK;
@@ -446,11 +448,11 @@ namespace DfoServer.Network
             d[0x0207] = _inventoryHandler.Handle_OPEN_AVATAR_PACKAGE;
             d[0x0218] = _inventoryHandler.Handle_USE_BOOSTER_ITEM;
             d[0x0239] = _inventoryHandler.Handle_SET_CLONE_TITLE;                  //569
-            d[0x03F3] = _inventoryHandler.Handle_OPEN_MAGIC_BOX;
+            d[(ushort)CmdPacketType.USE_RANDOMBOX_ITEM_EXPAND] = _inventoryHandler.Handle_OPEN_MAGIC_BOX;
             d[0x0063] = _inventoryHandler.Handle_COMPOUND_AVATAR;                  //99 合并装扮(时装合成)
             d[0x0100] = _inventoryHandler.Handle_COMPOUND_EMBLEM;                  //256 徽章合成
-            d[0x03EA] = _inventoryHandler.Handle_COMPOUND_AVATAR_SET;              //1002 8件高级装扮100%合成稀有装扮(克隆装扮合成器)
-            d[0x0342] = _inventoryHandler.Handle_ADD_EQUIPMENT_EFFECT;             //834 武器特效符文添加
+            d[(ushort)CmdPacketType.BIND_PLUS] = _inventoryHandler.Handle_COMPOUND_AVATAR_SET;              // 8件高级装扮100%合成稀有装扮(克隆装扮合成器)
+            d[(ushort)CmdPacketType.ADD_EQUIPMENT_EFFECT] = _inventoryHandler.Handle_ADD_EQUIPMENT_EFFECT;  // 武器特效符文添加
             d[0x0131] = _inventoryHandler.Handle_CREATE_ACCOUNT_CARGO;               //305 开通金库
             d[0x0132] = _inventoryHandler.Handle_UPGRADE_ACCOUNT_CARGO;             //306 扩容金库
             d[0x0133] = _inventoryHandler.Handle_DEPOSIT_MONEY;                    //307 金库存金币
@@ -500,12 +502,12 @@ namespace DfoServer.Network
 
         private void RegisterEquipmentSocketHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
         {
-            d[0x031D] = _inventoryHandler.Handle_EQUIPMENT_SOCKET_OPEN;
+            d[(ushort)CmdPacketType.ADD_EQUIPMENT_SOCKET] = _inventoryHandler.Handle_EQUIPMENT_SOCKET_OPEN;
         }
 
         private void RegisterEquipmentEmblemHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
         {
-            d[0x031C] = _inventoryHandler.Handle_EQUIPMENT_EMBLEM_ATTACH;
+            d[(ushort)CmdPacketType.USE_EMBLEM_FOR_EQUIPMENT] = _inventoryHandler.Handle_EQUIPMENT_EMBLEM_ATTACH;
         }
 
         private void RegisterAvatarSocketHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
@@ -655,11 +657,11 @@ namespace DfoServer.Network
                     header,
                     body,
                     _database);                                                   //786
-            d[0x03B6] = _dungeonHandler.Handle_ENUM_CMDPACKET_GORGEOUS_CHALLENGE_TOGGLE;
-            d[0x03AB] = _dungeonHandler.HandleDungeonMechanismCommand;             //939
+            d[(ushort)CmdPacketType.VERY_DIFFICULT_HELL_PARTY] = _dungeonHandler.Handle_ENUM_CMDPACKET_GORGEOUS_CHALLENGE_TOGGLE;
+            d[(ushort)CmdPacketType.BREAK_TRAP_RESULT] = _dungeonHandler.HandleDungeonMechanismCommand;
             d[0x009F] = _dungeonHandler.Handle_ENUM_CMDPACKET_DEATH_TOWER_STAGE_CMD; // 159
-            d[0x02D7] = _dungeonRejoin.HandleRejoinAsync;
-            d[0x02D8] = _dungeonRejoin.HandleCancelAsync;
+            d[(ushort)CmdPacketType.REJOIN_DUNGEON] = _dungeonRejoin.HandleRejoinAsync;
+            d[(ushort)CmdPacketType.CANCEL_REJOIN_DUNGEON] = _dungeonRejoin.HandleCancelAsync;
         }
 
         private void RegisterSkillHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
@@ -821,9 +823,9 @@ namespace DfoServer.Network
 
         private void RegisterCollectionBoxHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
         {
-            d[0x0388] = _collectionBoxHandler.HandleQueryCollectionBox;
-            d[0x0389] = _collectionBoxHandler.HandleInsertCollectBoxItem;
-            d[0x038A] = _collectionBoxHandler.HandleRemoveCollectBoxItem;
+            d[(ushort)CmdPacketType.SELECT_COLLECTBOX] = _collectionBoxHandler.HandleQueryCollectionBox;
+            d[(ushort)CmdPacketType.ADD_COLLECTBOX_ITEM] = _collectionBoxHandler.HandleInsertCollectBoxItem;
+            d[(ushort)CmdPacketType.REMOVE_COLLECTBOX_ITEM] = _collectionBoxHandler.HandleRemoveCollectBoxItem;
         }
 
         private void RegisterMercenaryHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)

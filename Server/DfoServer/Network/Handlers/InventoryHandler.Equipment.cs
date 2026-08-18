@@ -116,6 +116,53 @@ namespace DfoServer.Network.Handlers
             FileLogger.Log($"[{ProtocolName}] ENCHANT_BY_BEAD: OK target=({request.TargetListType},{request.TargetSlotIndex}) enchantCard=0x{result.EnchantCardItemId:X8}");
         }
 
+        public async Task Handle_USE_GEM(EnhancedClientSession session, GamePacketHeader header, byte[] body)
+        {
+            var commandType = (ushort)CmdPacketType.USE_GEM;
+            if (!UseGuardianGemRequest.TryParse(body, out var request))
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x00, 0x04 }));
+                return;
+            }
+
+            FileLogger.Log($"[{ProtocolName}] USE_GEM raw({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")} medal=0x{request.EquippedMedalItemTemplateId:X8} slot={request.MaterialSlotIndex} gem=0x{request.GuardianGemItemTemplateId:X8} socket={request.SocketIndex}");
+
+            var (cid, _) = ResolveOwner(session);
+            GuardianGemUseResult result;
+            var persistenceFailed = false;
+            var ok = false;
+            if (TryGetOwnedInventoryLease(session, cid, out var lease))
+            {
+                ok = InventoryEquipmentAugmentationCommitService.TryCommitGuardianGem(
+                    lease,
+                    request.ToCommand(),
+                    out result,
+                    out persistenceFailed);
+            }
+            else
+            {
+                result = GuardianGemUseResult.Error(request.ToCommand(), GuardianGemUseResult.ErrorInvalidRequest);
+            }
+
+            if (!ok)
+            {
+                var errorCode = persistenceFailed
+                    ? GuardianGemUseResult.ErrorInvalidRequest
+                    : result != null
+                        ? result.ErrorCode
+                        : GuardianGemUseResult.ErrorInvalidRequest;
+                FileLogger.Log($"[{ProtocolName}] USE_GEM: FAILED error=0x{errorCode:X2} persistenceFailed={persistenceFailed} medal=0x{request.EquippedMedalItemTemplateId:X8} slot={request.MaterialSlotIndex} gem=0x{request.GuardianGemItemTemplateId:X8} socket={request.SocketIndex}");
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x00, errorCode }));
+                return;
+            }
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x01 }));
+            await _refresh.SendUpdateItemList(session, InventoryListType.GuildMedal, result.MaterialSlotIndex);
+            await _refresh.SendUpdateItemList(session, InventoryListType.Equipment, result.TargetSlotIndex);
+
+            FileLogger.Log($"[{ProtocolName}] USE_GEM: OK medal=0x{result.TargetItemTemplateId:X8} slot={result.MaterialSlotIndex} gem=0x{result.MaterialItemTemplateId:X8} socket={result.SocketIndex} old=0x{result.PreviousGuardianGemItemId:X8} remaining={result.MaterialRemainingCount}");
+        }
+
         private async Task HandlePetCreatureEnchantByBead(
             EnhancedClientSession session,
             EnchantByBeadCommand command,
@@ -240,11 +287,12 @@ namespace DfoServer.Network.Handlers
 
         public async Task Handle_EQUIPMENT_SOCKET_OPEN(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
-            FileLogger.Log($"[{ProtocolName}] EQUIP_SOCKET_OPEN 0x031D raw({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
+            var commandType = (ushort)CmdPacketType.ADD_EQUIPMENT_SOCKET;
+            FileLogger.Log($"[{ProtocolName}] EQUIP_SOCKET_OPEN type=0x{commandType:X4} raw({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
 
             if (!TryParseSocketOpenBody(body, out var targetSlot, out var targetItemId, out var materialSlot))
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x031D, new byte[] { 0x00 }));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x00 }));
                 return;
             }
 
@@ -264,11 +312,11 @@ namespace DfoServer.Network.Handlers
 
             if (!ok)
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x031D, new byte[] { 0x00, 0x04 }));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x00, 0x04 }));
                 return;
             }
 
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x031D, BuildSocketOpenAck(targetSlot, targetItemId, materialSlot)));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, BuildSocketOpenAck(targetSlot, targetItemId, materialSlot)));
 
             await _refresh.SendUpdateItemList(session, InventoryListType.Main, targetSlot);
             if (result.MaterialConsumed && result.MaterialItem != null)
@@ -282,11 +330,12 @@ namespace DfoServer.Network.Handlers
 
         public async Task Handle_EQUIPMENT_EMBLEM_ATTACH(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
-            FileLogger.Log($"[{ProtocolName}] EQUIP_EMBLEM_ATTACH 0x031C raw({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
+            var commandType = (ushort)CmdPacketType.USE_EMBLEM_FOR_EQUIPMENT;
+            FileLogger.Log($"[{ProtocolName}] EQUIP_EMBLEM_ATTACH type=0x{commandType:X4} raw({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
 
             if (!TryParseEmblemAttachBody(body, out var targetSlot, out var targetItemId, out var emblems))
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x031C, new byte[] { 0x00 }));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x00 }));
                 return;
             }
 
@@ -308,14 +357,14 @@ namespace DfoServer.Network.Handlers
             if (!ok)
             {
                 if (!persistenceFailed
-                    && await TryHandleAvatarEmblemAttach(session, 0x031C, targetSlot, targetItemId, emblems, cid))
+                    && await TryHandleAvatarEmblemAttach(session, commandType, targetSlot, targetItemId, emblems, cid))
                     return;
 
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x031C, new byte[] { 0x00, 0x04 }));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, new byte[] { 0x00, 0x04 }));
                 return;
             }
 
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x031C, BuildEmblemAttachAck(targetSlot, targetItemId, emblems.Count)));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, commandType, BuildEmblemAttachAck(targetSlot, targetItemId, emblems.Count)));
             if (!result.TargetEquipped)
                 await _refresh.SendUpdateItemList(session, result.TargetListType, result.TargetSlotIndex);
             FileLogger.Log($"[{ProtocolName}] EQUIP_EMBLEM_ATTACH: OK targetSlot={targetSlot} item=0x{targetItemId:X8} emblems={emblems.Count}");

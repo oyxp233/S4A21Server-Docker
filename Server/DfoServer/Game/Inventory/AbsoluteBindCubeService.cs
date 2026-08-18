@@ -10,7 +10,7 @@ namespace DfoServer.Game.Inventory
     // 消耗品PVF [action type] `[absolute bind cube]` key 8 2 0 0 的key, 对应
     // etc/chn_absolute_bind_cube.etc 里 [absolute bind cube] key ... [/absolute bind cube] 区块,
     // 该区块按职业(PVF英文标签)列出8个部位各自的目标itemId(100%确定, 非随机)。
-    // 客户端弹窗选择部位后, 直接把对应itemId放进0x03EA请求体, 服务端在这里反查同一份数据校验
+    // 客户端弹窗选择部位后, 直接把对应itemId放进BIND_PLUS请求体, 服务端在这里反查同一份数据校验
     // 该itemId确实属于"consumeMaterialId这个合成器+这个职业"的合法产出集合, 避免信任客户端任意值。
     // 见 Docs/TASKLOG.md。
     public static class AbsoluteBindCubeService
