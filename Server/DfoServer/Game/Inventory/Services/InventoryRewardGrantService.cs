@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using DfoServer.Game.Currency;
 using DfoServer.Infrastructure;
 using PremiumService = DfoServer.Game.Premium.PremiumService;
 using ReviveCoinService = DfoServer.Game.ReviveCoin.ReviveCoinService;
@@ -1004,13 +1003,8 @@ namespace DfoServer.Game.Inventory
                 return true;
             }
 
-            if (CurrencyService.IsCubeFragment(itemTemplateId))
-            {
-                slotIndex = (short)CurrencyService.GetCubeFragmentSlot(itemTemplateId);
-                slotItemId = itemTemplateId;
-                return slotIndex >= InventoryService.MainVirtualCubeSlotStart
-                    && slotIndex <= InventoryService.MainVirtualCubeSlotEnd;
-            }
+            if (InventoryService.TryResolveMainVirtualSlotByItemId(itemTemplateId, out slotIndex, out slotItemId))
+                return true;
 
             return false;
         }

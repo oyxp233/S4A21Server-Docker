@@ -542,6 +542,18 @@ namespace DfoServer.Game.Inventory
                         inventory.AccountId,
                         item.ItemId,
                         item.Count);
+                    continue;
+                }
+
+                if (slotIndex >= InventoryService.MainVirtualSoulSlotStart
+                    && slotIndex <= InventoryService.MainVirtualSoulSlotEnd)
+                {
+                    CurrencyService.SetSoulWarehouseCount(
+                        connection,
+                        transaction,
+                        inventory.AccountId,
+                        item.ItemId,
+                        item.Count);
                 }
             }
         }

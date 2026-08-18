@@ -18,8 +18,21 @@ namespace DfoServer.Game.Currency
                 { 3262, ("cube_gold", 359) },
             };
 
+        private static readonly Dictionary<int, (string ColumnName, int Slot)> SoulWarehouseMap =
+            new Dictionary<int, (string, int)>
+            {
+                { 10100115, ("soul_10100115", 360) },
+                { 10100116, ("soul_10100116", 361) },
+                { 10099773, ("soul_10099773", 362) },
+                { 10099774, ("soul_10099774", 363) },
+                { 10099775, ("soul_10099775", 364) },
+            };
+
         public const int CubeFragmentSlotStart = 354;
         public const int CubeFragmentSlotEnd = 359;
+
+        public const int SoulWarehouseSlotStart = 360;
+        public const int SoulWarehouseSlotEnd = 364;
 
         public static bool IsCubeFragment(int itemId)
         {
@@ -33,18 +46,60 @@ namespace DfoServer.Game.Currency
 
         public static int GetCubeFragmentItemIdFromSlot(int slot)
         {
-            foreach (var kv in CubeFragmentMap)
-            {
-                if (kv.Value.Slot == slot)
-                    return kv.Key;
-            }
-
-            return -1;
+            return GetItemIdFromSlot(CubeFragmentMap, slot);
         }
 
         public static bool IsCubeFragmentSlot(int slot)
         {
             return slot >= CubeFragmentSlotStart && slot <= CubeFragmentSlotEnd;
+        }
+
+        public static bool IsSoulWarehouseItem(int itemId)
+        {
+            return SoulWarehouseMap.ContainsKey(itemId);
+        }
+
+        public static int GetSoulWarehouseSlot(int itemId)
+        {
+            return SoulWarehouseMap.TryGetValue(itemId, out var entry) ? entry.Slot : -1;
+        }
+
+        public static int GetSoulWarehouseItemIdFromSlot(int slot)
+        {
+            return GetItemIdFromSlot(SoulWarehouseMap, slot);
+        }
+
+        public static bool IsSoulWarehouseSlot(int slot)
+        {
+            return slot >= SoulWarehouseSlotStart && slot <= SoulWarehouseSlotEnd;
+        }
+
+        public static bool IsAccountWarehouseItem(int itemId)
+        {
+            return IsCubeFragment(itemId) || IsSoulWarehouseItem(itemId);
+        }
+
+        public static int GetAccountWarehouseSlot(int itemId)
+        {
+            var slot = GetCubeFragmentSlot(itemId);
+            if (slot >= 0)
+                return slot;
+
+            return GetSoulWarehouseSlot(itemId);
+        }
+
+        public static int GetAccountWarehouseItemIdFromSlot(int slot)
+        {
+            var itemId = GetCubeFragmentItemIdFromSlot(slot);
+            if (itemId > 0)
+                return itemId;
+
+            return GetSoulWarehouseItemIdFromSlot(slot);
+        }
+
+        public static bool IsAccountWarehouseSlot(int slot)
+        {
+            return IsCubeFragmentSlot(slot) || IsSoulWarehouseSlot(slot);
         }
 
         public static List<(int ItemId, int Slot, int Count)> LoadCubeFragments(
@@ -68,6 +123,33 @@ namespace DfoServer.Game.Currency
                         result.Add((3036, 357, reader.IsDBNull(3) ? 0 : Convert.ToInt32(reader.GetValue(3))));
                         result.Add((3037, 358, reader.IsDBNull(4) ? 0 : Convert.ToInt32(reader.GetValue(4))));
                         result.Add((3262, 359, reader.IsDBNull(5) ? 0 : Convert.ToInt32(reader.GetValue(5))));
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        public static List<(int ItemId, int Slot, int Count)> LoadSoulWarehouseCounts(
+            SqliteConnection conn,
+            SqliteTransaction tx,
+            int accountId)
+        {
+            var result = new List<(int, int, int)>();
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "SELECT soul_10100115, soul_10100116, soul_10099773, soul_10099774, soul_10099775 FROM accounts WHERE account_id = @aid;";
+                cmd.Parameters.AddWithValue("@aid", accountId);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        result.Add((10100115, 360, reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0))));
+                        result.Add((10100116, 361, reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1))));
+                        result.Add((10099773, 362, reader.IsDBNull(2) ? 0 : Convert.ToInt32(reader.GetValue(2))));
+                        result.Add((10099774, 363, reader.IsDBNull(3) ? 0 : Convert.ToInt32(reader.GetValue(3))));
+                        result.Add((10099775, 364, reader.IsDBNull(4) ? 0 : Convert.ToInt32(reader.GetValue(4))));
                     }
                 }
             }
@@ -104,6 +186,26 @@ namespace DfoServer.Game.Currency
         {
             if (!CubeFragmentMap.TryGetValue(itemId, out var entry))
                 throw new ArgumentException($"itemId {itemId} is not a cube fragment");
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = $"UPDATE accounts SET {entry.ColumnName} = @count WHERE account_id = @aid;";
+                cmd.Parameters.AddWithValue("@count", Math.Max(0, count));
+                cmd.Parameters.AddWithValue("@aid", accountId);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public static void SetSoulWarehouseCount(
+            SqliteConnection conn,
+            SqliteTransaction tx,
+            int accountId,
+            int itemId,
+            int count)
+        {
+            if (!SoulWarehouseMap.TryGetValue(itemId, out var entry))
+                throw new ArgumentException($"itemId {itemId} is not a soul warehouse item");
 
             using (var cmd = conn.CreateCommand())
             {
@@ -340,6 +442,19 @@ WHERE account_id = (SELECT account_id FROM characters WHERE character_id = @cid)
                 transaction,
                 characterId,
                 InventoryService.MainVirtualCurrencySlotStart);
+        }
+
+        private static int GetItemIdFromSlot(
+            Dictionary<int, (string ColumnName, int Slot)> map,
+            int slot)
+        {
+            foreach (var kv in map)
+            {
+                if (kv.Value.Slot == slot)
+                    return kv.Key;
+            }
+
+            return -1;
         }
     }
 

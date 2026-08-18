@@ -1,4 +1,5 @@
 using DfoServer.GameWorld;
+using DfoServer.Game.Currency;
 using DfoServer.Game.ItemUpgrade;
 using DfoServer.Infrastructure;
 using PvfLib;
@@ -1187,12 +1188,7 @@ namespace DfoServer.Game.Inventory
 
         private static bool IsSpecialMaterialItem(int itemTemplateId)
         {
-            return itemTemplateId == 3033
-                || itemTemplateId == 3034
-                || itemTemplateId == 3035
-                || itemTemplateId == 3036
-                || itemTemplateId == 3037
-                || itemTemplateId == 3262;
+            return CurrencyService.IsAccountWarehouseItem(itemTemplateId);
         }
 
         private static string NormalizePvfKindTag(string value)

@@ -32,6 +32,8 @@ namespace DfoServer.Game.Inventory
         public const short MainReservedSlotEnd = 353;
         public const short MainVirtualCubeSlotStart = 354;
         public const short MainVirtualCubeSlotEnd = 359;
+        public const short MainVirtualSoulSlotStart = 360;
+        public const short MainVirtualSoulSlotEnd = 364;
         public const int MainSlotCount = MainSlotEnd + 1;
 
         public const short BodySlotStart = 0;
@@ -560,7 +562,8 @@ namespace DfoServer.Game.Inventory
         public static bool IsVirtualMainSlot(short slotIndex)
         {
             return slotIndex >= MainVirtualCurrencySlotStart && slotIndex <= MainVirtualCurrencySlotEnd
-                || slotIndex >= MainVirtualCubeSlotStart && slotIndex <= MainVirtualCubeSlotEnd;
+                || slotIndex >= MainVirtualCubeSlotStart && slotIndex <= MainVirtualCubeSlotEnd
+                || slotIndex >= MainVirtualSoulSlotStart && slotIndex <= MainVirtualSoulSlotEnd;
         }
 
         public static bool IsReservedMainSlot(short slotIndex)
@@ -595,6 +598,9 @@ namespace DfoServer.Game.Inventory
 
             foreach (var cube in CurrencyService.LoadCubeFragments(connection, null, AccountId))
                 AttachMainVirtualCount((short)cube.Slot, cube.ItemId, cube.Count);
+
+            foreach (var soul in CurrencyService.LoadSoulWarehouseCounts(connection, null, AccountId))
+                AttachMainVirtualCount((short)soul.Slot, soul.ItemId, soul.Count);
         }
 
         private void LoadTitleBook(SqliteConnection connection)
@@ -670,6 +676,12 @@ namespace DfoServer.Game.Inventory
                 if (TryResolveMainVirtualItemId(slotIndex, out var itemId))
                     AttachMainVirtualCount(slotIndex, itemId, 0);
             }
+
+            for (short slotIndex = MainVirtualSoulSlotStart; slotIndex <= MainVirtualSoulSlotEnd; slotIndex++)
+            {
+                if (TryResolveMainVirtualItemId(slotIndex, out var itemId))
+                    AttachMainVirtualCount(slotIndex, itemId, 0);
+            }
         }
 
         private void InitDefaultListParams()
@@ -741,7 +753,7 @@ namespace DfoServer.Game.Inventory
                 return true;
             }
 
-            itemId = CurrencyService.GetCubeFragmentItemIdFromSlot(slotIndex);
+            itemId = CurrencyService.GetAccountWarehouseItemIdFromSlot(slotIndex);
             return itemId > 0;
         }
 
@@ -764,14 +776,14 @@ namespace DfoServer.Game.Inventory
                 return true;
             }
 
-            if (!CurrencyService.IsCubeFragment(itemId))
+            if (!CurrencyService.IsAccountWarehouseItem(itemId))
                 return false;
 
-            var cubeSlot = CurrencyService.GetCubeFragmentSlot(itemId);
-            if (cubeSlot < MainVirtualCubeSlotStart || cubeSlot > MainVirtualCubeSlotEnd)
+            var accountSlot = CurrencyService.GetAccountWarehouseSlot(itemId);
+            if (!CurrencyService.IsAccountWarehouseSlot(accountSlot))
                 return false;
 
-            slotIndex = (short)cubeSlot;
+            slotIndex = (short)accountSlot;
             fixedItemId = itemId;
             return true;
         }

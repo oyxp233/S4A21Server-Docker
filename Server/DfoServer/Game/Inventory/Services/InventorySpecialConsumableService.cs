@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using DfoServer.Game.Accounts;
-using DfoServer.Game.Currency;
 using DfoServer.Game.Premium;
 using DfoServer.Game.ReviveCoin;
 using DfoServer.Infrastructure;
@@ -851,7 +850,7 @@ namespace DfoServer.Game.Inventory
                 || itemTemplateId == 0
                 || itemTemplateId == 2
                 || ReviveCoinService.IsReviveCoinReward(itemTemplateId)
-                || CurrencyService.IsCubeFragment(itemTemplateId)
+                || InventoryService.TryResolveMainVirtualSlotByItemId(itemTemplateId, out _, out _)
                 || PremiumService.IsContractItem(itemTemplateId))
                 return false;
 

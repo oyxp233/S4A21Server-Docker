@@ -86,7 +86,8 @@ namespace DfoServer.Game.Inventory
             }
 
             result = ToMutationResult(inventory, grant, updatedGold, updatedSp, updatedCera, effectiveCount);
-            if (metadata.IsStackable || CurrencyService.IsCubeFragment(itemTemplateId))
+            if (metadata.IsStackable
+                || InventoryService.TryResolveMainVirtualSlotByItemId(itemTemplateId, out _, out _))
             {
                 result.RemainingStackCount = effectiveCount;
                 result.InstanceValue = effectiveCount;
@@ -357,10 +358,15 @@ namespace DfoServer.Game.Inventory
                 return false;
 
             metadata = ItemMetadataResolver.Resolve(itemTemplateId);
-            if (metadata == null || string.Equals(metadata.ItemKind, "special", StringComparison.Ordinal))
+            if (metadata == null)
                 return false;
 
-            effectiveCount = metadata.IsStackable || CurrencyService.IsCubeFragment(itemTemplateId)
+            if (string.Equals(metadata.ItemKind, "special", StringComparison.Ordinal)
+                && !InventoryService.TryResolveMainVirtualSlotByItemId(itemTemplateId, out _, out _))
+                return false;
+
+            effectiveCount = (metadata.IsStackable
+                || InventoryService.TryResolveMainVirtualSlotByItemId(itemTemplateId, out _, out _))
                 ? requestedCount
                 : 1;
             return effectiveCount > 0;

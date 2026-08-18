@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using DfoServer.Game.Currency;
 using DfoServer.Game.ItemUpgrade;
 using DfoServer.Infrastructure;
 using PvfLib;
@@ -504,11 +503,13 @@ namespace DfoServer.Game.Inventory
             if (cost == null || cost.MaterialItemId <= 0 || cost.MaterialCount <= 0)
                 return true;
 
-            if (CurrencyService.IsCubeFragment(cost.MaterialItemId))
+            if (InventoryService.TryResolveMainVirtualSlotByItemId(
+                    cost.MaterialItemId,
+                    out var virtualSlot,
+                    out _))
             {
-                var cubeSlot = (short)CurrencyService.GetCubeFragmentSlot(cost.MaterialItemId);
-                var cubeCount = inventory.GetMainVirtualCount(cubeSlot)?.Count ?? 0;
-                if (cubeCount >= cost.MaterialCount)
+                var virtualCount = inventory.GetMainVirtualCount(virtualSlot)?.Count ?? 0;
+                if (virtualCount >= cost.MaterialCount)
                     return true;
             }
 
@@ -528,17 +529,19 @@ namespace DfoServer.Game.Inventory
             if (cost == null || cost.MaterialItemId <= 0 || cost.MaterialCount <= 0)
                 return true;
 
-            if (CurrencyService.IsCubeFragment(cost.MaterialItemId))
+            if (InventoryService.TryResolveMainVirtualSlotByItemId(
+                    cost.MaterialItemId,
+                    out var virtualSlot,
+                    out _))
             {
-                var cubeSlot = (short)CurrencyService.GetCubeFragmentSlot(cost.MaterialItemId);
-                var cubeCount = inventory.GetMainVirtualCount(cubeSlot)?.Count ?? 0;
-                if (cubeCount >= cost.MaterialCount)
+                var virtualCount = inventory.GetMainVirtualCount(virtualSlot)?.Count ?? 0;
+                if (virtualCount >= cost.MaterialCount)
                 {
-                    var remainingCubeCount = cubeCount - cost.MaterialCount;
-                    if (!inventory.SetMainVirtualCount(cubeSlot, remainingCubeCount))
+                    var remainingVirtualCount = virtualCount - cost.MaterialCount;
+                    if (!inventory.SetMainVirtualCount(virtualSlot, remainingVirtualCount))
                         return false;
 
-                    materialUpdate = CreateSlotCount(cubeSlot, cost.MaterialItemId, remainingCubeCount);
+                    materialUpdate = CreateSlotCount(virtualSlot, cost.MaterialItemId, remainingVirtualCount);
                     return true;
                 }
             }

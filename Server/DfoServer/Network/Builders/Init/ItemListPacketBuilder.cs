@@ -62,6 +62,11 @@ namespace DfoServer.Network.Builders
                 slotIndex++)
                 WriteMainVirtualCountEntry(entries, inventory, slotIndex, ref count);
 
+            for (short slotIndex = InventoryService.MainVirtualSoulSlotStart;
+                slotIndex <= InventoryService.MainVirtualSoulSlotEnd;
+                slotIndex++)
+                WriteMainVirtualCountEntry(entries, inventory, slotIndex, ref count);
+
             return BuildCommonListBody(
                 InventoryListType.Main,
                 inventory.GetListParam16(InventoryListType.Main),

@@ -130,6 +130,16 @@ INSERT INTO inventory_audit_log (
                 }
             }
 
+            if (slotIndex >= InventoryService.MainVirtualSoulSlotStart
+                && slotIndex <= InventoryService.MainVirtualSoulSlotEnd)
+            {
+                foreach (var soul in CurrencyService.LoadSoulWarehouseCounts(connection, transaction, inventory.AccountId))
+                {
+                    if (soul.Slot == slotIndex)
+                        return Math.Max(0, soul.Count);
+                }
+            }
+
             return 0;
         }
 

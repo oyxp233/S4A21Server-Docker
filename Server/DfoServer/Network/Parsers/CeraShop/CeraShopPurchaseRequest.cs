@@ -92,10 +92,13 @@ namespace DfoServer.Network.Parsers.CeraShop
 
             var cursor = offset;
             var avatarCount = body[cursor];
-            var avatarEnd = cursor + 1 + avatarCount * 5;
-            if (avatarCount > 0 && avatarCount <= 32 && avatarEnd <= body.Length)
+            cursor++;
+            if (avatarCount > 0)
             {
-                cursor++;
+                var avatarEnd = cursor + avatarCount * 5;
+                if (avatarCount > 32 || avatarEnd > body.Length)
+                    return options;
+
                 for (var index = 0; index < avatarCount; index++, cursor += 5)
                 {
                     var itemTemplateId = BitConverter.ToInt32(body, cursor);

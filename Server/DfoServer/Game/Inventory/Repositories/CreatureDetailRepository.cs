@@ -138,6 +138,12 @@ WHERE character_id = @characterId
 
         internal static long AllocateCreatureUid(IGameDatabase database = null)
         {
+            if (InventoryUidAllocationContext.TryGet(
+                    database,
+                    out var ambientConnection,
+                    out var ambientTransaction))
+                return AllocateCreatureUid(ambientConnection, ambientTransaction);
+
             database ??= GameDatabase.CreateDefault();
             using (var connection = database.OpenConnection())
             {

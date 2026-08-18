@@ -45,24 +45,27 @@ namespace DfoServer.Game.Inventory
                 var database = lease.Inventory.Database;
                 using (var connection = database.OpenConnection())
                 {
-                    // 先让奖励规划阶段完成必要的只读/序列分配，避免一开始就占住写锁。
+                    // 让 UID 序列表分配复用同一个库存提交事务，避免同链路里再开写连接。
                     using (var transaction = connection.BeginTransaction(deferred: true))
                     {
-                        bool applied;
-                        lock (lease.SyncRoot)
+                        using (InventoryUidAllocationContext.Enter(connection, transaction))
                         {
-                            applied = apply == null || apply(connection, transaction);
-                            if (!applied
-                                || !InventoryPersistenceService.SaveDirtyInTransaction(
-                                    connection,
-                                    transaction,
-                                    lease))
+                            bool applied;
+                            lock (lease.SyncRoot)
                             {
-                                throw new InvalidOperationException("inventory mutation was not committed");
-                            }
+                                applied = apply == null || apply(connection, transaction);
+                                if (!applied
+                                    || !InventoryPersistenceService.SaveDirtyInTransaction(
+                                        connection,
+                                        transaction,
+                                        lease))
+                                {
+                                    throw new InvalidOperationException("inventory mutation was not committed");
+                                }
 
-                            transaction.Commit();
-                            lease.Inventory.ClearDirtyState();
+                                transaction.Commit();
+                                lease.Inventory.ClearDirtyState();
+                            }
                         }
                     }
                 }

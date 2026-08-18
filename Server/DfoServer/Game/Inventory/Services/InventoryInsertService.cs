@@ -1,5 +1,4 @@
 using System;
-using DfoServer.Game.Currency;
 using DfoServer.Game.ItemUpgrade;
 
 namespace DfoServer.Game.Inventory
@@ -917,10 +916,7 @@ namespace DfoServer.Game.Inventory
 
         private static bool IsVirtualInsertItemId(int itemId)
         {
-            return itemId == 0
-                || itemId == 1
-                || itemId == 2
-                || CurrencyService.IsCubeFragment(itemId);
+            return InventoryService.TryResolveMainVirtualSlotByItemId(itemId, out _, out _);
         }
 
         private static bool IsAccountCargoAttachTypeAllowed(string attachType)

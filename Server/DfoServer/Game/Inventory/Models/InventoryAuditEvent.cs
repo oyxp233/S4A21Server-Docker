@@ -142,8 +142,10 @@ namespace DfoServer.Game.Inventory
             if (listType == InventoryListType.AccountCargo)
                 return "account";
             if (listType == InventoryListType.Main
-                && slotIndex >= InventoryService.MainVirtualCubeSlotStart
-                && slotIndex <= InventoryService.MainVirtualCubeSlotEnd)
+                && ((slotIndex >= InventoryService.MainVirtualCubeSlotStart
+                        && slotIndex <= InventoryService.MainVirtualCubeSlotEnd)
+                    || (slotIndex >= InventoryService.MainVirtualSoulSlotStart
+                        && slotIndex <= InventoryService.MainVirtualSoulSlotEnd)))
                 return "account";
 
             return "character";

@@ -7,6 +7,16 @@ namespace DfoServer.Infrastructure
 {
     public static class SqliteDatabaseBootstrap
     {
+        private static readonly IReadOnlyList<(string ColumnName, string ColumnDefinition)> AccountSoulColumns =
+            new[]
+            {
+                ("soul_10100115", "INTEGER NOT NULL DEFAULT 0"),
+                ("soul_10100116", "INTEGER NOT NULL DEFAULT 0"),
+                ("soul_10099773", "INTEGER NOT NULL DEFAULT 0"),
+                ("soul_10099774", "INTEGER NOT NULL DEFAULT 0"),
+                ("soul_10099775", "INTEGER NOT NULL DEFAULT 0"),
+            };
+
         private static readonly object InitLock = new object();
         private static readonly HashSet<string> InitializedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -35,6 +45,8 @@ namespace DfoServer.Infrastructure
                             ValidateAndUpgradeCurrentDatabase(conn);
                         else
                             CreateCurrentDatabase(conn, File.ReadAllText(schemaFilePath));
+
+                        EnsureAccountSoulColumns(conn);
 
                         // WAL 持久生效: 读写不互锁, 消除快速切角色时 database is locked
                         using (var walCmd = conn.CreateCommand())
@@ -90,6 +102,55 @@ namespace DfoServer.Infrastructure
         private static void ValidateAndUpgradeCurrentDatabase(SqliteConnection connection)
         {
             DfoServer.Sqlite.SqliteMigrations.Apply(connection);
+        }
+
+        private static void EnsureAccountSoulColumns(SqliteConnection connection)
+        {
+            if (connection == null)
+                throw new ArgumentNullException(nameof(connection));
+
+            var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "PRAGMA table_info(accounts);";
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                        existingColumns.Add(reader.GetString(1));
+                }
+            }
+
+            if (existingColumns.Count == 0)
+                return;
+
+            var missingColumns = new List<(string ColumnName, string ColumnDefinition)>();
+            foreach (var column in AccountSoulColumns)
+            {
+                if (!existingColumns.Contains(column.ColumnName))
+                    missingColumns.Add(column);
+            }
+
+            if (missingColumns.Count == 0)
+                return;
+
+            using (var transaction = connection.BeginTransaction())
+            {
+                foreach (var column in missingColumns)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = $"ALTER TABLE accounts ADD COLUMN {column.ColumnName} {column.ColumnDefinition};";
+                        command.ExecuteNonQuery();
+                    }
+                }
+
+                transaction.Commit();
+            }
+
+            FileLogger.Log(
+                "[Db] accounts soul warehouse columns added: " +
+                string.Join(", ", missingColumns.ConvertAll(column => column.ColumnName)));
         }
 
         private static void EnsureDatabaseDirectory(string databasePath)
