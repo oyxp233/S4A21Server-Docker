@@ -193,15 +193,6 @@ namespace DfoServer.Network.Handlers
             }
 
             FileLogger.Log($"[{ProtocolName}] BUY_ITEM: OK slot={result.SlotIndex} gold={result.UpdatedGold} sp={result.UpdatedSp} coin={result.UpdatedCoin} expire={result.ExpireTime} costId={result.CostItemTemplateId} costNew={result.CostItemNewStackCount}");
-            var costItems = result.CostItemTemplateId > 0
-                ? new System.Collections.Generic.List<CostItemUpdate> { new CostItemUpdate { ItemTemplateId = result.CostItemTemplateId, NewStackCount = result.CostItemNewStackCount } }
-                : null;
-
-            var ackBody = BuyItemAckBuilder.Build(result, costItems);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0015, ackBody));
-
-
-
             if (result.CostItemTemplateId > 0)
             {
                 if (result.CostItemNewStackCount <= 0
@@ -212,6 +203,9 @@ namespace DfoServer.Network.Handlers
                     await _refresh.SendUpdateItemList(session, InventoryListType.Main, result.CostItemSlotIndex);
                 FileLogger.Log($"[{ProtocolName}] BUY_ITEM: ACK cost item slot={result.CostItemSlotIndex} id=0x{result.CostItemTemplateId:X8} newCount={result.CostItemNewStackCount}");
             }
+
+            var ackBody = BuyItemAckBuilder.Build(result);
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0015, ackBody));
 
             if (result.GoldSpent)
                 await _refresh.SendGoldUpdate(session);
@@ -258,6 +252,8 @@ namespace DfoServer.Network.Handlers
                             listType,
                             slotIndex,
                             sellCount,
+                            connection,
+                            transaction,
                             out result);
                         return code == 0;
                     });

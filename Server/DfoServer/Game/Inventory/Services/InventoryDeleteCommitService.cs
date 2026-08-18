@@ -54,6 +54,7 @@ namespace DfoServer.Game.Inventory
             if (lease?.Inventory == null)
                 return false;
 
+            var resolvedItemId = 0;
             lock (lease.SyncRoot)
             {
                 if (!InventoryDeleteService.CanUseStackableForClient(
@@ -61,7 +62,7 @@ namespace DfoServer.Game.Inventory
                         listType,
                         slotIndex,
                         expectedItemId,
-                        out _))
+                        out resolvedItemId))
                 {
                     return false;
                 }
@@ -72,12 +73,32 @@ namespace DfoServer.Game.Inventory
                 lease,
                 "use-stackable",
                 (connection, transaction) =>
-                    InventoryDeleteService.TryUseStackableForClient(
-                        lease.Inventory,
-                        listType,
-                        slotIndex,
-                        expectedItemId,
-                        out committedMutation));
+                {
+                    if (!UsableCountLimitService.TryRecordUseIfLimited(
+                            connection,
+                            transaction,
+                            lease.Inventory.CharacterId,
+                            resolvedItemId,
+                            1,
+                            out var usableCountState))
+                    {
+                        return false;
+                    }
+
+                    if (!InventoryDeleteService.TryUseStackableForClient(
+                            lease.Inventory,
+                            listType,
+                            slotIndex,
+                            resolvedItemId,
+                            out committedMutation))
+                    {
+                        return false;
+                    }
+
+                    if (committedMutation != null)
+                        committedMutation.UsableCountState = usableCountState;
+                    return true;
+                });
             if (!committed || committedMutation == null)
                 return false;
 

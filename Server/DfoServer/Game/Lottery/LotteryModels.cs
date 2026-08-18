@@ -57,6 +57,8 @@ namespace DfoServer.Game.Lottery
 
         public LotteryProgressSnapshot Progress { get; set; }
 
+        internal UsableCountLimitState UsableCountState { get; set; }
+
         public List<LotteryRewardGrant> Rewards { get; } = new List<LotteryRewardGrant>();
     }
 

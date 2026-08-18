@@ -45,7 +45,8 @@ namespace DfoServer.Game.Inventory
                 var database = lease.Inventory.Database;
                 using (var connection = database.OpenConnection())
                 {
-                    using (var transaction = connection.BeginTransaction())
+                    // 先让奖励规划阶段完成必要的只读/序列分配，避免一开始就占住写锁。
+                    using (var transaction = connection.BeginTransaction(deferred: true))
                     {
                         bool applied;
                         lock (lease.SyncRoot)

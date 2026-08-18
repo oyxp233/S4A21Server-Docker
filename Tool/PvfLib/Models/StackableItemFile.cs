@@ -177,6 +177,7 @@ namespace PvfLib
         public string ItemGroupName { get; set; }
         public string ItemCategory { get; set; }
         public int StackLimit { get; set; } = -1;
+        public int TotalUsableCount { get; set; } = -1;
 
         #endregion
 
@@ -330,6 +331,7 @@ namespace PvfLib
                     case "item group name": stk.ItemGroupName = StripBacktick(data); break;
                     case "item category": stk.ItemCategory = StripBacktick(data); break;
                     case "stack limit": stk.StackLimit = ParseInt(data); break;
+                    case "total usable count": stk.TotalUsableCount = ParseInt(data); break;
 
                     
                     case "price": stk.Price = ParseInt(data); break;

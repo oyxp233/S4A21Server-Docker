@@ -43,6 +43,7 @@ namespace DfoServer.Game.Inventory
         internal uint TotalGrowthCapsuleExp { get; set; }
         internal SkillInfoSnapshot SyncedSkills { get; set; }
         internal SkillPointProtocolState SkillPoints { get; set; }
+        internal UsableCountLimitState UsableCountState { get; set; }
         internal string Detail { get; set; }
 
         internal bool Success => Status == ExperienceItemUseStatus.Success;

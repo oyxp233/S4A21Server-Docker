@@ -285,6 +285,8 @@ namespace DfoServer.Game.SelectCharacter
 
             
             LoadInitFieldsFromPacketTemplates(characterId, initSnapshot);
+            initSnapshot.UsableCountItems.AddRange(
+                UsableCountLimitService.LoadCurrentDayItems(_connectionString, characterId));
             ApplyOnlineItemLockList(characterId, initSnapshot);
             // 0x0357 是可变状态，加载模板后立即用当前背包/装备租赁重建。
             var rebuiltRentalInfo = _inventoryLifecycle.RebuildRentalInfoFromInventory(

@@ -282,6 +282,8 @@ namespace DfoServer.Network.Handlers
             await _responses.SendOpenResult(session, lease.Inventory, result);
             if (openPlan.RefreshPremiumAfterOpen)
                 await _responses.SendPremiumServiceRefresh(session, characterId, accountId);
+            if (result.UsableCountState != null)
+                await SendUsableCountLimitUpdateAsync(session, result.UsableCountState);
 
             var progressText = result.Progress == null
                 ? string.Empty
@@ -309,6 +311,19 @@ namespace DfoServer.Network.Handlers
                 0x01,
                 0x001B,
                 LotteryItemAckBuilder.BuildPhaseStartWithoutPreview()));
+        }
+
+        private static Task SendUsableCountLimitUpdateAsync(
+            EnhancedClientSession session,
+            UsableCountLimitState state)
+        {
+            if (session == null || state == null)
+                return Task.CompletedTask;
+
+            return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                0x021E,
+                UsableCountLimitPacketBuilder.BuildUpdateBody(state)));
         }
 
         private static Task SendError(EnhancedClientSession session)

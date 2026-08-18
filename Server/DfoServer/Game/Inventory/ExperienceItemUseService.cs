@@ -140,6 +140,18 @@ namespace DfoServer.Game.Inventory
                             "source item is not ordinary character experience");
                     }
 
+                    if (!UsableCountLimitService.CanUse(
+                            _connectionString,
+                            characterId,
+                            resolvedItemId))
+                    {
+                        return Reject(
+                            ExperienceItemUseStatus.ConsumeFailed,
+                            resolvedItemId,
+                            "usable count limit reached");
+                    }
+
+                    UsableCountLimitState usableCountState = null;
                     using (var connection = new SqliteConnection(_connectionString))
                     {
                         connection.Open();
@@ -194,6 +206,20 @@ namespace DfoServer.Game.Inventory
                                     usePlan.Status,
                                     resolvedItemId,
                                     usePlan.Detail);
+                            }
+
+                            if (!UsableCountLimitService.TryRecordUseIfLimited(
+                                    connection,
+                                    transaction,
+                                    characterId,
+                                    resolvedItemId,
+                                    1,
+                                    out usableCountState))
+                            {
+                                return Reject(
+                                    ExperienceItemUseStatus.PersistenceFailed,
+                                    resolvedItemId,
+                                    "usable count transaction failed");
                             }
 
                             if (!_cooldowns.TryReserve(
@@ -312,6 +338,7 @@ namespace DfoServer.Game.Inventory
                                 SkillPoints = SkillStateService.GetProtocolState(
                                     syncedSkills.Skills,
                                     syncedSkills.Points),
+                                UsableCountState = usableCountState,
                             };
 
                             transaction.Commit();

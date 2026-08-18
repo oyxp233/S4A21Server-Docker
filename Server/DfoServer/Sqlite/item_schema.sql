@@ -753,6 +753,20 @@ CREATE TABLE IF NOT EXISTS character_daily_counters (
     FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS character_usable_count_limits (
+    character_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    used_count INTEGER NOT NULL DEFAULT 0 CHECK (used_count >= 0),
+    usable_count_limit INTEGER NOT NULL DEFAULT 0 CHECK (usable_count_limit >= 0),
+    day_id INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (character_id, item_id),
+    FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_character_usable_count_limits_character_day
+    ON character_usable_count_limits(character_id, day_id);
+
 -- 绝望之塔永久楼层进度。客户端始终请求第一层入口，服务端按最高通关层重定向到下一层。
 CREATE TABLE IF NOT EXISTS character_tower_of_despair_progress (
     character_id INTEGER PRIMARY KEY,

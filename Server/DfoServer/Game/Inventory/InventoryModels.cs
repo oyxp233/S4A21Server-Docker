@@ -142,6 +142,10 @@ namespace DfoServer.Game.Inventory
 
         public short CostItemSlotIndex { get; set; }
 
+        internal ItemCore CoreSnapshot { get; set; }
+
+        internal UsableCountLimitState UsableCountState { get; set; }
+
         public List<InventoryMutationResult> ExtraResults { get; } = new List<InventoryMutationResult>();
 
         public int PetCreatureKey { get; set; }
@@ -390,6 +394,8 @@ namespace DfoServer.Game.Inventory
         public bool SeriaLuckDoubleTriggered { get; set; }
 
         public byte MagicBoxClientType { get; set; }
+
+        internal UsableCountLimitState UsableCountState { get; set; }
 
         public List<(int itemTemplateId, int count)> ActivatedPremiums { get; } = new List<(int itemTemplateId, int count)>();
     }

@@ -10,35 +10,23 @@ namespace DfoServer.Network.Builders
         {
             var writer = new GamePacketWriter();
             writer.WriteByte(0x01);
-            
-            
-            
-            
-            writer.WriteInt32(result.UpdatedGold);       
-            writer.WriteInt32(result.UpdatedSp);         
-            writer.WriteInt32(0);                        
-            writer.WriteInt32(result.UpdatedCoin);       
-            writer.WriteInt16(result.SlotIndex);
-            writer.WriteInt32(result.ItemTemplateId);
-            writer.WriteInt32(result.InstanceValue);
-            writer.WriteUInt16(result.Durability);
-            writer.WriteByte(0);                         
-            writer.WriteUInt16(0);                       
-            writer.WriteInt32(result.ExpireTime);
-            
-            writer.WriteByte(0);
-            
-            writer.WriteByte(0);                         
-            writer.WriteByte(0);                         
-            writer.WriteByte(0);                         
-            writer.WriteUInt16(0);                       
-            writer.WriteByte(0);                         
-            writer.WriteByte(0);                         
-            writer.WriteByte(0);                         
-            writer.WriteByte(0);                         
-            writer.WriteByte(0);                         
+            writer.WriteInt32(result.UpdatedGold);
+            writer.WriteInt32(result.UpdatedSp);
+            writer.WriteInt32(0);
+            writer.WriteInt32(result.UpdatedCoin);
 
-            
+            if (result.CoreSnapshot != null && result.SlotIndex >= 0)
+            {
+                ItemListProtocolWriter.WriteCommonEntry84(
+                    writer,
+                    result.SlotIndex,
+                    result.CoreSnapshot);
+            }
+            else
+            {
+                WriteLegacyItemSummary(writer, result);
+            }
+
             var count = costItems != null ? costItems.Count : 0;
             writer.WriteByte((byte)count);
             if (costItems != null)
@@ -51,6 +39,29 @@ namespace DfoServer.Network.Builders
             }
 
             return writer.ToArray();
+        }
+
+        private static void WriteLegacyItemSummary(
+            GamePacketWriter writer,
+            InventoryMutationResult result)
+        {
+            writer.WriteInt16(result.SlotIndex);
+            writer.WriteInt32(result.ItemTemplateId);
+            writer.WriteInt32(result.InstanceValue);
+            writer.WriteUInt16(result.Durability);
+            writer.WriteByte(0);
+            writer.WriteUInt16(0);
+            writer.WriteInt32(result.ExpireTime);
+            writer.WriteByte(0);
+            writer.WriteByte(0);
+            writer.WriteByte(0);
+            writer.WriteByte(0);
+            writer.WriteUInt16(0);
+            writer.WriteByte(0);
+            writer.WriteByte(0);
+            writer.WriteByte(0);
+            writer.WriteByte(0);
+            writer.WriteByte(0);
         }
 
         public static byte[] BuildError(byte errorCode)

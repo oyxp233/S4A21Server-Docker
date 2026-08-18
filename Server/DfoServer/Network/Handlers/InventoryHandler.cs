@@ -72,6 +72,19 @@ namespace DfoServer.Network.Handlers
         public static (int characterId, int accountId) ResolveOwner(EnhancedClientSession session)
             => SessionOwnerResolver.Resolve(session);
 
+        private static Task SendUsableCountLimitUpdateAsync(
+            EnhancedClientSession session,
+            UsableCountLimitState state)
+        {
+            if (session == null || state == null)
+                return Task.CompletedTask;
+
+            return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                0x021E,
+                UsableCountLimitPacketBuilder.BuildUpdateBody(state)));
+        }
+
         private async Task BroadcastItemNotice(
             EnhancedClientSession session,
             string operation,

@@ -99,6 +99,18 @@ namespace DfoServer.Game.Inventory
                 return false;
             var totalMaterialCount = (int)totalMaterialCountLong;
 
+            if (!UsableCountLimitService.TryRecordUseIfLimited(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    sourceItemTemplateId,
+                    requestedCount,
+                    out var usableCountState))
+            {
+                return false;
+            }
+            result.UsableCountState = usableCountState;
+
             if (!TryResolveMaterial(
                     inventory,
                     request.MaterialSlotIndex,

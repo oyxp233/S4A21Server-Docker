@@ -45,6 +45,14 @@ namespace DfoServer.Game.Lottery
                 return false;
             }
 
+            if (!UsableCountLimitService.CanUse(
+                    _connectionString,
+                    inventory.CharacterId,
+                    source.Core.ItemId))
+            {
+                return false;
+            }
+
             if (inventory.CountMainItem(0) < definition.GoldCost)
                 return false;
             if (HasRequiredItemCost(definition)
@@ -511,6 +519,17 @@ namespace DfoServer.Game.Lottery
             }
 
             var sourceItemTemplateId = source.Core.ItemId;
+            if (!UsableCountLimitService.TryRecordUseIfLimited(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    sourceItemTemplateId,
+                    1,
+                    out var usableCountState))
+            {
+                return false;
+            }
+
             if (!InventoryDeleteService.TryConsumeFromSlot(
                     inventory,
                     InventoryListType.Main,
@@ -587,6 +606,7 @@ namespace DfoServer.Game.Lottery
                     : 0,
                 UsedDoubleReward = appliedDoubleReward,
                 DeliveredToMailbox = deliverToMailbox,
+                UsableCountState = usableCountState,
             };
             if (requiredItemConsume != null)
             {

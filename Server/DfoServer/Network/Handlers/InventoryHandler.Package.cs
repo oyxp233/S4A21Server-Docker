@@ -254,6 +254,8 @@ namespace DfoServer.Network.Handlers
             }
 
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x002C, responsePlan.AckBody));
+            if (result.UsableCountState != null)
+                await SendUsableCountLimitUpdateAsync(session, result.UsableCountState);
             session.GameSession?.QuestManager
                 ?.RecalibrateItemSeekingQuestProgressAfterInventoryMutationWithoutNotification(
                     lease,
@@ -845,6 +847,8 @@ namespace DfoServer.Network.Handlers
 
             result.MagicBoxClientType = request.RawListType;
             await SendBoosterUseResult(session, header.type, result);
+            if (result.UsableCountState != null)
+                await SendUsableCountLimitUpdateAsync(session, result.UsableCountState);
             FileLogger.Log($"[{ProtocolName}] OPEN_MAGIC_BOX: source=0x{result.SourceItemTemplateId:X8} slot={result.SourceSlotIndex} requested={request.RequestedCount} applied={result.ConsumedSourceCount} remaining={result.SourceRemainingStackCount} material=0x{result.ConsumedMaterialItemTemplateId:X8}x{result.ConsumedMaterialCount}@{result.ConsumedMaterialSlotIndex} materialRemaining={result.ConsumedMaterialRemainingStackCount}{FormatBoosterOpenState(result)} rewards={string.Join(",", result.Rewards.Select(r => $"{r.ListType}:0x{r.ItemTemplateId:X8}x{r.GrantedCount}@{r.SlotIndex}"))} elapsed={elapsed.ElapsedMilliseconds}ms");
         }
 
@@ -894,6 +898,8 @@ namespace DfoServer.Network.Handlers
 
             result.MagicBoxClientType = request.RawListType;
             await SendBoosterUseResult(session, header.type, result);
+            if (result.UsableCountState != null)
+                await SendUsableCountLimitUpdateAsync(session, result.UsableCountState);
             FileLogger.Log($"[{ProtocolName}] OPEN_MAGIC_BOX_SINGLE: source=0x{result.SourceItemTemplateId:X8} slot={result.SourceSlotIndex} requested={request.RequestedCount} applied={result.ConsumedSourceCount} remaining={result.SourceRemainingStackCount} material=0x{result.ConsumedMaterialItemTemplateId:X8}x{result.ConsumedMaterialCount}@{result.ConsumedMaterialSlotIndex} materialRemaining={result.ConsumedMaterialRemainingStackCount}{FormatBoosterOpenState(result)} rewards={string.Join(",", result.Rewards.Select(r => $"{r.ListType}:0x{r.ItemTemplateId:X8}x{r.GrantedCount}@{r.SlotIndex}"))} elapsed={elapsed.ElapsedMilliseconds}ms");
         }
 

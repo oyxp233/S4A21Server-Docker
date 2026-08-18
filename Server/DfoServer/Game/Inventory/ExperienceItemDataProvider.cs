@@ -103,6 +103,7 @@ namespace DfoServer.Game.Inventory
                 "minimum level", "maximum level", "usable job", "suitable job",
                 "attach type", "icon", "field image", "icon mark", "move wav",
                 "stackable type", "sub type", "item group name", "item category", "stack limit",
+                "total usable count",
                 "price", "value", "weight", "cool time", "cooltime group",
                 "impossible contents", "expiration date", "usable period", "trade limit max",
                 "daily delete item", "daily purchase limit", "use wav", "impossible jobs",

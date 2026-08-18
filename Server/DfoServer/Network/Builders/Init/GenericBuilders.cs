@@ -124,7 +124,19 @@ namespace DfoServer.Network.Builders
             int occurrenceIndex,
             out byte[] body)
         {
-            body = new byte[] { 0 };
+            var items = snapshot?.InitializationSnapshot?.UsableCountItems;
+            var count = items == null ? 0 : Math.Min(byte.MaxValue, items.Count);
+            var writer = new GamePacketWriter();
+            writer.WriteByte((byte)count);
+            if (items != null)
+            {
+                for (var index = 0; index < count; index++)
+                {
+                    writer.WriteInt32(items[index].ItemId);
+                    writer.WriteInt32(items[index].Value);
+                }
+            }
+            body = writer.ToArray();
             return true;
         }
     }

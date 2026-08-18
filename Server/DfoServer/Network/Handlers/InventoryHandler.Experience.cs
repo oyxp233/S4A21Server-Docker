@@ -120,6 +120,10 @@ namespace DfoServer.Network.Handlers
             {
                 await _experienceItemNotifications.SendAsync(session, result);
             }
+
+            if (result.UsableCountState != null)
+                await SendUsableCountLimitUpdateAsync(session, result.UsableCountState);
+
             FileLogger.Log(
                 $"[{ProtocolName}] INCREASE_STATUS experience: item={result.ItemTemplateId} slot={request.SlotIndex} remaining={result.ConsumedItem?.RemainingStackCount ?? 0} grant={result.GrantedExp} level={result.PreviousLevel}->{result.NewLevel} exp={result.PreviousExp}->{result.NewExp}");
         }

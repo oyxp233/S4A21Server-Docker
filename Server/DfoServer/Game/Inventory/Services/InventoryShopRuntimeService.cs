@@ -240,6 +240,25 @@ namespace DfoServer.Game.Inventory
             short sellCount,
             out InventoryMutationResult result)
         {
+            return TrySellItem(
+                inventory,
+                listType,
+                slotIndex,
+                sellCount,
+                null,
+                null,
+                out result);
+        }
+
+        internal static int TrySellItem(
+            InventoryService inventory,
+            InventoryListType listType,
+            short slotIndex,
+            short sellCount,
+            SqliteConnection sharedConnection,
+            SqliteTransaction sharedTransaction,
+            out InventoryMutationResult result)
+        {
             result = null;
             if (inventory == null || !IsSupportedSellListType(listType))
                 return 1;
@@ -257,7 +276,7 @@ namespace DfoServer.Game.Inventory
                 int.MaxValue,
                 Math.Max(0L, (long)metadata.SellGold * appliedCount));
             var currentGold = inventory.CountMainItem(InventoryService.MainVirtualCurrencySlotStart);
-            var carryLimit = LoadGoldCarryLimit(inventory);
+            var carryLimit = LoadGoldCarryLimit(inventory, sharedConnection, sharedTransaction);
             var targetGold = (long)currentGold + goldDelta;
             if (targetGold > carryLimit)
                 return 22;
@@ -553,6 +572,7 @@ namespace DfoServer.Game.Inventory
                     RemainingStackCount = 1,
                     InstanceValue = updated.InstanceValue,
                     Durability = updated.Durability,
+                    CoreSnapshot = updated.Copy(),
                     UpdatedGold = inventory.CountMainItem(0),
                     RequestedCount = 1,
                     AppliedCount = 1,
@@ -633,6 +653,7 @@ namespace DfoServer.Game.Inventory
                 result.Durability = core.Durability;
                 result.ExtData0 = core.Attr;
                 result.ExpireTime = core.ExpireTime;
+                result.CoreSnapshot = core.Copy();
             }
 
             return result;
@@ -671,7 +692,10 @@ namespace DfoServer.Game.Inventory
             return requestedCount;
         }
 
-        private static int LoadGoldCarryLimit(InventoryService inventory)
+        private static int LoadGoldCarryLimit(
+            InventoryService inventory,
+            SqliteConnection sharedConnection = null,
+            SqliteTransaction sharedTransaction = null)
         {
             var characterId = inventory?.CharacterId ?? 0;
             if (characterId <= 0)
@@ -679,6 +703,18 @@ namespace DfoServer.Game.Inventory
 
             try
             {
+                if (sharedConnection != null || sharedTransaction != null)
+                {
+                    if (sharedConnection == null || sharedTransaction == null)
+                        return int.MaxValue;
+
+                    var sharedLimit = CharacterGoldLimitRepository.LoadEffectiveGoldCarryLimit(
+                        sharedConnection,
+                        sharedTransaction,
+                        characterId);
+                    return sharedLimit <= 0 ? int.MaxValue : sharedLimit;
+                }
+
                 var database = inventory.Database
                     ?? GameDatabase.CreateDefault();
                 using (var connection = database.OpenConnection())
