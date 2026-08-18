@@ -335,11 +335,6 @@ namespace DfoServer.Game.SelectCharacter
 
             initSnapshot.ShopCoinEventFlag = _dailyResetService.IsClaimed(characterId, ReviveCoin.ReviveCoinService.DailyClaimKey) ? (byte)1 : (byte)0;
 
-            initSnapshot.PremiumServiceType = 1;
-            initSnapshot.PremiumServiceData = Premium.PremiumService.BuildPremiumServiceData(
-                _connectionString,
-                accountId,
-                _lotteryDoubleRewardPolicy.BuildPremiumServiceUsage(characterId));
             LoadAccountPremiums(accountId, initSnapshot);
 
             

@@ -13,6 +13,8 @@ namespace DfoServer.Game.Premium
 {
     public static class PremiumService
     {
+        public const ushort DefaultServiceType = 1;
+
         private const int PremiumServiceEntryExpireBase = 6;
         private const int PremiumServiceEntryUsedCountBase = 10;
         private const int PremiumServiceEntryStride = 9;
@@ -107,14 +109,25 @@ namespace DfoServer.Game.Premium
             foreach (var (premiumType, remaining) in notifications)
             {
                 var body = BuildCeraSpecialItemNotification(premiumType, remaining);
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0042, body));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.CERA_SPECIALITEM,
+                    body));
             }
 
-            await SendPremiumServiceRefresh(
-                session,
-                accountId,
-                dataSource,
-                database);
+            await SendPremiumServiceRefresh(session, accountId, database);
+        }
+
+        public static byte[] BuildPremiumServiceStateBody(
+            ushort serviceType,
+            byte[] serviceData,
+            byte status = 1)
+        {
+            var writer = new GamePacketWriter();
+            writer.WriteByte(status);
+            writer.WriteUInt16(serviceType);
+            writer.WriteBytes(serviceData ?? Array.Empty<byte>());
+            return writer.ToArray();
         }
 
         private static byte[] BuildCeraSpecialItemNotification(int premiumType, long remaining)
@@ -129,28 +142,25 @@ namespace DfoServer.Game.Premium
         private static async Task SendPremiumServiceRefresh(
             EnhancedClientSession session,
             int accountId,
-            ISelectCharacterDataSource dataSource,
             IGameDatabase database)
         {
             try
             {
-                var source = dataSource ?? new SqliteSelectCharacterDataSource(
-                    database,
-                    null);
-
                 int cid = session.Player?.CharacterId ?? 0;
                 if (cid <= 0) return;
 
-                var snapshot = source.Load(cid, accountId);
-                var initSnap = snapshot?.InitializationSnapshot;
-                if (initSnap?.PremiumServiceData == null)
-                    return;
-
-                var writer = new GamePacketWriter();
-                writer.WriteByte(1);
-                writer.WriteUInt16(initSnap.PremiumServiceType);
-                writer.WriteBytes(initSnap.PremiumServiceData);
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0312, writer.ToArray()));
+                var dailyResetService = new Game.DailyReset.DailyResetService(database);
+                var lotteryUsage = new Game.Lottery.LotteryDoubleRewardPolicy(
+                    dailyResetService,
+                    database.ConnectionString).BuildPremiumServiceUsage(cid);
+                var serviceData = BuildPremiumServiceData(
+                    database.ConnectionString,
+                    accountId,
+                    lotteryUsage);
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.PREMIUM_SERVICE,
+                    BuildPremiumServiceStateBody(DefaultServiceType, serviceData)));
             }
             catch (Exception ex)
             {
@@ -219,13 +229,12 @@ namespace DfoServer.Game.Premium
                 foreach (var activation in application.Activations)
                 {
                     var body = BuildCeraSpecialItemNotification(activation.PremiumType, activation.RemainingSeconds);
-                    await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0042, body));
+                    await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                        0x00,
+                        (ushort)NotiPacketTypeA21.CERA_SPECIALITEM,
+                        body));
                 }
-                await SendPremiumServiceRefresh(
-                    session,
-                    accountId,
-                    dataSource,
-                    database);
+                await SendPremiumServiceRefresh(session, accountId, database);
             }
 
             var result = new InventoryMutationResult

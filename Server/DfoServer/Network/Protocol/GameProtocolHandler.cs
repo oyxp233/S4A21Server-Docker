@@ -649,7 +649,7 @@ namespace DfoServer.Network
                 _dungeonHandler.HandleDungeonMechanismCommand;
             d[(ushort)CmdPacketType.SELECT_ULTIMATE_DIFFICULTY] =
                 _dungeonHandler.HandleDungeonMechanismCommand;
-            d[0x0312] = (session, header, body) =>
+            d[(ushort)CmdPacketTypeA21.PREMIUM_SERVICE] = (session, header, body) =>
                 PremiumQueryHandler.Handle_PREMIUM_SERVICE(
                     session,
                     header,

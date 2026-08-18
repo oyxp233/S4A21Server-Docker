@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 
 namespace DfoServer.Network.Handlers
 {
-    // 高级服务(契约等)查询: CMD 0x0312。
+    // 高级服务(契约等)查询: A21 CMD PREMIUM_SERVICE (0x036F)。
     // 与副本流程无关, 原先寄居在副本共享服务里, 拆出独立成域。
     public static class PremiumQueryHandler
     {
@@ -30,7 +30,7 @@ namespace DfoServer.Network.Handlers
 
             var aid = session?.Account?.AccountId ?? 0;
             var cid = session?.Player?.CharacterId ?? 0;
-            FileLogger.Log($"[{ProtocolLogName}] CMD_0312: uid={session?.Player?.UserId ?? 0} cid={cid} aid={aid} body={BitConverter.ToString(body ?? Array.Empty<byte>())}");
+            FileLogger.Log($"[{ProtocolLogName}] CMD_PREMIUM_SERVICE: uid={session?.Player?.UserId ?? 0} cid={cid} aid={aid} body={BitConverter.ToString(body ?? Array.Empty<byte>())}");
 
             var connStr = database.ConnectionString;
             var dailyResetService = new Game.DailyReset.DailyResetService(database);
@@ -42,12 +42,14 @@ namespace DfoServer.Network.Handlers
                 aid,
                 lotteryUsage);
 
-            var writer = new GamePacketWriter();
-            writer.WriteByte(1);
-            writer.WriteUInt16(1);
-            writer.WriteBytes(serviceData);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0312, writer.ToArray()));
-            FileLogger.Log($"[{ProtocolLogName}] CMD_0312: responded with dynamic PremiumServiceData character={cid} account={aid}");
+            var responseBody = Game.Premium.PremiumService.BuildPremiumServiceStateBody(
+                Game.Premium.PremiumService.DefaultServiceType,
+                serviceData);
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                (ushort)NotiPacketTypeA21.PREMIUM_SERVICE,
+                responseBody));
+            FileLogger.Log($"[{ProtocolLogName}] CMD_PREMIUM_SERVICE: responded with NOTI_PREMIUM_SERVICE character={cid} account={aid}");
         }
     }
 }

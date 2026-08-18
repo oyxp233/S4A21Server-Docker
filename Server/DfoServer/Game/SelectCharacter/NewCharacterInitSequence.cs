@@ -75,7 +75,6 @@ namespace DfoServer.Game.SelectCharacter
             Raw(0x00, 0x019F);                      
             Raw(0x00, 0x00B1);                      
             Raw(0x00, 0x0300);                      
-            Raw(0x01, 0x0312);                      
             Raw(0x00, 0x03D8);                      
             Raw(0x00, 0x025B);                      
             Raw(0x00, 0x0331);                      

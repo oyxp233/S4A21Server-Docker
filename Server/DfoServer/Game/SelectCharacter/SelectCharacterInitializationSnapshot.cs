@@ -120,10 +120,6 @@ namespace DfoServer.Game.SelectCharacter
         public byte AckTradePunishFlag { get; set; }
         public ushort AckExtraField86JP { get; set; }
 
-        
-        public ushort PremiumServiceType { get; set; }
-        public byte[] PremiumServiceData { get; set; }
-
         public UserInfoAdditionSnapshot UserInfoAddition { get; set; }
     }
 

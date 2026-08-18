@@ -155,14 +155,12 @@ namespace DfoServer.Network.Handlers
                     _connectionString,
                     accountId,
                     _doubleRewardPolicy.BuildPremiumServiceUsage(characterId));
-                var writer = new GamePacketWriter();
-                writer.WriteByte(1);
-                writer.WriteUInt16(1);
-                writer.WriteBytes(serviceData);
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                    0x01,
-                    0x0312,
-                    writer.ToArray()));
+                    0x00,
+                    (ushort)NotiPacketTypeA21.PREMIUM_SERVICE,
+                    PremiumService.BuildPremiumServiceStateBody(
+                        PremiumService.DefaultServiceType,
+                        serviceData)));
             }
             catch (Exception exception)
             {

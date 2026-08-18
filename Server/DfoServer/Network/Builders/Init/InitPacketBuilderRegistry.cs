@@ -108,20 +108,6 @@ namespace DfoServer.Network.Builders
                         out body))
                     return true;
             }
-            
-            if (cmdType == 0x0312)
-            {
-                var initSnap = snapshot.InitializationSnapshot;
-                if (initSnap.PremiumServiceData != null)
-                {
-                    var writer = new GamePacketWriter();
-                    writer.WriteByte(1); 
-                    writer.WriteUInt16(initSnap.PremiumServiceType);
-                    writer.WriteBytes(initSnap.PremiumServiceData);
-                    body = writer.ToArray();
-                    return true;
-                }
-            }
             body = null;
             return false;
         }
