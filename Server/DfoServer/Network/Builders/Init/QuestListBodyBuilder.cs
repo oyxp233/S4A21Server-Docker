@@ -9,7 +9,7 @@ namespace DfoServer.Network.Builders
 {
     public sealed class QuestListBodyBuilder : IInitPacketBuilder
     {
-        public ushort NotiType => 0x0015;
+        public ushort NotiType => (ushort)NotiPacketTypeA21.ACCEPTABLE_QUEST_LIST;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {

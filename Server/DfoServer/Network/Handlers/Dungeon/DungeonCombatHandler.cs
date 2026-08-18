@@ -60,7 +60,20 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             var request = DieMonsterRequest.Parse(body);
             var runIdentity = run.CaptureIdentity();
-            if (request.IsPassiveObject)
+            run.TryCaptureCurrentRoomSnapshot(out var currentRoomSnapshot);
+            var treatAsPassiveObject = ShouldTreatAsPassiveObject(
+                request.IsPassiveObject,
+                request.LocalIndex,
+                currentRoomSnapshot);
+            if (request.IsPassiveObject && !treatAsPassiveObject)
+            {
+                FileLogger.Log(
+                    $"[DungeonHandler] DIE_MONSTER passive marker downgraded " +
+                    $"to current-room monster: cid={session.Player.CharacterId} " +
+                    $"seq={request.LocalIndex} room={run.CurrentRoomInstanceId}");
+            }
+
+            if (treatAsPassiveObject)
             {
                 var objectCode = (int)request.LocalIndex;
                 var passiveObjectEvent = DungeonEventEnvelope.Create(
@@ -146,6 +159,17 @@ namespace DfoServer.Network.Handlers.Dungeon
                     ? DungeonActorDeathKind.Captured
                     : DungeonActorDeathKind.Defeated));
         }
+
+        internal static bool ShouldTreatAsPassiveObject(
+            bool passiveMarker,
+            ushort sequenceId,
+            DungeonRunRoomSnapshot roomSnapshot)
+        {
+            return passiveMarker
+                && (roomSnapshot == null
+                    || !roomSnapshot.ContainsStaticActorSequence(sequenceId));
+        }
+
         internal async Task HandleBossDieCheck(
             EnhancedClientSession session,
             GamePacketHeader header,

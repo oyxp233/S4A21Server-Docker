@@ -27,5 +27,11 @@ namespace DfoServer.Game.Dungeon
         internal ushort RoomStartSequence { get; }
         internal IReadOnlyList<GameWorld.Dungeon.MonsterSumInfo> Monsters { get; }
         internal RoomState RoomState { get; }
+
+        internal bool ContainsStaticActorSequence(ushort sequenceId)
+        {
+            var localIndex = sequenceId - RoomStartSequence;
+            return localIndex >= 0 && localIndex < Monsters.Count;
+        }
     }
 }

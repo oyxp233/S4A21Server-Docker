@@ -57,13 +57,34 @@ namespace DfoServer.Network.Builders
             w.WriteUInt32(r.Exp);
             w.WriteUInt32(r.ReservedAfterExperience);
 
-            w.WriteByte((byte)r.ConsumedEntries.Count);
-            foreach (var ce in r.ConsumedEntries)
+            if (r.ChainType == GameWorld.QuestData.ChainTypeTitle)
             {
-                w.WriteByte(ce.UpdateType);
-                w.WriteUInt16(ce.SlotIndex);
-                w.WriteUInt32(ce.ConsumedCount);
-                w.WriteByte(ce.ReservedTail);
+                // A21 title/achievement branch uses the legacy 7B consume
+                // entry and terminates with chain type 5.  The reserved tail
+                // used by ordinary 8B entries is absent in this branch.
+                if (r.ConsumedEntries.Count > 0)
+                {
+                    w.WriteByte((byte)r.ConsumedEntries.Count);
+                    foreach (var ce in r.ConsumedEntries)
+                    {
+                        w.WriteByte(ce.UpdateType);
+                        w.WriteUInt16(ce.SlotIndex);
+                        w.WriteUInt32(ce.ConsumedCount);
+                    }
+                }
+                w.WriteByte((byte)GameWorld.QuestData.ChainTypeTitle);
+                return w.ToArray();
+            }
+            else
+            {
+                w.WriteByte((byte)r.ConsumedEntries.Count);
+                foreach (var ce in r.ConsumedEntries)
+                {
+                    w.WriteByte(ce.UpdateType);
+                    w.WriteUInt16(ce.SlotIndex);
+                    w.WriteUInt32(ce.ConsumedCount);
+                    w.WriteByte(ce.ReservedTail);
+                }
             }
 
             if (r.ChainType == 0)

@@ -91,6 +91,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
 
             var drops = new List<DropInfo>();
+            var dropGroupId = unchecked((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             lock (run.SyncRoot)
             {
                 for (var i = 0; i < rewardPlan.Count; i++)
@@ -101,6 +102,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                         SceneSlot = run.SceneSlotCounter,
                         TemplateId = (uint)rewardItemId,
                         StackCount = 1,
+                        DropGroupId = dropGroupId,
                     };
                     drops.Add(drop);
                     run.Drops[drop.SceneSlot] = drop;
@@ -111,7 +113,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
-                (ushort)NotiPacketType.DIE_MONSTER,
+                (ushort)NotiPacketTypeA21.DIE_MONSTER,
                 DungeonNotificationBuilder.BuildMonsterDie(
                     bossSequence,
                     drops,

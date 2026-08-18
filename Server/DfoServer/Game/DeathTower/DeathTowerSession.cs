@@ -97,6 +97,7 @@ namespace DfoServer.Game.DeathTower
                 return Array.Empty<DropInfo>();
 
             var drops = new List<DropInfo>();
+            var dropGroupId = unchecked((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             foreach (var item in configuredItems)
             {
                 var dropRate = Math.Max(0, Math.Min(10000, item.DropRate));
@@ -110,6 +111,7 @@ namespace DfoServer.Game.DeathTower
                     SceneSlot = item.ItemUniqueId,
                     TemplateId = (uint)item.ItemId,
                     StackCount = (uint)Math.Max(1, item.StackCount),
+                    DropGroupId = dropGroupId,
                 };
                 if (_groundItems.ContainsKey(drop.SceneSlot))
                     continue;

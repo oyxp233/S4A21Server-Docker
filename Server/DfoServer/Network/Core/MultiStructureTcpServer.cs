@@ -38,7 +38,9 @@ namespace DfoServer.Network
                 _protocolHandlers[port] = handler;
                 _packetStructures[port] = structure;
 
+
                 listener.Start();
+
 
                 
                 _ = AcceptConnectionsAsync(port, listener, _cancellationTokenSource.Token);

@@ -133,7 +133,7 @@ namespace DfoServer.Game.SelectCharacter
 
         public static byte[] BuildStorageBody(RentalInfoSnapshot rental)
         {
-            // 只写服务端内部存储；0x0357 协议包由 RentalInfoBodyBuilder 单独构建。
+            // 只写服务端内部存储；EQUIPMENT_RENTAL_LIST 由 RentalInfoBodyBuilder 单独构建。
             var info = rental ?? new RentalInfoSnapshot();
             var itemCount = info.Items.Count;
             var storage = new byte[8 + itemCount * 12];

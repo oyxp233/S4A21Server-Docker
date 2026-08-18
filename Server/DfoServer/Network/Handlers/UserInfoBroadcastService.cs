@@ -27,7 +27,10 @@ namespace DfoServer.Network.Handlers
             => SendSubtype0Async(
                 session?.Player,
                 session?.Account?.AccountId ?? 0,
-                body => session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0002, body)),
+                body => session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.USERINFO,
+                    body)),
                 characterRepository,
                 subtype0Repository,
                 honorLevel,

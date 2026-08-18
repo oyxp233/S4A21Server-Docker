@@ -7,7 +7,7 @@ namespace DfoServer.Network.Builders
 {
     public sealed class DungeonPermissionBodyBuilder : IInitPacketBuilder
     {
-        public ushort NotiType => 0x0005;
+        public ushort NotiType => (ushort)NotiPacketTypeA21.DUNGEON_PERMISSION;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {

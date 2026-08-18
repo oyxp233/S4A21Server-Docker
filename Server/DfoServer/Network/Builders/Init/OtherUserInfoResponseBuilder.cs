@@ -330,7 +330,7 @@ namespace DfoServer.Network.Builders
 
                 packets.Add(GamePacketEnvelopeBuilder.Build(
                     0x00,
-                    (ushort)NotiPacketType.TITLE_BOOK_LIST,
+                    (ushort)NotiPacketTypeA21.TITLE_BOOK_LIST,
                     TitleBookListBodyBuilder.BuildCategoryBody(projected)));
             }
 

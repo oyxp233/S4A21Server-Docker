@@ -84,19 +84,19 @@ namespace DfoServer.Game.Dungeon
             var monsterGold = ExpTableProvider.GetMonsterGold(
                 context.DungeonLevel,
                 out var variancePercent);
-            var baseGold = monsterGold * 175L / 1000L;
-            var difficultyPartyRate =
-                definition.GetDifficultyGoldRate(context.Difficulty)
-                * definition.GetPartyMemberRate(context.PartyMemberCount);
-            var rankCombinedRate =
-                (1.0 + context.RankBonusRate) * difficultyPartyRate;
-            var intermediate = ToNonnegativeInt(
-                baseGold * weightedKills / 2.0 * rankCombinedRate);
+            var baseGold = monsterGold * 175.0 / 1000.0;
+            var difficultyRate = definition.GetDifficultyGoldRate(
+                context.Difficulty);
+            var partyRate = definition.GetPartyMemberRate(
+                context.PartyMemberCount);
             var memberGold = ToNonnegativeInt(
-                intermediate
+                baseGold
+                * weightedKills
                 / 2.0
-                / context.PartyMemberCount
-                * rankCombinedRate);
+                * difficultyRate
+                * partyRate
+                * (1.0 + context.RankBonusRate)
+                / context.PartyMemberCount);
 
             if (variancePercent > 0 && memberGold > 0)
             {

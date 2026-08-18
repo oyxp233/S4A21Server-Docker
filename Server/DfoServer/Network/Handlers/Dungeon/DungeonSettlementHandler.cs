@@ -2485,7 +2485,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             return session.SendPacketAsync(
                 GamePacketEnvelopeBuilder.Build(
                     0x00,
-                    0x0005,
+                    (ushort)NotiPacketTypeA21.DUNGEON_PERMISSION,
                     DungeonPermissionBodyBuilder.BuildEntries(entries)));
         }
 

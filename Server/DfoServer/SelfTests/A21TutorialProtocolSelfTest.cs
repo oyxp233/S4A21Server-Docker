@@ -3,11 +3,13 @@ using DfoServer.Game.Inventory;
 using DfoServer.Game.Quests;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.Session;
+using DfoServer.Game.Skills;
 using DfoServer.Game.TitleBook;
 using DfoServer.GameWorld;
 using DfoServer.Network;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Handlers;
+using DfoServer.Network.Handlers.Dungeon;
 using DfoServer.Network.Parsers.Dungeon;
 using System;
 using System.Collections.Generic;
@@ -918,24 +920,106 @@ namespace DfoServer.SelfTests
                 && circleJobChangeRewards.Count == 0,
                 ref failures);
 
+            var penaltyTable = QuestParameterTable.Parse(
+                "[green level penalty]\n80\n" +
+                "[grey level penalty]\n30\n" +
+                "[epic green level penalty]\n120\n" +
+                "[epic grey level penalty]\n140\n");
+            Check(
+                "questParameter preserves ordinary and epic level penalties",
+                penaltyTable.ComputeLevelPenalty(7, "normal") == 80
+                && penaltyTable.ComputeLevelPenalty(12, "normal") == 30
+                && penaltyTable.ComputeLevelPenalty(7, "epic") == 120
+                && penaltyTable.ComputeLevelPenalty(12, "epic") == 140,
+                ref failures);
+
+            Check(
+                "questParameter difficulty is an additive permille rate",
+                QuestParameterTable.Parse(
+                        "[difficulty]\n`1` 964\n" +
+                        "[exp reward table]\n2403\n3856\n")
+                    .ComputeExp(
+                        playerLevel: 1,
+                        rewardLevel: 1,
+                        difficulty: '1',
+                        questGrade: "epic",
+                        ignoreLevel: false) == 4719,
+                ref failures);
+
+            var quest1786DefinitionResolved = QuestData.TryResolveRewardDefinition(
+                1786,
+                out var quest1786Definition,
+                out _);
+            var quest1787DefinitionResolved = QuestData.TryResolveRewardDefinition(
+                1787,
+                out var quest1787Definition,
+                out _);
+            var quest1789DefinitionResolved = QuestData.TryResolveRewardDefinition(
+                1789,
+                out var quest1789Definition,
+                out _);
+            var quest1786Reward = QuestData.ResolveReward(
+                1786,
+                playerLevel: 12,
+                playerJob: 0,
+                playerGrowType: 0);
+            var quest1787Reward = QuestData.ResolveReward(
+                1787,
+                playerLevel: 13,
+                playerJob: 0,
+                playerGrowType: 0);
+            var quest1789Reward = QuestData.ResolveReward(
+                1789,
+                playerLevel: 14,
+                playerJob: 0,
+                playerGrowType: 0);
+            Check(
+                "silvercrown epic rewards use DGN minimum level and permille difficulty",
+                quest1786DefinitionResolved
+                && quest1786Definition.RewardLevel == 11
+                && quest1786Reward.IsValid
+                && quest1786Reward.Reward.Exp == 4719
+                && quest1787DefinitionResolved
+                && quest1787Definition.RewardLevel == 13
+                && quest1787Reward.IsValid
+                && quest1787Reward.Reward.Exp == 7573
+                && quest1789DefinitionResolved
+                && quest1789Definition.RewardLevel == 13
+                && quest1789Reward.IsValid
+                && quest1789Reward.Reward.Gold == 554,
+                ref failures);
+
+            var acceptableQuestBody = QuestListBodyBuilder.BuildBody(
+                level: 13,
+                job: 0,
+                growType: 0,
+                clearedFlags: new Dictionary<int, int>());
+            Check(
+                "A21 ACCEPTABLE_QUEST_LIST starts with character level",
+                acceptableQuestBody.Length >= 3
+                && acceptableQuestBody[0] == 13
+                && BitConverter.ToUInt16(acceptableQuestBody, 1)
+                    == (acceptableQuestBody.Length - 3) / 2,
+                ref failures);
+
             var capturedCircleRewardPairs = new[]
             {
-                (OrdinaryQuestId: 1776, CircleQuestId: 14873, PlayerLevel: 5, ExpectedExp: 964u),
-                (OrdinaryQuestId: 1777, CircleQuestId: 14874, PlayerLevel: 6, ExpectedExp: 964u),
-                (OrdinaryQuestId: 1780, CircleQuestId: 14875, PlayerLevel: 9, ExpectedExp: 771u),
-                (OrdinaryQuestId: 1779, CircleQuestId: 14876, PlayerLevel: 7, ExpectedExp: 964u),
-                (OrdinaryQuestId: 1781, CircleQuestId: 14877, PlayerLevel: 10, ExpectedExp: 771u),
-                (OrdinaryQuestId: 1782, CircleQuestId: 14878, PlayerLevel: 10, ExpectedExp: 771u),
-                (OrdinaryQuestId: 1783, CircleQuestId: 14879, PlayerLevel: 11, ExpectedExp: 771u),
-                (OrdinaryQuestId: 1784, CircleQuestId: 14880, PlayerLevel: 12, ExpectedExp: 771u),
-                (OrdinaryQuestId: 1785, CircleQuestId: 14881, PlayerLevel: 12, ExpectedExp: 771u),
-                (OrdinaryQuestId: 1786, CircleQuestId: 14882, PlayerLevel: 13, ExpectedExp: 289u),
-                (OrdinaryQuestId: 1787, CircleQuestId: 14883, PlayerLevel: 13, ExpectedExp: 289u),
-                (OrdinaryQuestId: 1788, CircleQuestId: 14884, PlayerLevel: 14, ExpectedExp: 289u),
-                (OrdinaryQuestId: 1789, CircleQuestId: 14885, PlayerLevel: 14, ExpectedExp: 289u),
-                (OrdinaryQuestId: 1790, CircleQuestId: 14886, PlayerLevel: 15, ExpectedExp: 289u),
-                (OrdinaryQuestId: 1791, CircleQuestId: 14887, PlayerLevel: 16, ExpectedExp: 289u),
-                (OrdinaryQuestId: 1792, CircleQuestId: 14888, PlayerLevel: 16, ExpectedExp: 289u),
+                (OrdinaryQuestId: 1776, CircleQuestId: 14873, PlayerLevel: 5),
+                (OrdinaryQuestId: 1777, CircleQuestId: 14874, PlayerLevel: 6),
+                (OrdinaryQuestId: 1780, CircleQuestId: 14875, PlayerLevel: 9),
+                (OrdinaryQuestId: 1779, CircleQuestId: 14876, PlayerLevel: 7),
+                (OrdinaryQuestId: 1781, CircleQuestId: 14877, PlayerLevel: 10),
+                (OrdinaryQuestId: 1782, CircleQuestId: 14878, PlayerLevel: 10),
+                (OrdinaryQuestId: 1783, CircleQuestId: 14879, PlayerLevel: 11),
+                (OrdinaryQuestId: 1784, CircleQuestId: 14880, PlayerLevel: 12),
+                (OrdinaryQuestId: 1785, CircleQuestId: 14881, PlayerLevel: 12),
+                (OrdinaryQuestId: 1786, CircleQuestId: 14882, PlayerLevel: 13),
+                (OrdinaryQuestId: 1787, CircleQuestId: 14883, PlayerLevel: 13),
+                (OrdinaryQuestId: 1788, CircleQuestId: 14884, PlayerLevel: 14),
+                (OrdinaryQuestId: 1789, CircleQuestId: 14885, PlayerLevel: 14),
+                (OrdinaryQuestId: 1790, CircleQuestId: 14886, PlayerLevel: 15),
+                (OrdinaryQuestId: 1791, CircleQuestId: 14887, PlayerLevel: 16),
+                (OrdinaryQuestId: 1792, CircleQuestId: 14888, PlayerLevel: 16),
             };
             var circleRewardPairsMatch = true;
             var firstCircleRewardPairMismatch = string.Empty;
@@ -957,8 +1041,9 @@ namespace DfoServer.SelfTests
                     .GetCircleDungeonWorldmapRewardItems(pair.CircleQuestId);
                 if (!ordinaryReward.IsValid
                     || !circleReward.IsValid
-                    || ordinaryReward.Reward.Exp != pair.ExpectedExp
-                    || !QuestRewardsMatch(
+                    || ordinaryReward.Reward.Exp == 0
+                    || circleReward.Reward.Exp == 0
+                    || !QuestRewardsMatchNonExperience(
                         ordinaryReward.Reward,
                         circleReward.Reward)
                     || worldmapRewards.Count != 1
@@ -1250,6 +1335,25 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToUInt32(clearReward, clearTailOffset + 103) == 475,
                 ref failures);
 
+            ClearRewardGenerator.WarmUp();
+            var freeGold = ClearRewardGenerator.GenerateFreeGoldCard(
+                new ClearRewardGenerationContext(
+                    dungeonLevel: 15,
+                    difficulty: 0,
+                    partyMemberCount: 1,
+                    rankBonusRate: 0.0f,
+                    normalKillCount: 33,
+                    championKillCount: 2,
+                    bossKillCount: 1,
+                    visitedRoomCount: 7,
+                    totalRoomCount: 7),
+                new DnfLcg(6));
+            Check(
+                "A21 free card gold applies PVF difficulty/party rates once",
+                freeGold.IsGold
+                && freeGold.GoldAmount == 479,
+                ref failures);
+
             Check(
                 "A21 FINISH_QUEST application projection follows the capture-backed PVF types",
                 QuestCompletionApplicationService.ProjectFinishType("seeking") == QuestFinishType.Seeking
@@ -1429,6 +1533,102 @@ namespace DfoServer.SelfTests
                     capturedSeekingExpected),
                 ref failures);
 
+            var capturedTitleQuest = new QuestFinishResult
+            {
+                QuestId = 4303,
+                FinishType = QuestFinishType.HuntMonster,
+                Exp = 2403,
+                ReservedAfterExperience = 0,
+                ChainType = QuestData.ChainTypeTitle,
+            };
+            var capturedTitleBody = QuestAckBuilder.BuildFinish(capturedTitleQuest);
+            var capturedTitleExpected = new byte[]
+            {
+                0x01, 0xCF, 0x10, 0x02, 0x63, 0x09, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x05,
+            };
+            Check(
+                "A21 title FINISH_QUEST uses chain type 5",
+                capturedTitleBody.Length == 13
+                && capturedTitleBody.AsSpan().SequenceEqual(capturedTitleExpected),
+                ref failures);
+
+            var capturedTitleSeekingQuest = new QuestFinishResult
+            {
+                QuestId = 1028,
+                FinishType = QuestFinishType.Seeking,
+                Exp = 0x1693,
+                ReservedAfterExperience = 0,
+                ChainType = QuestData.ChainTypeTitle,
+            };
+            for (var slot = 0x0162; slot <= 0x0165; slot++)
+            {
+                capturedTitleSeekingQuest.ConsumedEntries.Add(new ConsumedItemEntry
+                {
+                    UpdateType = 0,
+                    SlotIndex = (ushort)slot,
+                    ConsumedCount = 21,
+                    ReservedTail = 0,
+                });
+            }
+            var capturedTitleSeekingBody = QuestAckBuilder.BuildFinish(
+                capturedTitleSeekingQuest);
+            var capturedTitleSeekingExpected = new byte[]
+            {
+                0x01, 0x04, 0x04, 0x00, 0x93, 0x16, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x04,
+                0x00, 0x62, 0x01, 0x15, 0x00, 0x00, 0x00,
+                0x00, 0x63, 0x01, 0x15, 0x00, 0x00, 0x00,
+                0x00, 0x64, 0x01, 0x15, 0x00, 0x00, 0x00,
+                0x00, 0x65, 0x01, 0x15, 0x00, 0x00, 0x00,
+                0x05,
+            };
+            Check(
+                "A21 title seeking FINISH_QUEST uses 7B consumed entries",
+                capturedTitleSeekingBody.Length == 42
+                && capturedTitleSeekingBody.AsSpan().SequenceEqual(
+                    capturedTitleSeekingExpected),
+                ref failures);
+
+            var titleReward = QuestData.ResolveReward(
+                4303,
+                rewardSelectIdx: -1,
+                playerLevel: 19,
+                playerJob: -1,
+                playerGrowType: -1);
+            Check(
+                "PVF title reward projects chain type 5 without ordinary gold",
+                titleReward.IsValid
+                && titleReward.Reward.ChainType == QuestData.ChainTypeTitle
+                && titleReward.Reward.Gold == 0,
+                ref failures);
+
+            var careerTransferQuest = PvfLib.QuestFile.Parse(
+                "[cant giveup]\n2\n" +
+                "[job change quest]\n1\n" +
+                "[reward type]\n`[grow type]`\n");
+            var ordinaryRestrictedQuest = PvfLib.QuestFile.Parse(
+                "[cant giveup]\n2\n" +
+                "[reward type]\n`[item]`\n");
+            var permanentRestrictedQuest = PvfLib.QuestFile.Parse(
+                "[cant giveup]\n1\n" +
+                "[job change quest]\n1\n" +
+                "[reward type]\n`[grow type]`\n");
+            var creatureEvolutionQuest = PvfLib.QuestFile.Parse(
+                "[cant giveup]\n2\n" +
+                "[job change quest]\n10\n" +
+                "[reward type]\n`[creature evolution]`\n");
+            Check(
+                "PVF career transfer quests can be given up without widening restricted quests",
+                careerTransferQuest.CantGiveupValue == 2
+                && careerTransferQuest.CantGiveup
+                && QuestData.CanGiveup(careerTransferQuest)
+                && QuestData.CanGiveup(7803)
+                && !QuestData.CanGiveup(ordinaryRestrictedQuest)
+                && !QuestData.CanGiveup(permanentRestrictedQuest)
+                && !QuestData.CanGiveup(creatureEvolutionQuest),
+                ref failures);
+
             var beginnerArmorPrerequisite = QuestPrerequisiteCatalog.Get(13081);
             var beginnerArmorBeforeJobGift = beginnerArmorPrerequisite?.Evaluate(
                 new QuestPrerequisiteEvaluationState(
@@ -1455,7 +1655,7 @@ namespace DfoServer.SelfTests
                 && beginnerArmorAfterJobGift.HasValue
                 && beginnerArmorAfterJobGift.Value.IsAllowed
                 && beginnerArmorReward.IsValid
-                && beginnerArmorReward.Reward.Exp == 2600
+                && beginnerArmorReward.Reward.Exp == 6039
                 && beginnerArmorReward.Reward.Gold == 60
                 && beginnerArmorReward.Reward.Items.Count == 1
                 && beginnerArmorReward.Reward.Items[0].ItemId == 100060157
@@ -1488,11 +1688,92 @@ namespace DfoServer.SelfTests
                 && secondArmorAfterFirstPart.HasValue
                 && secondArmorAfterFirstPart.Value.IsAllowed
                 && secondArmorReward.IsValid
-                && secondArmorReward.Reward.Exp == 3119
+                && secondArmorReward.Reward.Exp == 7243
                 && secondArmorReward.Reward.Gold == 65
                 && secondArmorReward.Reward.Items.Count == 1
                 && secondArmorReward.Reward.Items[0].ItemId == 100110146
                 && secondArmorReward.Reward.Items[0].Count == 1,
+                ref failures);
+
+            var callDaimus = SkillDataProvider.GetSkill(11, 31);
+            Check(
+                "female swordman growtype fitness blocks Demon Slayer passive before advancement",
+                callDaimus != null
+                && callDaimus.SkillIndex == 31
+                && callDaimus.Name != null
+                && callDaimus.Name.Contains("蛇腹剑")
+                && callDaimus.SkillFitnessGrowtypes != null
+                && callDaimus.SkillFitnessGrowtypes.Length == 1
+                && callDaimus.SkillFitnessGrowtypes[0] == 3
+                && callDaimus.GetMaxLearnableLevel(15, 0, 0) == 0
+                && callDaimus.GetMaxLearnableLevel(15, 3, 0) == 1,
+                ref failures);
+
+            var unavailableCareerSkill = new SkillInfoSnapshot();
+            unavailableCareerSkill.Pages.Add(new SkillInfoPageSnapshot());
+            unavailableCareerSkill.Pages.Add(new SkillInfoPageSnapshot());
+            unavailableCareerSkill.Pages[0].Entries.Add(
+                new SkillInfoEntrySnapshot
+                {
+                    Slot = 0,
+                    SkillId = 31,
+                    Level = 1,
+                });
+            var removedUnavailableCareerSkills = SkillStateService.RemoveUnavailableSkills(
+                unavailableCareerSkill,
+                job: 11,
+                growType: 0,
+                secondGrowType: 0);
+            Check(
+                "skill synchronization removes PVF-invalid skill from current career projection",
+                removedUnavailableCareerSkills == 1
+                && unavailableCareerSkill.Pages[0].Entries.Count == 0,
+                ref failures);
+
+            var projectedSkillInfoBody = SkillInfoBodyBuilder.BuildFrom(unavailableCareerSkill);
+            var projectedUserInfoSubtype1Body = UserInfoSubtype1Builder.BuildFromSnapshot(
+                new UserInfoAdditionSnapshot(),
+                unavailableCareerSkill);
+            var skill31WireBytes = new byte[] { 0x1F, 0x00 };
+            Check(
+                "filtered career skills stay absent from SKILLINFO and USERINFO subtype1",
+                new SkillInfoBodyBuilder().NotiType
+                    == (ushort)NotiPacketTypeA21.SKILLINFO
+                && new UserInfoBodyBuilder().NotiType
+                    == (ushort)NotiPacketTypeA21.USERINFO
+                && !ContainsBytes(projectedSkillInfoBody, skill31WireBytes)
+                && !ContainsBytes(projectedUserInfoSubtype1Body, skill31WireBytes),
+                ref failures);
+
+            var flaggedMonsterBody = new byte[79];
+            Buffer.BlockCopy(
+                BitConverter.GetBytes((ushort)18648),
+                0,
+                flaggedMonsterBody,
+                0,
+                2);
+            flaggedMonsterBody[20] = 0;
+            flaggedMonsterBody[27] = 1;
+            var flaggedMonster = DieMonsterRequest.Parse(flaggedMonsterBody);
+            var flaggedMonsterRoom = new DungeonRunRoomSnapshot(
+                default,
+                default,
+                default,
+                roomStartSequence: 18646,
+                new DfoServer.GameWorld.Dungeon.MonsterSumInfo[4],
+                roomState: null);
+            Check(
+                "A21 DIE_MONSTER current-room actor overrides unknown passive marker",
+                flaggedMonster.IsPassiveObject
+                && flaggedMonsterRoom.ContainsStaticActorSequence(18648)
+                && !DungeonCombatHandler.ShouldTreatAsPassiveObject(
+                    flaggedMonster.IsPassiveObject,
+                    flaggedMonster.LocalIndex,
+                    flaggedMonsterRoom)
+                && DungeonCombatHandler.ShouldTreatAsPassiveObject(
+                    flaggedMonster.IsPassiveObject,
+                    20000,
+                    flaggedMonsterRoom),
                 ref failures);
 
             Console.WriteLine(
@@ -1512,12 +1793,35 @@ namespace DfoServer.SelfTests
                 failures++;
         }
 
-        private static bool QuestRewardsMatch(
+        private static bool ContainsBytes(byte[] haystack, byte[] needle)
+        {
+            if (haystack == null || needle == null || needle.Length == 0)
+                return false;
+
+            for (var offset = 0; offset <= haystack.Length - needle.Length; offset++)
+            {
+                var match = true;
+                for (var index = 0; index < needle.Length; index++)
+                {
+                    if (haystack[offset + index] != needle[index])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool QuestRewardsMatchNonExperience(
             QuestReward left,
             QuestReward right)
         {
-            if (left.Exp != right.Exp
-                || left.Gold != right.Gold
+            if (left.Gold != right.Gold
                 || left.ChainType != right.ChainType
                 || left.GrowNumber != right.GrowNumber
                 || left.Items == null

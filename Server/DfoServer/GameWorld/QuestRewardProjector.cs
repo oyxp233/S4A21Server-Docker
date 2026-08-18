@@ -88,8 +88,9 @@ namespace DfoServer.GameWorld
                     ? 0
                     : Parameters.Value.ComputeExp(
                         playerLevel,
-                        definition.QuestMinLevel,
+                        definition.RewardLevel,
                         definition.Difficulty,
+                        definition.Grade,
                         definition.IgnoreLevelForExperience);
 
                 uint gold = 0;
@@ -104,7 +105,7 @@ namespace DfoServer.GameWorld
                     {
                         gold = Parameters.Value.ComputeGoldReward(
                             playerLevel,
-                            definition.QuestMinLevel,
+                            definition.RewardLevel,
                             definition.GoldMultiple,
                             definition.IgnoreLevelForExperience);
                     }
@@ -167,16 +168,21 @@ namespace DfoServer.GameWorld
         private int[] _goldTable = Array.Empty<int>();
         private int _greenPenalty = 80;
         private int _greyPenalty = 30;
+        private int _epicGreenPenalty = 120;
+        private int _epicGreyPenalty = 140;
 
         internal uint ComputeExp(
             int playerLevel,
-            int questMinLevel,
+            int rewardLevel,
             char difficulty,
+            string questGrade,
             bool ignoreLevel)
         {
-            var levelDiff = playerLevel - questMinLevel;
-            var penalty = ignoreLevel ? 100 : ComputeLevelPenalty(levelDiff);
-            var lookupLevel = ignoreLevel ? playerLevel : questMinLevel;
+            var levelDiff = playerLevel - rewardLevel;
+            var penalty = ignoreLevel
+                ? 100
+                : ComputeLevelPenalty(levelDiff, questGrade);
+            var lookupLevel = ignoreLevel ? playerLevel : rewardLevel;
             var baseExp = lookupLevel >= 1 && lookupLevel <= _expTable.Length
                 ? _expTable[lookupLevel - 1]
                 : 0;
@@ -187,33 +193,40 @@ namespace DfoServer.GameWorld
                 weight = 10;
             }
 
-            return (uint)(penalty * ((long)weight * baseExp / 100) / 100);
+            var weightedExp = (long)baseExp * (1000L + weight) / 1000L;
+            return checked((uint)(weightedExp * penalty / 100L));
         }
 
         internal uint ComputeGoldReward(
             int playerLevel,
-            int questMinLevel,
+            int rewardLevel,
             int goldMultiple,
             bool ignoreLevel)
         {
             if (goldMultiple <= 0)
                 goldMultiple = 100;
-            var levelDiff = playerLevel - questMinLevel;
-            var penalty = ignoreLevel ? 100 : ComputeLevelPenalty(levelDiff);
-            var lookupIndex = ignoreLevel ? playerLevel - 1 : questMinLevel;
+            var levelDiff = playerLevel - rewardLevel;
+            var penalty = ignoreLevel
+                ? 100
+                : ComputeLevelPenalty(levelDiff, string.Empty);
+            var lookupIndex = ignoreLevel ? playerLevel - 1 : rewardLevel;
             var baseGold = lookupIndex >= 0 && lookupIndex < _goldTable.Length
                 ? _goldTable[lookupIndex]
                 : 0;
             return (uint)(goldMultiple * ((long)penalty * baseGold / 100) / 100);
         }
 
-        private int ComputeLevelPenalty(int levelDiff)
+        internal int ComputeLevelPenalty(int levelDiff, string questGrade)
         {
+            var isEpic = string.Equals(
+                questGrade,
+                "epic",
+                StringComparison.OrdinalIgnoreCase);
             if (levelDiff > 6 && levelDiff <= 11)
-                return _greenPenalty;
-            if (levelDiff <= 11)
-                return 100;
-            return _greyPenalty;
+                return isEpic ? _epicGreenPenalty : _greenPenalty;
+            if (levelDiff > 11)
+                return isEpic ? _epicGreyPenalty : _greyPenalty;
+            return 100;
         }
 
         internal static QuestParameterTable Parse(string content)
@@ -257,6 +270,16 @@ namespace DfoServer.GameWorld
                         section = "grey";
                         continue;
                     }
+                    if (line.StartsWith("[epic green level penalty]"))
+                    {
+                        section = "epic-green";
+                        continue;
+                    }
+                    if (line.StartsWith("[epic grey level penalty]"))
+                    {
+                        section = "epic-grey";
+                        continue;
+                    }
 
                     section = null;
                     continue;
@@ -272,6 +295,18 @@ namespace DfoServer.GameWorld
                 {
                     if (int.TryParse(line.Split(' ')[0], out var value))
                         table._greyPenalty = value;
+                    section = null;
+                }
+                else if (section == "epic-green" && line.Length > 0)
+                {
+                    if (int.TryParse(line.Split(' ')[0], out var value))
+                        table._epicGreenPenalty = value;
+                    section = null;
+                }
+                else if (section == "epic-grey" && line.Length > 0)
+                {
+                    if (int.TryParse(line.Split(' ')[0], out var value))
+                        table._epicGreyPenalty = value;
                     section = null;
                 }
                 else if (section == "diff" && line.Length > 0)

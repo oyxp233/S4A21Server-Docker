@@ -30,7 +30,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             {
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                     0x00,
-                    (ushort)NotiPacketType.DUNGEON_PERMISSION,
+                    (ushort)NotiPacketTypeA21.DUNGEON_PERMISSION,
                     DungeonPermissionBodyBuilder.BuildEntries(
                         state.PermissionEntries)));
                 if (!IsExpectedProjectionContextCurrent(

@@ -318,7 +318,14 @@ namespace DfoServer.Game.Skills
                     // 校验1: growType 等级上限门禁
                     var growtypeMaxLevel = sd.GetMaxLevelFor(firstGrow, secondGrow);
                     if (growtypeMaxLevel <= 0)
-                        continue; // 该方向不可学
+                    {
+                        // PVF 可能为其他转职方向保留非零的 maximum-level 槽位，
+                        // 但 fitness 明确禁止当前职业学习；必须返回失败而不是
+                        // 伪造成功 ACK，让客户端把该技能当成已学。
+                        result.Success = false;
+                        result.ErrorCode = 18;
+                        return new BuySkillExecutionPlan { Result = result, Snapshot = snapshot };
+                    }
 
                     int newLevel = curLevel + levels;
                     var effectiveMaxLevel = Math.Min(sd.MaxLevel > 0 ? sd.MaxLevel : int.MaxValue, growtypeMaxLevel);

@@ -1676,7 +1676,7 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
-                0x0027,
+                (ushort)NotiPacketTypeA21.GET_ITEM,
                 DropItemBuilder.BuildPickupItem(
                     sceneSlot,
                     session.Player.UserId,

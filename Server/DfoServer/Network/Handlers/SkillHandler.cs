@@ -408,7 +408,10 @@ namespace DfoServer.Network.Handlers
                     }
                 }
                 var skillBytes = SkillInfoBodyBuilder.BuildFrom(skillInfo);
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0013, skillBytes));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.SKILLINFO,
+                    skillBytes));
 
                 FileLogger.Log($"[SkillHandler] SKILL_INIT refresh char={cid}");
             }
@@ -523,7 +526,10 @@ namespace DfoServer.Network.Handlers
 
                 var skills = _progressRepository.LoadSkills(characterId);
                 var skillBytes = SkillInfoBodyBuilder.BuildFrom(skills);
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0013, skillBytes));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.SKILLINFO,
+                    skillBytes));
                 FileLogger.Log(
                     $"[SkillHandler] COMBO_SKILL_EXTENSION_QUICK_SLOT_RESET pre-clean " +
                     $"char={characterId} page={page} cleaned={cleanup.QuickSlotsCleaned} skillInfoLen={skillBytes.Length}");

@@ -6,7 +6,7 @@ namespace DfoServer.Network.Builders
 {
     public sealed class TitleBookListBodyBuilder : IInitPacketBuilder
     {
-        public ushort NotiType => 0x0166;
+        public ushort NotiType => (ushort)NotiPacketTypeA21.TITLE_BOOK_LIST;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {

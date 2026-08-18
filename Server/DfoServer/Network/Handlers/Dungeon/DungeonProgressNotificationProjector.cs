@@ -220,7 +220,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     allowedCreatureKinds);
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                     0x00,
-                    0x0015,
+                    (ushort)NotiPacketTypeA21.ACCEPTABLE_QUEST_LIST,
                     body));
             }
             catch (Exception ex)

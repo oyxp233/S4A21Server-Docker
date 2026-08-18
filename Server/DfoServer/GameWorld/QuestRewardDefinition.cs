@@ -63,8 +63,9 @@ namespace DfoServer.GameWorld
             int rewardParameter,
             int creatureKind,
             int creatureLevel,
-            int questMinLevel,
+            int rewardLevel,
             char difficulty,
+            string grade,
             bool ignoreLevelForExperience,
             bool suppressExperience,
             int goldMultiple)
@@ -81,8 +82,9 @@ namespace DfoServer.GameWorld
             RewardParameter = rewardParameter;
             CreatureKind = creatureKind;
             CreatureLevel = creatureLevel;
-            QuestMinLevel = questMinLevel;
+            RewardLevel = rewardLevel;
             Difficulty = difficulty;
+            Grade = grade ?? string.Empty;
             IgnoreLevelForExperience = ignoreLevelForExperience;
             SuppressExperience = suppressExperience;
             GoldMultiple = goldMultiple;
@@ -95,8 +97,9 @@ namespace DfoServer.GameWorld
         internal int RewardParameter { get; }
         internal int CreatureKind { get; }
         internal int CreatureLevel { get; }
-        internal int QuestMinLevel { get; }
+        internal int RewardLevel { get; }
         internal char Difficulty { get; }
+        internal string Grade { get; }
         internal bool IgnoreLevelForExperience { get; }
         internal bool SuppressExperience { get; }
         internal int GoldMultiple { get; }
@@ -233,6 +236,11 @@ namespace DfoServer.GameWorld
                     kind = rewardTag == "title"
                         ? QuestRewardKind.Title
                         : QuestRewardKind.Item;
+                    // A21 FINISH_QUEST uses chain type 5 for title/achievement
+                    // rewards.  It is a protocol branch, not an inventory item
+                    // reward; title completion is followed by ACHIEVEMENT_TRIGGER.
+                    if (rewardTag == "title")
+                        chainType = QuestData.ChainTypeTitle;
                     if (!TryParseItemRules(
                             quest.RewardIntData,
                             allowGoldMarker: true,
@@ -355,9 +363,7 @@ namespace DfoServer.GameWorld
                     return false;
             }
 
-            var questMinLevel = quest.Level != null && quest.Level.Length > 0
-                ? quest.Level[0]
-                : 1;
+            var rewardLevel = ResolveRewardLevel(quest);
             var difficulty = !string.IsNullOrEmpty(quest.Difficulty)
                 ? quest.Difficulty[0]
                 : 'G';
@@ -383,12 +389,45 @@ namespace DfoServer.GameWorld
                 rewardParameter,
                 quest.CreatureKind,
                 quest.CreatureLevel,
-                questMinLevel,
+                rewardLevel,
                 difficulty,
+                grade,
                 quest.IgnoreQuestLevel4Exp,
                 suppressExperience,
                 quest.GoldMultiple);
             return true;
+        }
+
+        private static int ResolveRewardLevel(QuestFile quest)
+        {
+            var questMinimumLevel = quest.Level != null
+                && quest.Level.Length > 0
+                && quest.Level[0] > 0
+                    ? quest.Level[0]
+                    : 1;
+            var dungeonInfo = QuestData.ParseIntList(quest.DungeonInfo);
+            var dungeonMinimumLevel = 0;
+            for (var offset = 0; offset + 1 < dungeonInfo.Count; offset += 2)
+            {
+                var dungeonId = dungeonInfo[offset];
+                if (dungeonId <= 0)
+                    continue;
+
+                var candidate = DungeonCatalog.GetMinimumRequiredLevel(dungeonId);
+                if (candidate <= 0)
+                    continue;
+                if (dungeonMinimumLevel == 0)
+                {
+                    dungeonMinimumLevel = candidate;
+                    continue;
+                }
+                if (dungeonMinimumLevel != candidate)
+                    return questMinimumLevel;
+            }
+
+            return dungeonMinimumLevel > 0
+                ? dungeonMinimumLevel
+                : questMinimumLevel;
         }
 
         private static bool TryParseCircleDungeonReward(

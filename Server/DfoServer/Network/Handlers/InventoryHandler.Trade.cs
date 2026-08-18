@@ -360,7 +360,7 @@ namespace DfoServer.Network.Handlers
 
             bool ok;
             Game.TitleBook.TitleBookMutationResult result;
-            if (header.type == 0x019C)
+            if (header.type == (ushort)CmdPacketTypeA21.TITLE_BOOK_PUT)
                 ok = _sqliteSelectCharacterDataSource.TryPutTitleBook(
                     lease,
                     aid,
@@ -477,7 +477,10 @@ namespace DfoServer.Network.Handlers
                 complete.WriteInt32(result.BookIndex);
                 complete.WriteInt32(result.TitleItemId);
                 complete.WriteUInt16((ushort)Math.Max(0, result.BookIndex));
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0168, complete.ToArray()));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.ACHIEVEMENT_COMPLETE,
+                    complete.ToArray()));
                 await SendTitleBookCategoryRefresh(session, cid, result.Category);
             }
         }
@@ -527,7 +530,7 @@ namespace DfoServer.Network.Handlers
 
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
-                0x0166,
+                (ushort)NotiPacketTypeA21.TITLE_BOOK_LIST,
                 TitleBookListBodyBuilder.BuildCategoryBody(snapshot)));
         }
 

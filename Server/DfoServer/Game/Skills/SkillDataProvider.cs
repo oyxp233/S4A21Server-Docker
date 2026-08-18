@@ -28,6 +28,9 @@ namespace DfoServer.Game.Skills
         public int[] TpCostPerLevel;
         // 逐 growType 等级上限(6槽, 按 growType 0-5 索引); 上限 0 = 该方向不可学
         public int[] GrowtypeMaxLevels;
+        // [skill fitness growtype] 是职业方向从属门禁。部分 PVF 技能会在
+        // growtype maximum level 的未转职槽保留展示等级，不能据此允许购买。
+        public int[] SkillFitnessGrowtypes;
         // 逐 觉醒段 等级上限(12槽 = growType*2 + (觉醒段-1)); 0 = 不可学
         public int[] SecondGrowtypeMaxLevels;
         // 等级门槛间隔: reqLevel + (targetLv-1)*levelInterval <= characLevel
@@ -77,6 +80,13 @@ namespace DfoServer.Game.Skills
         // 两表都缺省(数组为空)时回落 MaxLevel; 最终 0 = 该方向不可学。
         public int GetMaxLevelFor(int growType, int secondGrowType)
         {
+            if (SkillFitnessGrowtypes != null
+                && SkillFitnessGrowtypes.Length > 0
+                && Array.IndexOf(SkillFitnessGrowtypes, growType) < 0)
+            {
+                return 0;
+            }
+
             if (secondGrowType > 0
                 && SecondGrowtypeMaxLevels != null
                 && SecondGrowtypeMaxLevels.Length > 0)
@@ -98,6 +108,11 @@ namespace DfoServer.Game.Skills
 
             return MaxLevel;
         }
+
+        // PVF 的 fitness/maximum-level 共同决定该技能是否属于当前职业方向。
+        // 该判断同时用于购买门禁和已保存技能的输出清理，避免两条链路出现漂移。
+        public bool IsAvailableFor(int growType, int secondGrowType)
+            => GetMaxLevelFor(growType, secondGrowType) > 0;
 
         // 角色在给定有效等级下可购买到的最高技能等级。达人契约生效时，
         // effectiveLevel = 角色等级 + [over skill]；到期对账则传真实角色等级。
@@ -124,7 +139,7 @@ namespace DfoServer.Game.Skills
         // 注: [skill fitness growtype]/[skill fitness second growtype] 是技能从属标记
         // (记录该技能属于哪些方向/觉醒段), 不是 SP 折扣——"fitness=百分比折扣"的旧解读
         // 已被实测推翻(斩铁式+1 真机成本 45 整)。门禁走 GetMaxLevelFor, 成本走费用表原值;
-        // fitness 数组仅剩的用途是 NumGrowtypes(数组长度)参与槽位分组。
+        // fitness 数组同时用于职业方向门禁和 NumGrowtypes(数组长度)槽位分组。
     }
 
     public static class SkillDataProvider
@@ -197,6 +212,7 @@ namespace DfoServer.Game.Skills
                 SpCostPerLevel = ParseInts(skl.PurchaseCost),
                 TpCostPerLevel = ParseInts(skl.SpecialPurchaseCost),
                 GrowtypeMaxLevels = ParseInts(skl.GrowtypeMaximumLevel),
+                SkillFitnessGrowtypes = ParseInts(skl.SkillFitnessGrowtype),
                 SecondGrowtypeMaxLevels = ParseInts(skl.SecondGrowtypeMaximumLevel),
                 LevelInterval = ParseLevelInterval(skl.RequiredLevelRange),
                 IsFixedLevelSkill = skl.IsFixedLevelSkill,

@@ -9,6 +9,7 @@ namespace DfoServer.GameWorld
         // PVF [slot expansion] rewards use reward int data as an equipment slot id, not an item id.
         internal const int ChainTypeSlotExpansion =
             QuestRewardProjector.ChainTypeSlotExpansion;
+        internal const int ChainTypeTitle = 5;
 
         private static readonly Lazy<Dictionary<int, HashSet<int>>> TrainingQuestNpcs = new Lazy<Dictionary<int, HashSet<int>>>(LoadTrainingQuestNpcs);
 
@@ -160,8 +161,23 @@ namespace DfoServer.GameWorld
 
         public static bool CanGiveup(int questId)
         {
-            var qst = GetQuestFile(questId);
-            return qst == null || !qst.CantGiveup;
+            return CanGiveup(GetQuestFile(questId));
+        }
+
+        internal static bool CanGiveup(QuestFile quest)
+        {
+            if (quest == null || !quest.CantGiveup)
+                return true;
+
+            return quest.CantGiveupValue == 2
+                && IsCareerTransferQuest(quest);
+        }
+
+        internal static bool IsCareerTransferQuest(QuestFile quest)
+        {
+            return quest != null
+                && quest.JobChangeQuestValue == 1
+                && NormalizeQuestTag(quest.RewardType) == "grow type";
         }
 
         public static List<int> GetPreRequiredQuests(int questId)

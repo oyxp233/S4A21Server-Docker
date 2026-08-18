@@ -223,7 +223,9 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             if (hasSkillPoints)
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0025,
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.EXP,
                     ExpNotificationBuilder.Build(
                         session.Player.Level, session.Player.Exp, skillPoints, honorLevel)));
                 if (!session.Player.IsCurrentDungeonRun(runIdentity))

@@ -275,7 +275,9 @@ namespace DfoServer.Game.SelectCharacter
                         rec.Level,
                         rec.BonusSp,
                         rec.BonusTp,
-                        persist: false,
+                        // 选角是已保存技能进入全部 A21 USERINFO/SKILLINFO 投影前的
+                        // 统一同步边界；同步过程中发现历史错误转职技能时立即清理。
+                        persist: true,
                         growType: firstGrow,
                         secondGrowType: secondGrow);
                     initSnapshot.SkillInfo = synced.Skills;
@@ -288,7 +290,7 @@ namespace DfoServer.Game.SelectCharacter
             initSnapshot.UsableCountItems.AddRange(
                 UsableCountLimitService.LoadCurrentDayItems(_connectionString, characterId));
             ApplyOnlineItemLockList(characterId, initSnapshot);
-            // 0x0357 是可变状态，加载模板后立即用当前背包/装备租赁重建。
+            // EQUIPMENT_RENTAL_LIST 是可变状态，加载模板后立即用当前背包/装备租赁重建。
             var rebuiltRentalInfo = _inventoryLifecycle.RebuildRentalInfoFromInventory(
                 characterId,
                 accountId,

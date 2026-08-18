@@ -288,7 +288,7 @@ namespace DfoServer.Game.Quests
                     .LoadEligiblePetCreatureEvolutionQuestKinds(lease.Inventory)
                 : new HashSet<int>();
             await _sender.SendNotiAsync(
-                0x0015,
+                (ushort)NotiPacketTypeA21.ACCEPTABLE_QUEST_LIST,
                 QuestListBodyBuilder.BuildBody(
                     level,
                     job,
@@ -325,7 +325,7 @@ namespace DfoServer.Game.Quests
                     growType: firstGrow,
                     secondGrowType: secondGrow);
                 await _sender.SendNotiAsync(
-                    0x0002,
+                    (ushort)NotiPacketTypeA21.USERINFO,
                     Network.Handlers.UserInfoBroadcastService.BuildSubtype1Body(
                         record,
                         addition,
@@ -347,7 +347,9 @@ namespace DfoServer.Game.Quests
             var sent = await Network.Handlers.UserInfoBroadcastService.SendSubtype0Async(
                 _sender.Player,
                 _sender.AccountId,
-                body => _sender.SendNotiAsync(0x0002, body),
+                body => _sender.SendNotiAsync(
+                    (ushort)NotiPacketTypeA21.USERINFO,
+                    body),
                 _characterRepository,
                 _subtype0Repository,
                 _honorLevel,
@@ -373,7 +375,9 @@ namespace DfoServer.Game.Quests
                     _sender.AccountId);
                 var skillBytes = SkillInfoBodyBuilder.BuildFrom(
                     snapshot.InitializationSnapshot.SkillInfo);
-                await _sender.SendNotiAsync(0x0013, skillBytes);
+                await _sender.SendNotiAsync(
+                    (ushort)NotiPacketTypeA21.SKILLINFO,
+                    skillBytes);
                 FileLogger.Log(
                     $"[QuestNotificationProjector] JobChange skill info refresh sent: " +
                     $"cid={characterId} len={skillBytes.Length}");
@@ -401,7 +405,7 @@ namespace DfoServer.Game.Quests
                 _sender.Player.GrowType = record.GrowType;
 
                 await _sender.SendNotiAsync(
-                    0x0002,
+                    (ushort)NotiPacketTypeA21.USERINFO,
                     UserInfoSubtype0Builder.BuildNotificationBody(record));
                 FileLogger.Log(
                     $"[QuestNotificationProjector] JobChange NOTI 2 subtype0 sent: " +
@@ -449,7 +453,9 @@ namespace DfoServer.Game.Quests
                 writer.WriteUInt16((ushort)record.CharacterId);
                 writer.WriteDstr(record.Name);
                 writer.WriteBytes(UserInfoSubtype0Builder.BuildRemainingBytes(record));
-                await _sender.SendNotiAsync(0x0002, writer.ToArray());
+                await _sender.SendNotiAsync(
+                    (ushort)NotiPacketTypeA21.USERINFO,
+                    writer.ToArray());
                 FileLogger.Log(
                     $"[QuestNotificationProjector] ExpertJobChange NOTI sent: " +
                     $"cid={characterId} expertJobType={expertJobType}");

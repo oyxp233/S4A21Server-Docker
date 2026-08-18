@@ -1,6 +1,8 @@
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.CharacterData;
 using Microsoft.Data.Sqlite;
+using System;
+using System.Collections.Generic;
 
 namespace DfoServer.Game.Skills
 {
@@ -158,7 +160,11 @@ namespace DfoServer.Game.Skills
             int secondGrowType = 0)
         {
             var skills = repository.LoadSkills(characterId);
-            return Synchronize(skills, job, level, bonusSp, bonusTp, growType, secondGrowType);
+            var removed = RemoveUnavailableSkills(skills, job, growType, secondGrowType);
+            var synced = Synchronize(skills, job, level, bonusSp, bonusTp, growType, secondGrowType);
+            if (persist && removed > 0)
+                Persist(repository, characterId, synced.Skills, synced.Points);
+            return synced;
         }
 
         internal static (SkillInfoSnapshot Skills, SkillPointState Points) LoadAndSync(
@@ -179,7 +185,60 @@ namespace DfoServer.Game.Skills
             if (transaction == null) throw new System.ArgumentNullException(nameof(transaction));
 
             var skills = repository.LoadSkills(connection, transaction, characterId);
-            return Synchronize(skills, job, level, bonusSp, bonusTp, growType, secondGrowType);
+            var removed = RemoveUnavailableSkills(skills, job, growType, secondGrowType);
+            var synced = Synchronize(skills, job, level, bonusSp, bonusTp, growType, secondGrowType);
+            if (persist && removed > 0)
+            {
+                ApplyProtocolMirrors(synced.Skills, synced.Points);
+                repository.SaveSkillProgress(connection, transaction, characterId, synced.Skills);
+            }
+            return synced;
+        }
+
+        // 已保存技能是客户端技能树和多个 USERINFO 投影的共同输入。若历史版本曾
+        // 按 growtype maximum level 的保留槽错误写入其他转职技能，必须在统一同步
+        // 边界删除；未知 PVF 技能仍保留，以免误删任务/共通资源条目。
+        internal static int RemoveUnavailableSkills(
+            SkillInfoSnapshot skills,
+            byte job,
+            int growType,
+            int secondGrowType)
+        {
+            if (skills?.Pages == null)
+                return 0;
+
+            var removed = 0;
+            var removedIds = new List<ushort>();
+            foreach (var page in skills.Pages)
+            {
+                if (page?.Entries == null)
+                    continue;
+
+                for (var i = page.Entries.Count - 1; i >= 0; i--)
+                {
+                    var entry = page.Entries[i];
+                    var data = entry == null
+                        ? null
+                        : SkillDataProvider.GetSkill(job, entry.SkillId);
+                    if (data == null || data.IsAvailableFor(growType, secondGrowType))
+                        continue;
+
+                    page.Entries.RemoveAt(i);
+                    removed++;
+                    if (!removedIds.Contains(entry.SkillId))
+                        removedIds.Add(entry.SkillId);
+                }
+            }
+
+            if (removed > 0)
+            {
+                FileLogger.Log(
+                    $"[SkillStateService] removed unavailable skills job={job} " +
+                    $"grow={growType}/{secondGrowType} count={removed} " +
+                    $"ids={string.Join(",", removedIds)}");
+            }
+
+            return removed;
         }
 
         private static (SkillInfoSnapshot Skills, SkillPointState Points) Synchronize(

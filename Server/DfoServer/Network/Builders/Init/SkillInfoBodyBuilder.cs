@@ -5,7 +5,7 @@ namespace DfoServer.Network.Builders
 {
     public sealed class SkillInfoBodyBuilder : IInitPacketBuilder
     {
-        public ushort NotiType => 0x0013;
+        public ushort NotiType => (ushort)NotiPacketTypeA21.SKILLINFO;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {

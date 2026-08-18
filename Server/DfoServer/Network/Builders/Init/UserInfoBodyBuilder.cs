@@ -17,7 +17,7 @@ namespace DfoServer.Network.Builders
     
     public sealed class UserInfoBodyBuilder : IInitPacketBuilder
     {
-        public ushort NotiType => 0x0002;
+        public ushort NotiType => (ushort)NotiPacketTypeA21.USERINFO;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {

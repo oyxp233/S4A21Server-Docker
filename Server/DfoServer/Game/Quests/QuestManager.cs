@@ -161,6 +161,8 @@ namespace DfoServer.Game.Quests
                 await _notifications.SendTriggerChangesAsync(
                     new[] { result.PostAcceptTriggerProjection });
             }
+            if (result.Success)
+                await _notifications.SendAcceptableQuestListAsync();
         }
 
         public async Task HandleImageCommunicationEquipmentUseAsync(
