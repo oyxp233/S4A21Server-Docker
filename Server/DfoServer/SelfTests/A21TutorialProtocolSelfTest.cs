@@ -1697,7 +1697,7 @@ namespace DfoServer.SelfTests
 
             var callDaimus = SkillDataProvider.GetSkill(11, 31);
             Check(
-                "female swordman growtype fitness blocks Demon Slayer passive before advancement",
+                "female swordman keeps the PVF-defined level 15 trial transfer skill",
                 callDaimus != null
                 && callDaimus.SkillIndex == 31
                 && callDaimus.Name != null
@@ -1705,7 +1705,8 @@ namespace DfoServer.SelfTests
                 && callDaimus.SkillFitnessGrowtypes != null
                 && callDaimus.SkillFitnessGrowtypes.Length == 1
                 && callDaimus.SkillFitnessGrowtypes[0] == 3
-                && callDaimus.GetMaxLearnableLevel(15, 0, 0) == 0
+                && callDaimus.IsTrialTransferSkill(0, 0)
+                && callDaimus.GetMaxLearnableLevel(15, 0, 0) == 1
                 && callDaimus.GetMaxLearnableLevel(15, 3, 0) == 1,
                 ref failures);
 
@@ -1719,15 +1720,38 @@ namespace DfoServer.SelfTests
                     SkillId = 31,
                     Level = 1,
                 });
+            var unavailableSkillId = -1;
+            for (var candidateId = 1; candidateId < 512; candidateId++)
+            {
+                var candidate = SkillDataProvider.GetSkill(11, candidateId);
+                if (candidate != null
+                    && !candidate.IsTrialTransferSkill(0, 0)
+                    && !candidate.IsAvailableFor(0, 0))
+                {
+                    unavailableSkillId = candidateId;
+                    break;
+                }
+            }
+            if (unavailableSkillId > 0)
+            {
+                unavailableCareerSkill.Pages[0].Entries.Add(
+                    new SkillInfoEntrySnapshot
+                    {
+                        Slot = 1,
+                        SkillId = (ushort)unavailableSkillId,
+                        Level = 1,
+                    });
+            }
             var removedUnavailableCareerSkills = SkillStateService.RemoveUnavailableSkills(
                 unavailableCareerSkill,
                 job: 11,
                 growType: 0,
                 secondGrowType: 0);
             Check(
-                "skill synchronization removes PVF-invalid skill from current career projection",
-                removedUnavailableCareerSkills == 1
-                && unavailableCareerSkill.Pages[0].Entries.Count == 0,
+                "skill synchronization keeps trial skills and removes other unavailable skills",
+                unavailableSkillId > 0
+                && removedUnavailableCareerSkills == 1
+                && unavailableCareerSkill.Pages[0].Entries.Count == 1,
                 ref failures);
 
             var projectedSkillInfoBody = SkillInfoBodyBuilder.BuildFrom(unavailableCareerSkill);
@@ -1736,13 +1760,13 @@ namespace DfoServer.SelfTests
                 unavailableCareerSkill);
             var skill31WireBytes = new byte[] { 0x1F, 0x00 };
             Check(
-                "filtered career skills stay absent from SKILLINFO and USERINFO subtype1",
+                "trial skill remains in SKILLINFO and USERINFO subtype1",
                 new SkillInfoBodyBuilder().NotiType
                     == (ushort)NotiPacketTypeA21.SKILLINFO
                 && new UserInfoBodyBuilder().NotiType
                     == (ushort)NotiPacketTypeA21.USERINFO
-                && !ContainsBytes(projectedSkillInfoBody, skill31WireBytes)
-                && !ContainsBytes(projectedUserInfoSubtype1Body, skill31WireBytes),
+                && ContainsBytes(projectedSkillInfoBody, skill31WireBytes)
+                && ContainsBytes(projectedUserInfoSubtype1Body, skill31WireBytes),
                 ref failures);
 
             var flaggedMonsterBody = new byte[79];

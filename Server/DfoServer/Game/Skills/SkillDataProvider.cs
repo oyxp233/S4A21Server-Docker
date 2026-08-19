@@ -28,8 +28,9 @@ namespace DfoServer.Game.Skills
         public int[] TpCostPerLevel;
         // 逐 growType 等级上限(6槽, 按 growType 0-5 索引); 上限 0 = 该方向不可学
         public int[] GrowtypeMaxLevels;
-        // [skill fitness growtype] 是职业方向从属门禁。部分 PVF 技能会在
-        // growtype maximum level 的未转职槽保留展示等级，不能据此允许购买。
+        // [skill fitness growtype] 是职业方向从属门禁。15 级体验转职技能
+        // 可能由 PVF 在未转职槽保留可学习上限，IsTrialTransferSkill 会保留
+        // 这类资源明确允许的学习路径。
         public int[] SkillFitnessGrowtypes;
         // 逐 觉醒段 等级上限(12槽 = growType*2 + (觉醒段-1)); 0 = 不可学
         public int[] SecondGrowtypeMaxLevels;
@@ -80,23 +81,35 @@ namespace DfoServer.Game.Skills
         // 两表都缺省(数组为空)时回落 MaxLevel; 最终 0 = 该方向不可学。
         public int GetMaxLevelFor(int growType, int secondGrowType)
         {
+            var configuredMaximum = GetConfiguredMaxLevelFor(
+                growType,
+                secondGrowType);
+            if (configuredMaximum <= 0)
+                return 0;
+
             if (SkillFitnessGrowtypes != null
                 && SkillFitnessGrowtypes.Length > 0
-                && Array.IndexOf(SkillFitnessGrowtypes, growType) < 0)
+                && Array.IndexOf(SkillFitnessGrowtypes, growType) < 0
+                && !IsTrialTransferSkill(growType, secondGrowType))
             {
                 return 0;
             }
 
+            return configuredMaximum;
+        }
+
+        private int GetConfiguredMaxLevelFor(int growType, int secondGrowType)
+        {
             if (secondGrowType > 0
                 && SecondGrowtypeMaxLevels != null
                 && SecondGrowtypeMaxLevels.Length > 0)
             {
                 var idx = growType * 2 + (secondGrowType - 1);
-                var secondMax = idx >= 0 && idx < SecondGrowtypeMaxLevels.Length
+                var secondMaximum = idx >= 0 && idx < SecondGrowtypeMaxLevels.Length
                     ? SecondGrowtypeMaxLevels[idx]
                     : 0;
-                if (secondMax > 0)
-                    return secondMax;
+                if (secondMaximum > 0)
+                    return secondMaximum;
             }
 
             if (GrowtypeMaxLevels != null && GrowtypeMaxLevels.Length > 0)
@@ -109,7 +122,28 @@ namespace DfoServer.Game.Skills
             return MaxLevel;
         }
 
-        // PVF 的 fitness/maximum-level 共同决定该技能是否属于当前职业方向。
+        // A21 当前 PVF 将少量 15 级转职技能标记为“体验转职”：技能归属仍
+        // 指向某个转职方向，但未转职槽明确保留了可学习上限。只放开这个
+        // PVF 可表达的组合，不按技能 ID、名称或职业增加例外。
+        public bool IsTrialTransferSkill(int growType, int secondGrowType)
+        {
+            if (growType != 0 || secondGrowType != 0 || RequiredLevel != 15)
+                return false;
+
+            if (GrowtypeMaxLevels == null
+                || GrowtypeMaxLevels.Length == 0
+                || GrowtypeMaxLevels[0] <= 0
+                || SkillFitnessGrowtypes == null
+                || SkillFitnessGrowtypes.Length == 0)
+            {
+                return false;
+            }
+
+            return Array.IndexOf(SkillFitnessGrowtypes, 0) < 0;
+        }
+
+        // PVF 的 fitness/maximum-level 共同决定该技能是否属于当前职业方向；
+        // 15 级体验转职技能由 PVF 的未转职上限组合额外放行。
         // 该判断同时用于购买门禁和已保存技能的输出清理，避免两条链路出现漂移。
         public bool IsAvailableFor(int growType, int secondGrowType)
             => GetMaxLevelFor(growType, secondGrowType) > 0;
