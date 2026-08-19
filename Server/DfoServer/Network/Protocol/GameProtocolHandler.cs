@@ -470,7 +470,7 @@ namespace DfoServer.Network
 
         private void RegisterPetHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
         {
-            d[0x002C] = async (s, h, b) =>
+            GameCommandHandler useStackable = async (s, h, b) =>
             {
                 if (await _dungeonHandler.TryHandleDeathTowerUseStackable(s, h, b))
                     return;
@@ -481,6 +481,8 @@ namespace DfoServer.Network
 
                 await _inventoryHandler.Handle_ENUM_CMDPACKET_USE_STACKABLE(s, h, b);
             };
+            d[0x002C] = useStackable;
+            d[(ushort)CmdPacketTypeA21.USE_STACKABLE_ACTION] = useStackable;
             d[0x0064] = _petCreatureHandler.HandleRenameCreature;
             d[0x0066] = _petCreatureHandler.HandleHatchCreatureEgg;
             d[0x007A] = _petCreatureHandler.HandleCreatureScriptMessage;

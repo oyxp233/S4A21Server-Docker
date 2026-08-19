@@ -2,7 +2,9 @@ using DfoServer.Game.Currency;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.ExpertJob;
 using DfoServer.Game.Inventory;
+using DfoServer.Game.Quests;
 using DfoServer.Game.Mailbox;
+using DfoServer.Game.TitleBook;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Parsers.Inventory;
 using System;
@@ -67,7 +69,7 @@ namespace DfoServer.Network.Handlers
 
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x01,
-                0x002C,
+                header.type,
                 responsePlan.AckBody));
             if (responsePlan.RefreshSourceSlot)
                 await _refresh.SendUpdateItemList(session, listType, slotIndex);
@@ -147,7 +149,17 @@ namespace DfoServer.Network.Handlers
             }
 
             if (await TryHandleExpertJobRecipeLearning(
-                    session, cid, listType, slotIndex, instanceValue, itemCode))
+                    session, header.type, cid, listType, slotIndex, instanceValue, itemCode))
+                return;
+
+            if (await TryHandleQuestCompletionTicketAsync(
+                    session,
+                    header.type,
+                    cid,
+                    listType,
+                    slotIndex,
+                    instanceValue,
+                    itemCode))
                 return;
 
             AccountCargoUpgradeToolResult accountCargoToolResult = null;
@@ -174,12 +186,19 @@ namespace DfoServer.Network.Handlers
                     FileLogger.Log($"[{ProtocolName}] USE_STACKABLE account-cargo-upgrade: commit failed item=0x{itemCode:X8} slot={slotIndex}");
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                         0x01,
-                        0x002C,
+                        header.type,
                         UseStackableAckBuilder.BuildError((byte)listType, instanceValue, itemCode)));
                     return;
                 }
 
-                await SendAccountCargoUpgradeToolResponse(session, listType, slotIndex, instanceValue, itemCode, accountCargoToolResult);
+                await SendAccountCargoUpgradeToolResponse(
+                    session,
+                    header.type,
+                    listType,
+                    slotIndex,
+                    instanceValue,
+                    itemCode,
+                    accountCargoToolResult);
                 return;
             }
 
@@ -207,12 +226,19 @@ namespace DfoServer.Network.Handlers
                     FileLogger.Log($"[{ProtocolName}] USE_STACKABLE upgrade-cargo: commit failed item=0x{itemCode:X8} slot={slotIndex}");
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                         0x01,
-                        0x002C,
+                        header.type,
                         UseStackableAckBuilder.BuildError((byte)listType, instanceValue, itemCode)));
                     return;
                 }
 
-                await SendPersonalCargoUpgradeTicketResponse(session, listType, slotIndex, instanceValue, itemCode, cargoTicketResult);
+                await SendPersonalCargoUpgradeTicketResponse(
+                    session,
+                    header.type,
+                    listType,
+                    slotIndex,
+                    instanceValue,
+                    itemCode,
+                    cargoTicketResult);
                 return;
             }
 
@@ -227,7 +253,14 @@ namespace DfoServer.Network.Handlers
             if (TryUseOnlineEquipmentEffectRune(session, cid, runeRequest, out var runeResult)
                 && runeResult.Handled)
             {
-                await SendEquipmentEffectRuneResponse(session, listType, slotIndex, instanceValue, itemCode, runeResult);
+                await SendEquipmentEffectRuneResponse(
+                    session,
+                    listType,
+                    slotIndex,
+                    instanceValue,
+                    itemCode,
+                    runeResult,
+                    header.type);
                 return;
             }
 
@@ -249,11 +282,11 @@ namespace DfoServer.Network.Handlers
                 FileLogger.Log(responsePlan.StalePetConsumable
                     ? $"[{ProtocolName}] USE_STACKABLE: stale pet consumable use acknowledged item 0x{itemCode:X8} at listType={listType} slot={slotIndex}"
                     : $"[{ProtocolName}] USE_STACKABLE: failed to consume item 0x{itemCode:X8} at listType={listType} slot={slotIndex}");
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x002C, responsePlan.AckBody));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, responsePlan.AckBody));
                 return;
             }
 
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x002C, responsePlan.AckBody));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, responsePlan.AckBody));
             if (result.UsableCountState != null)
                 await SendUsableCountLimitUpdateAsync(session, result.UsableCountState);
             session.GameSession?.QuestManager
@@ -349,6 +382,7 @@ namespace DfoServer.Network.Handlers
 
         private async Task<bool> TryHandleExpertJobRecipeLearning(
             EnhancedClientSession session,
+            ushort responseType,
             int characterId,
             InventoryListType listType,
             short slotIndex,
@@ -370,7 +404,7 @@ namespace DfoServer.Network.Handlers
             {
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                     0x01,
-                    0x002C,
+                    responseType,
                     UseStackableAckBuilder.BuildError(
                         ExpertJobRecipeLearningService.ErrorRequirementsNotMet,
                         (byte)listType,
@@ -405,7 +439,7 @@ namespace DfoServer.Network.Handlers
                 {
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                         0x01,
-                        0x002C,
+                        responseType,
                         UseStackableAckBuilder.BuildError(
                             result.ErrorCode != 0
                                 ? result.ErrorCode
@@ -433,7 +467,7 @@ namespace DfoServer.Network.Handlers
                 {
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                         0x01,
-                        0x002C,
+                        responseType,
                         UseStackableAckBuilder.BuildError(
                             ExpertJobRecipeLearningService.ErrorRequirementsNotMet,
                             (byte)listType,
@@ -442,7 +476,7 @@ namespace DfoServer.Network.Handlers
                     return true;
                 }
 
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x002C, ack));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, responseType, ack));
                 await _refresh.SendUpdateItemList(session, listType, slotIndex);
                 await SendExpertJobRecipeInfo(
                     session,
@@ -578,6 +612,7 @@ namespace DfoServer.Network.Handlers
 
         private async Task SendPersonalCargoUpgradeTicketResponse(
             EnhancedClientSession session,
+            ushort responseType,
             InventoryListType listType,
             short slotIndex,
             int instanceValue,
@@ -589,7 +624,7 @@ namespace DfoServer.Network.Handlers
                 ? UseStackableAckBuilder.BuildSuccess(slotIndex, (byte)listType, instanceValue, responseItemCode)
                 : UseStackableAckBuilder.BuildError((byte)listType, instanceValue, responseItemCode);
 
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x002C, ackBody));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, responseType, ackBody));
 
             if (!result.Success)
             {
@@ -606,6 +641,7 @@ namespace DfoServer.Network.Handlers
 
         private async Task SendAccountCargoUpgradeToolResponse(
             EnhancedClientSession session,
+            ushort responseType,
             InventoryListType listType,
             short slotIndex,
             int instanceValue,
@@ -617,7 +653,7 @@ namespace DfoServer.Network.Handlers
                 ? UseStackableAckBuilder.BuildSuccess(slotIndex, (byte)listType, instanceValue, responseItemCode)
                 : UseStackableAckBuilder.BuildError((byte)listType, instanceValue, responseItemCode);
 
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x002C, ackBody));
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, responseType, ackBody));
 
             if (!result.Success)
             {
@@ -962,6 +998,157 @@ namespace DfoServer.Network.Handlers
             await SendBoosterUseResult(session, header.type, result);
             FileLogger.Log($"[{ProtocolName}] USE_BOOSTER: source=0x{result.SourceItemTemplateId:X8} slot={result.SourceSlotIndex} remaining={result.SourceRemainingStackCount}, rewards={string.Join(",", result.Rewards.Select(r => $"{r.ListType}:0x{r.ItemTemplateId:X8}x{r.GrantedCount}@{r.SlotIndex}"))}, elapsed={elapsed.ElapsedMilliseconds}ms");
             return true;
+        }
+
+        private async Task<bool> TryHandleQuestCompletionTicketAsync(
+            EnhancedClientSession session,
+            ushort responseType,
+            int characterId,
+            InventoryListType listType,
+            short slotIndex,
+            int instanceValue,
+            int itemCode)
+        {
+            if (!TryGetOwnedInventoryLease(session, characterId, out var lease))
+                return false;
+
+            var service = new QuestCompletionTicketService(_database.ConnectionString);
+            QuestCompletionTicketUseResult result;
+            lock (lease.SyncRoot)
+            {
+                result = service.UseBySlot(new QuestCompletionTicketUseRequest
+                {
+                    SessionId = session.SessionId,
+                    CharacterId = characterId,
+                    AccountId = lease.AccountId,
+                    Lease = lease,
+                    ListType = listType,
+                    SlotIndex = slotIndex,
+                    ExpectedItemTemplateId = itemCode,
+                });
+            }
+
+            if (!result.Handled)
+                return false;
+
+            var responseItemCode = itemCode != 0 ? itemCode : result.ItemTemplateId;
+            if (!result.Success)
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    responseType,
+                    UseStackableAckBuilder.BuildError(
+                        (byte)listType,
+                        instanceValue,
+                        responseItemCode)));
+
+                if (result.Status == QuestCompletionTicketUseStatus.MissingSource
+                    || result.Status == QuestCompletionTicketUseStatus.ConsumeFailed)
+                {
+                    await _refresh.SendUpdateItemList(session, listType, slotIndex);
+                }
+
+                FileLogger.Log(
+                    $"[{ProtocolName}] USE_STACKABLE quest-ticket: failed " +
+                    $"status={result.Status} item=0x{result.ItemTemplateId:X8} " +
+                    $"action={result.ActionKind} listType={listType} slot={slotIndex} " +
+                    $"detail={result.Detail}");
+                return true;
+            }
+
+            var questManager = session.GameSession?.QuestManager;
+            if (questManager != null)
+            {
+                foreach (var finish in result.FinishResults)
+                    await questManager.SendPreFinishAckNotificationsAsync(finish);
+                foreach (var finish in result.FinishResults)
+                    await questManager.ProjectFinishedQuestAsync(finish, false);
+            }
+
+            await SendQuestCompletionTicketQuestStateAsync(
+                session,
+                questManager,
+                characterId);
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                responseType,
+                UseStackableAckBuilder.BuildSuccess(
+                    slotIndex,
+                    (byte)listType,
+                    instanceValue,
+                    responseItemCode)));
+
+            foreach (var achievement in result.AchievementResults)
+                await SendQuestCompletionTicketAchievementAsync(session, characterId, achievement);
+
+            if (result.ConsumedItem?.UsableCountState != null)
+                await SendUsableCountLimitUpdateAsync(session, result.ConsumedItem.UsableCountState);
+
+            if (result.ConsumedItem != null)
+                await _refresh.SendUpdateItemList(session, result.ConsumedItem.ListType, result.ConsumedItem.SlotIndex);
+
+            FileLogger.Log(
+                $"[{ProtocolName}] USE_STACKABLE quest-ticket: item=0x{result.ItemTemplateId:X8} " +
+                $"action={result.ActionKind} completed={result.CompletedQuestIds.Count} " +
+                $"slot={slotIndex} remaining={result.ConsumedItem?.RemainingStackCount ?? 0}");
+            return true;
+        }
+
+        private async Task SendQuestCompletionTicketQuestStateAsync(
+            EnhancedClientSession session,
+            QuestManager questManager,
+            int characterId)
+        {
+            try
+            {
+                if (questManager != null)
+                {
+                    await questManager.SendActiveQuestListAsync();
+                    await questManager.SendAcceptableQuestListAsync();
+                }
+                await SendLevelUpTicketClearQuestListAsync(session, characterId);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] USE_STACKABLE quest-ticket quest-state refresh failed: " +
+                    $"{ex.Message}");
+            }
+        }
+
+        private async Task SendQuestCompletionTicketAchievementAsync(
+            EnhancedClientSession session,
+            int characterId,
+            AchievementTriggerResult result)
+        {
+            if (session == null
+                || result == null
+                || !result.Success
+                || !result.Completed
+                || result.TitleItemId <= 0)
+                return;
+
+            try
+            {
+                var writer = new GamePacketWriter();
+                writer.WriteInt32(result.QuestId);
+                writer.WriteInt32(result.Category);
+                writer.WriteInt32(result.BookIndex);
+                writer.WriteInt32(result.TitleItemId);
+                writer.WriteUInt16((ushort)Math.Max(0, result.BookIndex));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.ACHIEVEMENT_COMPLETE,
+                    writer.ToArray()));
+                await SendTitleBookCategoryRefresh(session, characterId, result.Category);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] USE_STACKABLE quest-ticket achievement notify failed: " +
+                    $"{ex.Message}");
+            }
         }
 
         internal static bool TryBuildCrystalContractBodyFromUpdateRequest(ushort requestType, byte[] body, out byte[] crystalContractBody)

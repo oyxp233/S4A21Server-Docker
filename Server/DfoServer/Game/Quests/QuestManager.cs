@@ -336,6 +336,30 @@ namespace DfoServer.Game.Quests
             await _notifications.ProjectFinishedQuestAsync(cid, result);
         }
 
+        internal async Task SendPreFinishAckNotificationsAsync(
+            QuestFinishResult result)
+        {
+            int cid = _sender.CharacterId;
+            if (cid <= 0)
+                return;
+
+            await _notifications.SendPreFinishAckNotificationsAsync(cid, result);
+        }
+
+        internal async Task ProjectFinishedQuestAsync(
+            QuestFinishResult result,
+            bool sendAcceptableQuestList = true)
+        {
+            int cid = _sender.CharacterId;
+            if (cid <= 0)
+                return;
+
+            await _notifications.ProjectFinishedQuestAsync(
+                cid,
+                result,
+                sendAcceptableQuestList);
+        }
+
         private QuestCompletionExperienceBonusSnapshot
             CaptureCompletionExperienceBonus()
         {

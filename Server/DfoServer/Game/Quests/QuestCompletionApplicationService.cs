@@ -1465,7 +1465,7 @@ namespace DfoServer.Game.Quests
             }
         }
 
-        private static void UpdateGrowType(
+        internal static void UpdateGrowType(
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,
@@ -1581,7 +1581,7 @@ namespace DfoServer.Game.Quests
             }
         }
 
-        private static void UpdateExpertJob(
+        internal static void UpdateExpertJob(
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,
@@ -1605,7 +1605,7 @@ namespace DfoServer.Game.Quests
                 expertJobType);
         }
 
-        private static void UpdateSlotExpansion(
+        internal static void UpdateSlotExpansion(
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,

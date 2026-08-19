@@ -86,7 +86,8 @@ namespace DfoServer.Game.Quests
         // not another reward/completion entry point.
         internal async Task ProjectFinishedQuestAsync(
             int characterId,
-            QuestFinishResult result)
+            QuestFinishResult result,
+            bool sendAcceptableQuestList = true)
         {
             if (result == null || !result.Success)
                 return;
@@ -240,7 +241,8 @@ namespace DfoServer.Game.Quests
                     result.PetCreatureEvolution);
             }
 
-            await SendAcceptableQuestListAsync();
+            if (sendAcceptableQuestList)
+                await SendAcceptableQuestListAsync();
         }
 
         internal async Task SendActiveQuestListAsync(int characterId)
