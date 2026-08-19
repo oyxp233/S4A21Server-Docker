@@ -314,7 +314,11 @@ namespace DfoServer.Game.TitleBook
             lock (lease.SyncRoot)
             {
                 var inventory = lease.Inventory;
-                var quest = _staticData.GetQuest(questId);
+                TitleBookSlotDefinition definition = null;
+                TitleQuestDefinition quest = null;
+                if (_staticData.TryFindByQuestId(questId, out definition))
+                    quest = _staticData.GetQuest(definition.QuestId);
+
                 var entry = inventory.Achievements.GetOrCreateEntry(
                     questId,
                     quest != null ? quest.CheckCount : (ushort)1);
@@ -330,7 +334,7 @@ namespace DfoServer.Game.TitleBook
                 result.Success = true;
                 result.Completed = entry.P1 == 0 && entry.P2 == 0 && entry.P3 == 0;
 
-                if (result.Completed && _staticData.TryFindByQuestId(questId, out var definition))
+                if (result.Completed && definition != null)
                 {
                     var titleItemId = quest != null && quest.RewardTitleItemId > 0
                         ? quest.RewardTitleItemId

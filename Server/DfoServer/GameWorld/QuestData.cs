@@ -6,7 +6,8 @@ namespace DfoServer.GameWorld
 {
     internal static class QuestData
     {
-        // PVF [slot expansion] rewards use reward int data as an equipment slot id, not an item id.
+        // PVF [slot expansion] 的 reward int data 是槽位位图索引：
+        // 0=辅助装备，1=魔法石，对应 ex_equip_slot_stat 的 bit0/bit1。
         internal const int ChainTypeSlotExpansion =
             QuestRewardProjector.ChainTypeSlotExpansion;
         internal const int ChainTypeTitle = 5;

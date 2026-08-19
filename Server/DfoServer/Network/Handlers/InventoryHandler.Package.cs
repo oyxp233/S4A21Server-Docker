@@ -148,6 +148,18 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            if (await TryRejectUsableCountLimitExceededAsync(
+                    session,
+                    header,
+                    cid,
+                    listType,
+                    slotIndex,
+                    instanceValue,
+                    itemCode))
+            {
+                return;
+            }
+
             if (await TryHandleExpertJobRecipeLearning(
                     session, header.type, cid, listType, slotIndex, instanceValue, itemCode))
                 return;
@@ -377,6 +389,67 @@ namespace DfoServer.Network.Handlers
                     slotIndex);
             }
             await ChannelTownRestrictionSender.SendAsync(session);
+            return true;
+        }
+
+        private async Task<bool> TryRejectUsableCountLimitExceededAsync(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            int characterId,
+            InventoryListType listType,
+            short slotIndex,
+            int instanceValue,
+            int expectedItemTemplateId)
+        {
+            if (!TryGetOwnedInventoryLease(session, characterId, out var lease))
+                return false;
+
+            int resolvedItemId;
+            string connectionString;
+            lock (lease.SyncRoot)
+            {
+                if (!InventoryContext.IsCurrentLease(
+                        lease,
+                        session.SessionId,
+                        characterId))
+                {
+                    return false;
+                }
+
+                if (!InventoryDeleteService.CanUseStackableForClient(
+                        lease.Inventory,
+                        listType,
+                        slotIndex,
+                        expectedItemTemplateId,
+                        out resolvedItemId))
+                {
+                    return false;
+                }
+
+                connectionString = lease.Inventory.Database?.ConnectionString
+                    ?? _database?.ConnectionString;
+            }
+
+            if (string.IsNullOrWhiteSpace(connectionString)
+                || UsableCountLimitService.CanUse(
+                    connectionString,
+                    characterId,
+                    resolvedItemId))
+            {
+                return false;
+            }
+
+            FileLogger.Log(
+                $"[{ProtocolName}] USE_STACKABLE usable-count limit reached: " +
+                $"cid={characterId} item=0x{resolvedItemId:X8} " +
+                $"listType={listType} slot={slotIndex}");
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                header.type,
+                UseStackableAckBuilder.BuildError(
+                    (byte)listType,
+                    instanceValue,
+                    resolvedItemId)));
             return true;
         }
 

@@ -14,13 +14,19 @@ namespace DfoServer.Game.TitleBook
         private static readonly int[] DefaultCapacities = { 80, 170, 50, 100, 100 };
 
         private readonly Dictionary<(int Category, int Index), TitleBookSlotDefinition> _slots;
+        private readonly Dictionary<int, TitleBookSlotDefinition> _slotsByQuestId;
+        private readonly Dictionary<int, TitleBookSlotDefinition> _slotsByAchievementQuestId;
         private readonly Dictionary<int, TitleQuestDefinition> _quests;
 
         private TitleBookStaticDataProvider(
             Dictionary<(int Category, int Index), TitleBookSlotDefinition> slots,
+            Dictionary<int, TitleBookSlotDefinition> slotsByQuestId,
+            Dictionary<int, TitleBookSlotDefinition> slotsByAchievementQuestId,
             Dictionary<int, TitleQuestDefinition> quests)
         {
             _slots = slots;
+            _slotsByQuestId = slotsByQuestId;
+            _slotsByAchievementQuestId = slotsByAchievementQuestId;
             _quests = quests;
         }
 
@@ -32,12 +38,22 @@ namespace DfoServer.Game.TitleBook
             if (!string.IsNullOrWhiteSpace(titleBookText))
             {
                 var slots = ParseTitleBookEtc(titleBookText);
+                var slotsByQuestId = BuildQuestIndex(slots);
+                var slotsByAchievementQuestId = BuildAchievementQuestIndex(slots);
                 var quests = ParseTitleQuestDefinitions(slots.Values.Select(s => s.QuestId));
-                return new TitleBookStaticDataProvider(slots, quests);
+                return new TitleBookStaticDataProvider(
+                    slots,
+                    slotsByQuestId,
+                    slotsByAchievementQuestId,
+                    quests);
             }
 
             var fallbackSlots = BuildOpenFallback();
-            return new TitleBookStaticDataProvider(fallbackSlots, new Dictionary<int, TitleQuestDefinition>());
+            return new TitleBookStaticDataProvider(
+                fallbackSlots,
+                BuildQuestIndex(fallbackSlots),
+                new Dictionary<int, TitleBookSlotDefinition>(),
+                new Dictionary<int, TitleQuestDefinition>());
         }
 
         public TitleBookSlotDefinition GetSlot(int category, int index)
@@ -56,8 +72,43 @@ namespace DfoServer.Game.TitleBook
 
         public bool TryFindByQuestId(int questId, out TitleBookSlotDefinition definition)
         {
-            definition = _slots.Values.FirstOrDefault(s => s.IsOpen && s.QuestId == questId);
-            return definition != null;
+            if (_slotsByQuestId.TryGetValue(questId, out definition))
+                return true;
+
+            return _slotsByAchievementQuestId.TryGetValue(questId, out definition);
+        }
+
+        internal IReadOnlyList<ushort> GetGeneralAchievementQuestIds()
+        {
+            var result = new List<ushort>();
+            var seen = new HashSet<ushort>();
+            for (var index = 0; index < DefaultCapacities[0]; index++)
+            {
+                if (!_slots.TryGetValue((0, index), out var slot)
+                    || slot == null
+                    || !slot.IsOpen
+                    || slot.QuestId <= 0)
+                {
+                    continue;
+                }
+
+                var quest = QuestData.GetQuestFile(slot.QuestId);
+                var questIds = QuestData.ParseIntList(quest?.IntData);
+                if (questIds.Count == 0)
+                    continue;
+
+                var achievementQuestId = questIds[0];
+                if (achievementQuestId <= 0
+                    || achievementQuestId > ushort.MaxValue
+                    || !seen.Add((ushort)achievementQuestId))
+                {
+                    continue;
+                }
+
+                result.Add((ushort)achievementQuestId);
+            }
+
+            return result;
         }
 
         public TitleQuestDefinition GetQuest(int questId)
@@ -186,6 +237,62 @@ namespace DfoServer.Game.TitleBook
             var fallbackRoot = ResolveTitleQuestRoot();
             if (!string.IsNullOrWhiteSpace(fallbackRoot))
                 ParseTitleQuestDefinitionsFromFileRoot(fallbackRoot, requestedQuestIds, result);
+
+            return result;
+        }
+
+        private static Dictionary<int, TitleBookSlotDefinition> BuildQuestIndex(
+            Dictionary<(int Category, int Index), TitleBookSlotDefinition> slots)
+        {
+            var result = new Dictionary<int, TitleBookSlotDefinition>();
+            for (var category = 0; category < DefaultCapacities.Length; category++)
+            {
+                for (var index = 0; index < DefaultCapacities[category]; index++)
+                {
+                    if (!slots.TryGetValue((category, index), out var slot)
+                        || slot == null
+                        || !slot.IsOpen
+                        || slot.QuestId <= 0
+                        || result.ContainsKey(slot.QuestId))
+                    {
+                        continue;
+                    }
+
+                    result[slot.QuestId] = slot;
+                }
+            }
+
+            return result;
+        }
+
+        private static Dictionary<int, TitleBookSlotDefinition> BuildAchievementQuestIndex(
+            Dictionary<(int Category, int Index), TitleBookSlotDefinition> slots)
+        {
+            var result = new Dictionary<int, TitleBookSlotDefinition>();
+            for (var category = 0; category < DefaultCapacities.Length; category++)
+            {
+                for (var index = 0; index < DefaultCapacities[category]; index++)
+                {
+                    if (!slots.TryGetValue((category, index), out var slot)
+                        || slot == null
+                        || !slot.IsOpen
+                        || slot.QuestId <= 0)
+                    {
+                        continue;
+                    }
+
+                    var quest = QuestData.GetQuestFile(slot.QuestId);
+                    var questIds = QuestData.ParseIntList(quest?.IntData);
+                    if (questIds.Count == 0)
+                        continue;
+
+                    var achievementQuestId = questIds[0];
+                    if (achievementQuestId <= 0 || result.ContainsKey(achievementQuestId))
+                        continue;
+
+                    result[achievementQuestId] = slot;
+                }
+            }
 
             return result;
         }

@@ -1609,9 +1609,9 @@ namespace DfoServer.Game.Quests
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,
-            int slotId)
+            int slotType)
         {
-            var flag = ResolveSlotExpansionFlag(slotId);
+            var flag = ResolveSlotExpansionFlag(slotType);
             if (flag == 0)
                 return;
             using (var command = connection.CreateCommand())
@@ -1628,8 +1628,18 @@ namespace DfoServer.Game.Quests
             }
         }
 
-        private static int ResolveSlotExpansionFlag(int slotId)
-            => slotId < 21 || slotId > 23 ? 0 : 1 << (slotId - 21);
+        private static int ResolveSlotExpansionFlag(int slotType)
+        {
+            switch (slotType)
+            {
+                case 0:
+                    return 1;
+                case 1:
+                    return 2;
+                default:
+                    return 0;
+            }
+        }
 
         private static int GetMainItemIdentityKey(int itemId)
         {

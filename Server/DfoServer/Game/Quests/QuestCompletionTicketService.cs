@@ -73,6 +73,10 @@ namespace DfoServer.Game.Quests
 
     internal sealed class QuestCompletionTicketService
     {
+        private static readonly Lazy<TitleBookStaticDataProvider> TitleBookData =
+            new Lazy<TitleBookStaticDataProvider>(
+                TitleBookStaticDataProvider.LoadDefault);
+
         private static readonly Lazy<TitleBookMutationService>
             TitleBookMutations =
                 new Lazy<TitleBookMutationService>(
@@ -400,6 +404,16 @@ WHERE character_id = @cid AND delete_flag = 0;";
             StackableItemFile stackable,
             TicketCompletionContext context)
         {
+            if (actionKind == QuestCompletionTicketActionKind.AchievementQuestClear)
+            {
+                return TryFindNextTitleBookGeneralAchievementQuest(
+                    connection,
+                    transaction,
+                    characterId,
+                    context,
+                    out _);
+            }
+
             var visible = BuildVisibleQuestSet(
                 connection,
                 transaction,
@@ -443,6 +457,12 @@ WHERE character_id = @cid AND delete_flag = 0;";
                         stackable,
                         context);
                 case QuestCompletionTicketActionKind.AchievementQuestClear:
+                    return CompleteTitleBookGeneralAchievementTargets(
+                        connection,
+                        transaction,
+                        characterId,
+                        lease,
+                        context);
                 case QuestCompletionTicketActionKind.FirstAwakenClear:
                 case QuestCompletionTicketActionKind.SecondAwakenClear:
                     return CompleteDynamicTargets(
@@ -486,6 +506,41 @@ WHERE character_id = @cid AND delete_flag = 0;";
                     lease,
                     questId,
                     context);
+                completed++;
+            }
+
+            return completed;
+        }
+
+        private static int CompleteTitleBookGeneralAchievementTargets(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            InventoryLease lease,
+            TicketCompletionContext context)
+        {
+            var completed = 0;
+            var clearedFlags = QuestRepository.LoadClearedFlags(
+                connection,
+                transaction,
+                characterId);
+            foreach (var questId in TitleBookData.Value.GetGeneralAchievementQuestIds())
+            {
+                if (context.CompletedThisTicket.Contains(questId)
+                    || clearedFlags.ContainsKey(questId)
+                    || !IsCompletableAchievementQuest(questId))
+                {
+                    continue;
+                }
+
+                CompleteQuest(
+                    connection,
+                    transaction,
+                    characterId,
+                    lease,
+                    questId,
+                    context);
+                clearedFlags[questId] = 1;
                 completed++;
             }
 
@@ -571,6 +626,34 @@ WHERE character_id = @cid AND delete_flag = 0;";
             return false;
         }
 
+        private static bool TryFindNextTitleBookGeneralAchievementQuest(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            TicketCompletionContext context,
+            out ushort questId)
+        {
+            questId = 0;
+            var clearedFlags = QuestRepository.LoadClearedFlags(
+                connection,
+                transaction,
+                characterId);
+            foreach (var candidateQuestId in TitleBookData.Value.GetGeneralAchievementQuestIds())
+            {
+                if (context.CompletedThisTicket.Contains(candidateQuestId)
+                    || clearedFlags.ContainsKey(candidateQuestId)
+                    || !IsCompletableAchievementQuest(candidateQuestId))
+                {
+                    continue;
+                }
+
+                questId = candidateQuestId;
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool MatchesDynamicTarget(
             ushort questId,
             QuestCompletionTicketActionKind actionKind,
@@ -585,15 +668,6 @@ WHERE character_id = @cid AND delete_flag = 0;";
 
             switch (actionKind)
             {
-                case QuestCompletionTicketActionKind.AchievementQuestClear:
-                    return string.Equals(
-                            QuestData.NormalizeQuestTag(quest.Grade),
-                            "achievement",
-                            StringComparison.OrdinalIgnoreCase)
-                        && string.Equals(
-                            QuestData.NormalizeQuestTag(quest.RewardType),
-                            "title",
-                            StringComparison.OrdinalIgnoreCase);
                 case QuestCompletionTicketActionKind.FirstAwakenClear:
                     return quest.JobChangeQuestValue == 2;
                 case QuestCompletionTicketActionKind.SecondAwakenClear:
@@ -601,6 +675,26 @@ WHERE character_id = @cid AND delete_flag = 0;";
                 default:
                     return false;
             }
+        }
+
+        private static bool IsCompletableAchievementQuest(ushort questId)
+        {
+            var quest = QuestData.GetQuestFile(questId);
+            if (quest == null)
+                return false;
+
+            return string.Equals(
+                    QuestData.NormalizeQuestTag(quest.Grade),
+                    "achievement",
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    QuestData.NormalizeQuestTag(quest.RewardType),
+                    "title",
+                    StringComparison.OrdinalIgnoreCase)
+                && QuestData.TryResolveCompletionDefinition(
+                    questId,
+                    out _,
+                    out _);
         }
 
         private static void CompleteQuest(
