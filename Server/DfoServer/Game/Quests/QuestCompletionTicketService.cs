@@ -73,10 +73,6 @@ namespace DfoServer.Game.Quests
 
     internal sealed class QuestCompletionTicketService
     {
-        private static readonly Lazy<TitleBookStaticDataProvider> TitleBookData =
-            new Lazy<TitleBookStaticDataProvider>(
-                TitleBookStaticDataProvider.LoadDefault);
-
         private static readonly Lazy<TitleBookMutationService>
             TitleBookMutations =
                 new Lazy<TitleBookMutationService>(
@@ -594,10 +590,10 @@ WHERE character_id = @cid AND delete_flag = 0;";
                             QuestData.NormalizeQuestTag(quest.Grade),
                             "achievement",
                             StringComparison.OrdinalIgnoreCase)
-                        && TitleBookData.Value.TryFindByQuestId(
-                            questId,
-                            out var titleBookSlot)
-                        && titleBookSlot.Category == 0;
+                        && string.Equals(
+                            QuestData.NormalizeQuestTag(quest.RewardType),
+                            "title",
+                            StringComparison.OrdinalIgnoreCase);
                 case QuestCompletionTicketActionKind.FirstAwakenClear:
                     return quest.JobChangeQuestValue == 2;
                 case QuestCompletionTicketActionKind.SecondAwakenClear:
