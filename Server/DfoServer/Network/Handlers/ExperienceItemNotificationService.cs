@@ -45,7 +45,8 @@ namespace DfoServer.Network.Handlers
 
         internal async Task SendAsync(
             EnhancedClientSession session,
-            ExperienceItemUseResult result)
+            ExperienceItemUseResult result,
+            bool sendQuestList = true)
         {
             if (session?.Player == null || result == null || !result.Success)
                 return;
@@ -67,9 +68,12 @@ namespace DfoServer.Network.Handlers
                 // 副本内发送 subtype0 不安全。既有升级路径先发送 EXP 快照，
                 // 再刷新任务和派生的 subtype1 属性。
                 await SendExperienceAsync(session, result, honor, growthCapsule);
-                await TrySendAuxiliaryAsync(
-                    "quest-list",
-                    () => SendQuestListAsync(session));
+                if (sendQuestList)
+                {
+                    await TrySendAuxiliaryAsync(
+                        "quest-list",
+                        () => SendQuestListAsync(session));
+                }
                 await TrySendAuxiliaryAsync(
                     "subtype1",
                     () => SendSubtype1Async(session, result, honor));
@@ -83,9 +87,12 @@ namespace DfoServer.Network.Handlers
                     "subtype1",
                     () => SendSubtype1Async(session, result, honor));
                 await SendExperienceAsync(session, result, honor, growthCapsule);
-                await TrySendAuxiliaryAsync(
-                    "quest-list",
-                    () => SendQuestListAsync(session));
+                if (sendQuestList)
+                {
+                    await TrySendAuxiliaryAsync(
+                        "quest-list",
+                        () => SendQuestListAsync(session));
+                }
             }
 
             FileLogger.Log(

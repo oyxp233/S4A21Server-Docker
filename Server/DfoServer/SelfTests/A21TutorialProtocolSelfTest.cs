@@ -11,6 +11,7 @@ using DfoServer.Network.Builders;
 using DfoServer.Network.Handlers;
 using DfoServer.Network.Handlers.Dungeon;
 using DfoServer.Network.Parsers.Dungeon;
+using DfoServer.Network.Parsers.Inventory;
 using System;
 using System.Collections.Generic;
 
@@ -56,6 +57,43 @@ namespace DfoServer.SelfTests
                 && dungeonPermission[6] == 1
                 && BitConverter.ToUInt32(dungeonPermission, 7) == 0x07D9
                 && dungeonPermission[11] == 2,
+                ref failures);
+
+            var levelUpTicketShortRequest = LevelUpTicketRequest.TryParse(
+                new byte[] { 0x03, 0x00, 0x00 },
+                out var parsedLevelUpTicket)
+                && parsedLevelUpTicket.SlotIndex == 3
+                && parsedLevelUpTicket.Reserved == 0;
+            var levelUpTicketLongRequest = new byte[16];
+            levelUpTicketLongRequest[0] = 0x03;
+            var levelUpTicketLongRequestOk = LevelUpTicketRequest.TryParse(
+                levelUpTicketLongRequest,
+                out var parsedLongLevelUpTicket)
+                && parsedLongLevelUpTicket.SlotIndex == 3;
+            var levelUpTicketAckBody = LevelUpTicketAckBuilder.BuildSuccess();
+            var levelUpTicketAckPacket = GamePacketEnvelopeBuilder.Build(
+                0x01,
+                (ushort)CmdPacketTypeA21.REQUEST_EVENT_SERVER_LEVEL_UP,
+                levelUpTicketAckBody);
+            var autoQuestClearRewardPacket = GamePacketEnvelopeBuilder.Build(
+                0x00,
+                (ushort)NotiPacketTypeA21.EVENT_SERVER_AUTO_QUEST_CLEAR_REWARD_DATA,
+                CommonPacketBodyBuilder.BuildZeroBytes(10));
+            Check(
+                "A21 REQUEST_EVENT_SERVER_LEVEL_UP parses slot and uses captured short ack",
+                (ushort)CmdPacketTypeA21.REQUEST_EVENT_SERVER_LEVEL_UP == 0x01A2
+                && (ushort)NotiPacketTypeA21.EVENT_SERVER_AUTO_QUEST_CLEAR_REWARD_DATA == 0x0169
+                && levelUpTicketShortRequest
+                && levelUpTicketLongRequestOk
+                && levelUpTicketAckBody.Length == 2
+                && levelUpTicketAckBody[0] == 0
+                && levelUpTicketAckBody[1] == 0
+                && levelUpTicketAckPacket.Length == 17
+                && BitConverter.ToUInt16(levelUpTicketAckPacket, 1) == 0x01A2
+                && BitConverter.ToInt32(levelUpTicketAckPacket, 3) == 17
+                && autoQuestClearRewardPacket.Length == 25
+                && BitConverter.ToUInt16(autoQuestClearRewardPacket, 1) == 0x0169
+                && BitConverter.ToInt32(autoQuestClearRewardPacket, 3) == 25,
                 ref failures);
 
             var titleBookCategory = new TitleBookCategorySnapshot

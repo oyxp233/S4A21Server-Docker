@@ -181,6 +181,24 @@ namespace DfoServer.Game.Quests
             }
         }
 
+        internal static int DeleteActiveQuestsByQuestId(
+            SqliteConnection conn,
+            SqliteTransaction tx,
+            int characterId,
+            ushort questId)
+        {
+            using (var cmd = new SqliteCommand(
+                @"DELETE FROM character_active_quests
+                  WHERE character_id=@cid AND quest_id=@qid",
+                conn,
+                tx))
+            {
+                cmd.Parameters.AddWithValue("@cid", characterId);
+                cmd.Parameters.AddWithValue("@qid", (int)questId);
+                return cmd.ExecuteNonQuery();
+            }
+        }
+
         public static bool UpdateTriggerValue(
             SqliteConnection conn,
             SqliteTransaction tx,

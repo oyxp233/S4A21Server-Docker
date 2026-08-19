@@ -5,31 +5,41 @@ namespace DfoServer.Network.Parsers.Town
 {
     internal readonly struct ItemTeleportRequest
     {
-        internal const int BodyLength = 8;
+        // A21: slot + item id + reserved + town id + target x/y.
+        internal const int MinimumBodyLength = 13;
 
         private ItemTeleportRequest(
-            short type,
+            short itemSlot,
             int itemTemplateId,
             byte reserved,
-            byte targetTownId)
+            ushort targetTownId,
+            short targetX,
+            short targetY,
+            int trailingLength)
         {
-            Type = type;
+            ItemSlot = itemSlot;
             ItemTemplateId = itemTemplateId;
             Reserved = reserved;
             TargetTownId = targetTownId;
+            TargetX = targetX;
+            TargetY = targetY;
+            TrailingLength = trailingLength;
         }
 
-        internal short Type { get; }
+        internal short ItemSlot { get; }
         internal int ItemTemplateId { get; }
         internal byte Reserved { get; }
-        internal byte TargetTownId { get; }
+        internal ushort TargetTownId { get; }
+        internal short TargetX { get; }
+        internal short TargetY { get; }
+        internal int TrailingLength { get; }
 
         internal static bool TryParse(
             byte[] body,
             out ItemTeleportRequest request)
         {
             request = default;
-            if (body == null || body.Length != BodyLength)
+            if (body == null || body.Length < MinimumBodyLength)
                 return false;
 
             request = new ItemTeleportRequest(
@@ -38,7 +48,13 @@ namespace DfoServer.Network.Parsers.Town
                 BinaryPrimitives.ReadInt32LittleEndian(
                     body.AsSpan(2, sizeof(int))),
                 body[6],
-                body[7]);
+                BinaryPrimitives.ReadUInt16LittleEndian(
+                    body.AsSpan(7, sizeof(short))),
+                BinaryPrimitives.ReadInt16LittleEndian(
+                    body.AsSpan(9, sizeof(short))),
+                BinaryPrimitives.ReadInt16LittleEndian(
+                    body.AsSpan(11, sizeof(short))),
+                body.Length - MinimumBodyLength);
             return request.ItemTemplateId > 0;
         }
     }

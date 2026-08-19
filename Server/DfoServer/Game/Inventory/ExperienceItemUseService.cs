@@ -2,16 +2,21 @@ using DfoServer.Game.Accounts;
 using DfoServer.Game.CharacterData;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
+using DfoServer.Game.Quests;
 using DfoServer.Game.ReviveCoin;
 using DfoServer.Game.Skills;
+using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
 using Microsoft.Data.Sqlite;
 using System;
+using System.Collections.Generic;
 
 namespace DfoServer.Game.Inventory
 {
     internal sealed class ExperienceItemUseService
     {
+        private const string LevelUpTicketActionType = "[level up ticket]";
+
         private readonly string _connectionString;
         private readonly IRentalTimeProvider _timeProvider;
         private readonly ExperienceItemCooldownTracker _cooldowns;
@@ -388,6 +393,283 @@ namespace DfoServer.Game.Inventory
             }
         }
 
+        internal ExperienceItemUseResult UseLevelUpTicketBySlot(
+            int characterId,
+            int accountId,
+            short slotIndex,
+            ExperienceItemUseLocation location)
+        {
+            if (characterId <= 0 || slotIndex < 0)
+                return Reject(ExperienceItemUseStatus.NotApplicable, 0, "invalid source slot");
+
+            if (!InventoryContext.TryGetLease(characterId, out var lease)
+                || lease.Inventory == null)
+                return Reject(ExperienceItemUseStatus.NotApplicable, 0, "online inventory is unavailable");
+
+            if (accountId <= 0 || lease.AccountId != accountId)
+                return Reject(ExperienceItemUseStatus.InvalidOwner, 0, "inventory lease/account ownership mismatch");
+
+            var resolvedItemId = 0;
+            var sourceConsumed = false;
+            ItemCore sourceSnapshot = null;
+            InventoryService inventory = null;
+            try
+            {
+                lock (lease.SyncRoot)
+                {
+                    inventory = lease.Inventory;
+                    var source = inventory.GetItem(InventoryListType.Main, slotIndex);
+                    if (source == null || source.IsEmpty)
+                        return Reject(ExperienceItemUseStatus.NotApplicable, 0, "source slot is empty");
+
+                    sourceSnapshot = source.Copy();
+                    resolvedItemId = sourceSnapshot.ItemId;
+                    var stackable = StackableItemProvider.Load(resolvedItemId);
+                    if (!IsLevelUpTicket(stackable))
+                    {
+                        return Reject(
+                            ExperienceItemUseStatus.UnsupportedDefinition,
+                            resolvedItemId,
+                            "source item is not a level-up ticket");
+                    }
+
+                    using (var connection = new SqliteConnection(_connectionString))
+                    {
+                        connection.Open();
+                        using (var transaction = connection.BeginTransaction(deferred: false))
+                        {
+                            var currentSource = inventory.GetItem(
+                                InventoryListType.Main,
+                                slotIndex);
+                            if (currentSource == null
+                                || currentSource.ItemId != resolvedItemId)
+                            {
+                                return Reject(
+                                    ExperienceItemUseStatus.NotApplicable,
+                                    resolvedItemId,
+                                    "source slot changed during use");
+                            }
+
+                            if (currentSource.Count <= 0)
+                            {
+                                return Reject(
+                                    ExperienceItemUseStatus.ConsumeFailed,
+                                    resolvedItemId,
+                                    "source stack is empty");
+                            }
+
+                            if (currentSource.ExpireTime > 0
+                                && (uint)currentSource.ExpireTime
+                                    <= _timeProvider.UtcNowUnixSeconds())
+                            {
+                                return Reject(
+                                    ExperienceItemUseStatus.Expired,
+                                    resolvedItemId,
+                                    "source item has expired");
+                            }
+
+                            var character = _progressRepository.LoadProgressSnapshot(
+                                connection,
+                                transaction,
+                                characterId);
+                            if (character == null
+                                || accountId <= 0
+                                || character.AccountId != accountId)
+                            {
+                                return Reject(
+                                    ExperienceItemUseStatus.InvalidOwner,
+                                    resolvedItemId,
+                                    "character/account ownership mismatch");
+                            }
+
+                            if (!CanUseLevelUpTicket(stackable, character, out var levelError))
+                            {
+                                return Reject(
+                                    ExperienceItemUseStatus.LevelRestricted,
+                                    resolvedItemId,
+                                    levelError);
+                            }
+
+                            var targetLevel = checked((byte)(character.Level + 1));
+                            var targetThreshold = ExpTableProvider.GetLevelThreshold(
+                                character.Level);
+                            if (targetThreshold < 0 || targetThreshold == int.MaxValue)
+                            {
+                                return Reject(
+                                    ExperienceItemUseStatus.NoExperienceGain,
+                                    resolvedItemId,
+                                    "next level threshold is unavailable");
+                            }
+
+                            if (!InventoryDeleteService.TryConsumeFromSlot(
+                                    inventory,
+                                    InventoryListType.Main,
+                                    slotIndex,
+                                    resolvedItemId,
+                                    1,
+                                    out var deleteResult)
+                                || !deleteResult.Success
+                                || deleteResult.DeletedCount != 1)
+                            {
+                                return Reject(
+                                    ExperienceItemUseStatus.ConsumeFailed,
+                                    resolvedItemId,
+                                    "inventory deduction failed");
+                            }
+
+                            sourceConsumed = true;
+                            var consumedItem = BuildConsumedMutation(
+                                InventoryListType.Main,
+                                slotIndex,
+                                sourceSnapshot,
+                                deleteResult);
+
+                            var completedMainlineQuests =
+                                AutoCompleteCurrentLevelMainlineQuests(
+                                    connection,
+                                    transaction,
+                                    characterId,
+                                    character.Level,
+                                    character.Job,
+                                    character.GrowType,
+                                    inventory);
+
+                            var targetExp = (uint)targetThreshold;
+                            if (!Progression.CharacterProgressService.PersistLevelAndExp(
+                                    connection,
+                                    transaction,
+                                    characterId,
+                                    targetLevel,
+                                    targetExp))
+                            {
+                                RestoreConsumedSource(
+                                    inventory,
+                                    InventoryListType.Main,
+                                    slotIndex,
+                                    sourceSnapshot);
+                                sourceConsumed = false;
+                                return Reject(
+                                    ExperienceItemUseStatus.PersistenceFailed,
+                                    resolvedItemId,
+                                    "level/experience persistence failed");
+                            }
+
+                            CharacterStatComputer.DecodeGrowType(
+                                character.GrowType,
+                                out var firstGrow,
+                                out var secondGrow);
+                            var syncedSkills = SkillStateService.LoadAndSync(
+                                _progressRepository,
+                                connection,
+                                transaction,
+                                characterId,
+                                character.Job,
+                                targetLevel,
+                                character.BonusSp,
+                                character.BonusTp,
+                                persist: true,
+                                growType: firstGrow,
+                                secondGrowType: secondGrow);
+                            if (syncedSkills.Points == null)
+                            {
+                                RestoreConsumedSource(
+                                    inventory,
+                                    InventoryListType.Main,
+                                    slotIndex,
+                                    sourceSnapshot);
+                                sourceConsumed = false;
+                                return Reject(
+                                    ExperienceItemUseStatus.PersistenceFailed,
+                                    resolvedItemId,
+                                    "skill-point synchronization failed");
+                            }
+
+                            if (!InventoryPersistenceService.SaveDirtyInTransaction(
+                                    connection,
+                                    transaction,
+                                    lease))
+                            {
+                                RestoreConsumedSource(
+                                    inventory,
+                                    InventoryListType.Main,
+                                    slotIndex,
+                                    sourceSnapshot);
+                                sourceConsumed = false;
+                                return Reject(
+                                    ExperienceItemUseStatus.PersistenceFailed,
+                                    resolvedItemId,
+                                    "inventory persistence failed");
+                            }
+
+                            var totalGrowthCapsuleExp =
+                                targetLevel >= ExpTableProvider.MaxLevel
+                                    ? GrowthCapsuleProgressRepository.LoadTotalExp(
+                                        connection,
+                                        transaction,
+                                        accountId)
+                                    : 0;
+                            var grantedExp = targetExp > character.Exp
+                                ? targetExp - character.Exp
+                                : 0;
+                            var result = new ExperienceItemUseResult
+                            {
+                                Status = ExperienceItemUseStatus.Success,
+                                AccountId = accountId,
+                                ItemTemplateId = resolvedItemId,
+                                ConsumedItem = consumedItem,
+                                PreviousLevel = character.Level,
+                                NewLevel = targetLevel,
+                                PreviousExp = character.Exp,
+                                NewExp = targetExp,
+                                GrantedExp = grantedExp,
+                                TotalGrowthCapsuleExp = totalGrowthCapsuleExp,
+                                SyncedSkills = syncedSkills.Skills,
+                                SkillPoints = SkillStateService.GetProtocolState(
+                                    syncedSkills.Skills,
+                                    syncedSkills.Points),
+                                AutoCompletedQuestIds = completedMainlineQuests,
+                            };
+
+                            transaction.Commit();
+                            inventory.ClearDirtyState();
+                            sourceConsumed = false;
+                            return result;
+                        }
+                    }
+                }
+            }
+            catch (SqliteException ex)
+            {
+                if (sourceConsumed)
+                    RestoreConsumedSource(
+                        inventory,
+                        InventoryListType.Main,
+                        slotIndex,
+                        sourceSnapshot);
+
+                FileLogger.Log(
+                    $"[LevelUpTicket] SQLite failure item={resolvedItemId} cid={characterId} slot={slotIndex}: {ex.SqliteErrorCode}/{ex.SqliteExtendedErrorCode} {ex.Message}");
+                return Reject(
+                    ExperienceItemUseStatus.PersistenceFailed,
+                    resolvedItemId,
+                    "database transaction failed");
+            }
+            catch (Exception ex) when (sourceConsumed)
+            {
+                RestoreConsumedSource(
+                    inventory,
+                    InventoryListType.Main,
+                    slotIndex,
+                    sourceSnapshot);
+                FileLogger.Log(
+                    $"[LevelUpTicket] inventory mutation rollback item={resolvedItemId} cid={characterId} slot={slotIndex}: {ex.Message}");
+                return Reject(
+                    ExperienceItemUseStatus.PersistenceFailed,
+                    resolvedItemId,
+                    "inventory transaction failed");
+            }
+        }
+
         private static InventoryMutationResult BuildConsumedMutation(
             InventoryListType listType,
             short slotIndex,
@@ -408,6 +690,169 @@ namespace DfoServer.Game.Inventory
                 RequestedCount = 1,
                 AppliedCount = (short)(deleteResult != null ? deleteResult.DeletedCount : 0),
             };
+        }
+
+        private static bool IsLevelUpTicket(PvfLib.StackableItemFile stackable)
+            => string.Equals(
+                StackableItemProvider.NormalizeType(stackable?.ActionTypeName),
+                LevelUpTicketActionType,
+                StringComparison.OrdinalIgnoreCase);
+
+        private static bool CanUseLevelUpTicket(
+            PvfLib.StackableItemFile stackable,
+            CharacterProgressSnapshot character,
+            out string error)
+        {
+            error = null;
+            if (stackable == null || character == null)
+            {
+                error = "level-up ticket definition is unavailable";
+                return false;
+            }
+
+            if (character.Level <= 0 || character.Level >= ExpTableProvider.MaxLevel)
+            {
+                error = $"level={character?.Level ?? 0} is outside level-up range";
+                return false;
+            }
+
+            if (stackable.MinimumLevel >= 0
+                && character.Level < stackable.MinimumLevel)
+            {
+                error =
+                    $"level={character.Level} is below ticket minimum={stackable.MinimumLevel}";
+                return false;
+            }
+
+            if (stackable.MaximumLevel >= 0
+                && character.Level > stackable.MaximumLevel)
+            {
+                error =
+                    $"level={character.Level} exceeds ticket maximum={stackable.MaximumLevel}";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static IReadOnlyList<ushort> AutoCompleteCurrentLevelMainlineQuests(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            byte currentLevel,
+            byte characterJob,
+            byte growType,
+            InventoryService inventory)
+        {
+            var completed = new List<ushort>();
+            var guard = Math.Max(1, QuestCatalog.OrderedIds.Count);
+            for (var iteration = 0; iteration < guard; iteration++)
+            {
+                var active = QuestRepository.LoadActiveQuests(
+                    connection,
+                    transaction,
+                    characterId);
+                var clearedFlags = QuestRepository.LoadClearedFlags(
+                    connection,
+                    transaction,
+                    characterId);
+                var clearedQuestIds = new HashSet<int>(clearedFlags.Keys);
+
+                var allowedCreatureKinds =
+                    PetCreatureEvolutionRuntimeService
+                        .LoadEligiblePetCreatureEvolutionQuestKinds(inventory);
+                var acceptable = QuestData.ComputeAcceptableQuests(
+                    currentLevel,
+                    characterJob,
+                    growType,
+                    clearedQuestIds,
+                    clearedFlags,
+                    allowedCreatureKinds);
+                var nextQuestId = ResolveNextCurrentLevelMainlineQuest(
+                    acceptable,
+                    active,
+                    currentLevel,
+                    clearedQuestIds);
+                if (nextQuestId == 0)
+                    return completed;
+
+                QuestRepository.DeleteActiveQuestsByQuestId(
+                    connection,
+                    transaction,
+                    characterId,
+                    nextQuestId);
+                QuestRepository.MarkQuestCleared(
+                    connection,
+                    transaction,
+                    characterId,
+                    nextQuestId,
+                    flagValue: 1);
+                completed.Add(nextQuestId);
+            }
+
+            FileLogger.Log(
+                $"[LevelUpTicket] mainline auto-clear stopped by guard: cid={characterId} level={currentLevel} completed={completed.Count}");
+            return completed;
+        }
+
+        private static ushort ResolveNextCurrentLevelMainlineQuest(
+            IReadOnlyList<ushort> acceptableQuestIds,
+            IReadOnlyList<ActiveQuest> activeQuestIds,
+            int currentLevel,
+            ISet<int> clearedQuestIds)
+        {
+            if (acceptableQuestIds != null)
+            {
+                foreach (var questId in acceptableQuestIds)
+                {
+                    if ((clearedQuestIds == null || !clearedQuestIds.Contains(questId))
+                        && IsCurrentLevelMainlineQuest(questId, currentLevel))
+                    {
+                        return questId;
+                    }
+                }
+            }
+
+            if (activeQuestIds != null)
+            {
+                foreach (var active in activeQuestIds)
+                {
+                    var questId = active != null ? active.QuestId : (ushort)0;
+                    if (questId != 0
+                        && (clearedQuestIds == null || !clearedQuestIds.Contains(questId))
+                        && IsCurrentLevelMainlineQuest(questId, currentLevel))
+                    {
+                        return questId;
+                    }
+                }
+            }
+
+            return 0;
+        }
+
+        private static bool IsCurrentLevelMainlineQuest(
+            ushort questId,
+            int currentLevel)
+        {
+            if (questId == 0 || questId > 29999)
+                return false;
+
+            var quest = QuestCatalog.Get(questId);
+            if (quest == null || quest.IsEvent)
+                return false;
+
+            if (!string.Equals(
+                    QuestData.NormalizeQuestTag(quest.Grade),
+                    "epic",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var minimumLevel = quest.Level != null && quest.Level.Length > 0
+                ? quest.Level[0]
+                : 1;
+            return minimumLevel == currentLevel;
         }
 
         private static void RestoreConsumedSource(

@@ -2,6 +2,7 @@ using DfoServer.Game.Accounts;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.Skills;
+using System.Collections.Generic;
 
 namespace DfoServer.Game.Inventory
 {
@@ -44,6 +45,7 @@ namespace DfoServer.Game.Inventory
         internal SkillInfoSnapshot SyncedSkills { get; set; }
         internal SkillPointProtocolState SkillPoints { get; set; }
         internal UsableCountLimitState UsableCountState { get; set; }
+        internal IReadOnlyList<ushort> AutoCompletedQuestIds { get; set; }
         internal string Detail { get; set; }
 
         internal bool Success => Status == ExperienceItemUseStatus.Success;
