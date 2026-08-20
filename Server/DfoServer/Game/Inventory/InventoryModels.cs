@@ -282,6 +282,12 @@ namespace DfoServer.Game.Inventory
 
         public int GrantedCount { get; set; }
 
+        public ushort Durability { get; set; }
+
+        public byte Attr { get; set; }
+
+        public int ExpireTime { get; set; }
+
         public SpecialRewardOutcome SpecialOutcome { get; set; }
 
         internal static BoosterRewardResult FromSpecialOutcome(SpecialRewardOutcome outcome)

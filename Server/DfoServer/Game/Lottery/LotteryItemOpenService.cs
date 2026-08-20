@@ -272,8 +272,8 @@ namespace DfoServer.Game.Lottery
             if (selectedRewards.Count == 0)
                 return false;
 
-            var regularRequests = InventorySpecialConsumableService.BuildRewardRequests(
-                AggregateRewardEntries(selectedRewards, 1));
+            var regularRewards = AggregateRewardEntries(selectedRewards, 1).ToList();
+            var regularRequests = BuildLotteryRewardRequests(regularRewards);
             if (definition.UsesIncreaseChanceProgress)
                 useDoubleReward = false;
             var effectiveOverflowSink = definition.UsesIncreaseChanceProgress
@@ -296,8 +296,8 @@ namespace DfoServer.Game.Lottery
             var deliveredToMailbox = regularDeliveredToMailbox;
             if (useDoubleReward && CanAttemptDoubleReward(inventory.CharacterId, inventory.AccountId))
             {
-                var doubleRequests = InventorySpecialConsumableService.BuildRewardRequests(
-                    AggregateRewardEntries(selectedRewards, 2));
+                var doubleRewards = AggregateRewardEntries(selectedRewards, 2).ToList();
+                var doubleRequests = BuildLotteryRewardRequests(doubleRewards);
                 if (!TryPlanOnlineOpen(
                         inventory,
                         source,
@@ -384,6 +384,7 @@ namespace DfoServer.Game.Lottery
                 AddMailboxGrantResults(regularRequests, openResult.Rewards);
             else
                 AddOnlineGrantResults(inventory, grantBatch, openResult.Rewards);
+            ApplyGoldRewardSummary(inventory, openResult);
             if (definition.UsesIncreaseChanceProgress)
             {
                 var rewardIndex = FindRewardIndex(definition.RewardPool, selectedRewards[0]);
@@ -497,10 +498,11 @@ namespace DfoServer.Game.Lottery
                 reservation.AppliedDoubleReward = false;
             }
 
-            var rewardRequests = InventorySpecialConsumableService.BuildRewardRequests(
-                AggregateRewardEntries(
+            var rewardEntries = AggregateRewardEntries(
                     reservation.SelectedRewards,
-                    appliedDoubleReward ? 2 : 1));
+                    appliedDoubleReward ? 2 : 1)
+                .ToList();
+            var rewardRequests = BuildLotteryRewardRequests(rewardEntries);
             var effectiveOverflowSink = definition.UsesIncreaseChanceProgress
                 ? overflowSink
                 : RejectingInventoryOverflowRewardSink.Instance;
@@ -625,6 +627,7 @@ namespace DfoServer.Game.Lottery
                 AddMailboxGrantResults(rewardRequests, openResult.Rewards);
             else
                 AddOnlineGrantResults(inventory, grantBatch, openResult.Rewards);
+            ApplyGoldRewardSummary(inventory, openResult);
 
             if (definition.UsesIncreaseChanceProgress)
             {
@@ -940,14 +943,63 @@ namespace DfoServer.Game.Lottery
             int multiplier)
         {
             return rewards
-                .Where(reward => reward != null && reward.ItemId > 0 && reward.Count > 0)
+                .Where(reward => reward != null && reward.ItemId >= 0 && reward.Count > 0)
                 .GroupBy(reward => new { reward.ItemId, reward.UsablePeriodDays })
                 .Select(group => new PvfLib.BoosterRewardEntry
                 {
                     ItemId = group.Key.ItemId,
-                    Count = group.Sum(reward => Math.Max(1, reward.Count)) * Math.Max(1, multiplier),
+                    Count = (int)Math.Min(
+                        int.MaxValue,
+                        group.Sum(reward => (long)Math.Max(1, reward.Count))
+                            * Math.Max(1L, multiplier)),
                     UsablePeriodDays = group.Key.UsablePeriodDays,
                 });
+        }
+
+        private static List<InventoryRewardGrantRequest> BuildLotteryRewardRequests(
+            IReadOnlyList<PvfLib.BoosterRewardEntry> rewards)
+        {
+            var requests = InventorySpecialConsumableService.BuildRewardRequests(
+                (rewards ?? Array.Empty<PvfLib.BoosterRewardEntry>())
+                    .Where(reward => reward != null && reward.ItemId > 0));
+            var goldReward = SumGoldRewards(rewards);
+            if (goldReward > 0)
+            {
+                requests.Insert(
+                    0,
+                    InventoryRewardGrantRequest.Create(
+                        0,
+                        goldReward,
+                        ItemCreateReason.PackageOpen));
+            }
+
+            return requests;
+        }
+
+        private static int SumGoldRewards(
+            IEnumerable<PvfLib.BoosterRewardEntry> rewards)
+        {
+            if (rewards == null)
+                return 0;
+
+            var total = rewards
+                .Where(reward => reward != null && reward.ItemId == 0)
+                .Sum(reward => (long)Math.Max(0, reward.Count));
+            return (int)Math.Min(int.MaxValue, total);
+        }
+
+        private static void ApplyGoldRewardSummary(
+            InventoryService inventory,
+            LotteryOpenResult result)
+        {
+            if (result == null)
+                return;
+
+            result.GrantedGold = result.Rewards
+                .Where(reward => reward != null && reward.ItemTemplateId == 0)
+                .Sum(reward => Math.Max(0, reward.GrantedCount));
+            if (inventory != null)
+                result.UpdatedGold = inventory.CountMainItem(0);
         }
 
         private static void AddOnlineGrantResults(

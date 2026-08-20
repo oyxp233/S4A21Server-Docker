@@ -1710,7 +1710,7 @@ namespace DfoServer.Network.Handlers
                 return string.Empty;
 
             if (singleAckRows)
-                return $"ack={FormatBoosterRewardRows(result.Rewards, 16)} display={FormatPackageRows(result.DisplayRewards, 16)} double={FormatPackageRows(result.DoubleRewards, 16)}";
+                return $"ackDisplay={FormatPackageRows(result.DisplayRewards, 16)} raw={FormatBoosterRewardRows(result.Rewards, 16)} double={FormatPackageRows(result.DoubleRewards, 16)}";
 
             return $"ack={FormatPackageRows(result.DisplayRewards, 16)} double={FormatPackageRows(result.DoubleRewards, 16)}";
         }

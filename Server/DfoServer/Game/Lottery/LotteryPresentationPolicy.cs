@@ -8,7 +8,7 @@ namespace DfoServer.Game.Lottery
     public static class LotteryPresentationPolicy
     {
         public static bool ShouldSendGoldRefresh(LotteryOpenResult result)
-            => result != null && result.ConsumedGold > 0;
+            => result != null && (result.ConsumedGold > 0 || result.GrantedGold > 0);
 
         internal static ItemCore ResolveResultCore(
             InventoryService inventory,

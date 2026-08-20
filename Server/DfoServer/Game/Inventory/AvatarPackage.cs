@@ -98,6 +98,10 @@ namespace DfoServer.Game.Inventory
 
         public ushort Durability { get; set; }
 
+        public byte Attr { get; set; }
+
+        public int ExpireTime { get; set; }
+
         public SpecialRewardOutcome SpecialOutcome { get; set; }
     }
 

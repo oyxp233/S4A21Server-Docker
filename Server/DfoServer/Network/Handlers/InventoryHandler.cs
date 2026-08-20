@@ -170,6 +170,8 @@ namespace DfoServer.Network.Handlers
                     ItemTemplateId = reward.ItemTemplateId,
                     DisplayCount = reward.DisplayCount <= 0 ? 1 : reward.DisplayCount,
                     Durability = reward.Durability,
+                    Attr = reward.Attr,
+                    ExpireTime = reward.ExpireTime,
                 });
             }
         }
@@ -188,7 +190,9 @@ namespace DfoServer.Network.Handlers
                     SlotIndex = reward.SlotIndex,
                     ItemTemplateId = reward.ItemTemplateId,
                     DisplayCount = reward.GrantedCount <= 0 ? 1 : reward.GrantedCount,
-                    Durability = 0,
+                    Durability = reward.Durability,
+                    Attr = reward.Attr,
+                    ExpireTime = reward.ExpireTime,
                 });
             }
 

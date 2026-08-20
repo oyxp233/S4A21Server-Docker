@@ -182,7 +182,13 @@ namespace DfoServer.Network.Handlers
             int displayValue)
         {
             byte[] resultBody;
-            if (displayReward?.ListType == InventoryListType.Avatar)
+            if (result != null && result.GrantedGold > 0 && displayReward == null)
+            {
+                resultBody = LotteryItemAckBuilder.BuildGoldResult(
+                    result.SourceSlotIndex,
+                    result.GrantedGold);
+            }
+            else if (displayReward?.ListType == InventoryListType.Avatar)
             {
                 resultBody = LotteryItemAckBuilder.BuildAvatarItemResult(
                     result?.SourceSlotIndex ?? (short)-1,

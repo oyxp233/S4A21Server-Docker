@@ -63,7 +63,7 @@ namespace DfoServer.Game.Lottery
 
             var validRewards = (rewardPool ?? Array.Empty<PvfLib.BoosterRewardEntry>())
                 .Where(reward => reward != null
-                    && reward.ItemId > 0
+                    && reward.ItemId >= 0
                     && reward.Count > 0
                     && reward.Weight > 0)
                 .Select(CloneReward)

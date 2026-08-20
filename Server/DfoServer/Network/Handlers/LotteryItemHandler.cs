@@ -70,9 +70,15 @@ namespace DfoServer.Network.Handlers
                     return;
                 }
 
-                _sessions.Set(session.SessionId, request.SlotIndex);
-                await SendPhaseStart(session);
-                FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: phase0 slot={request.SlotIndex} item=0x{source.ItemTemplateId:X8} count={source.StackCount} ackSlot=-1 ackPreview=0");
+                var phase0OpenPlan = LotteryOpenPlan.ConfirmedRegular();
+                if (!await TryOpenWithPending(session, request.SlotIndex, phase0OpenPlan, true))
+                {
+                    await SendError(session);
+                    FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: phase0 open failed slot={request.SlotIndex} item=0x{source.ItemTemplateId:X8} count={source.StackCount}");
+                    return;
+                }
+
+                FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: phase0 opened slot={request.SlotIndex} item=0x{source.ItemTemplateId:X8} count={source.StackCount}");
                 return;
             }
 
@@ -84,39 +90,10 @@ namespace DfoServer.Network.Handlers
             var (characterId, accountId) = SessionOwnerResolver.Resolve(session);
             var openPlan = pendingOpen?.OpenPlan
                 ?? _openPlanner.Resolve(characterId, accountId, isDirectFastOpen);
-            if (isDirectFastOpen && openPlan.UseDoubleReward)
-            {
-                if (!TryInspect(session, request.SlotIndex, out var source))
-                {
-                    await SendError(session);
-                    FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: double phase start rejected slot={request.SlotIndex}");
-                    return;
-                }
-
-                _sessions.Set(session.SessionId, request.SlotIndex, openPlan);
-                await SendPhaseStart(session);
-                FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: double phase start slot={request.SlotIndex} item=0x{source.ItemTemplateId:X8} count={source.StackCount}");
-                return;
-            }
-
             if (openPlan.ShouldSendRegularPhaseStart)
-            {
-                if (!TryInspect(session, request.SlotIndex, out var source))
-                {
-                    await SendError(session);
-                    FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: direct phase1 fallback rejected slot={request.SlotIndex}");
-                    return;
-                }
+                openPlan = LotteryOpenPlan.ConfirmedRegular();
 
-                _sessions.Set(session.SessionId, request.SlotIndex);
-                if (openPlan.RefreshPremiumBeforePhaseStart)
-                    await _responses.SendPremiumServiceRefresh(session, characterId, accountId);
-                await SendPhaseStart(session);
-                FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: direct phase1 fallback to phase0 slot={request.SlotIndex} item=0x{source.ItemTemplateId:X8} count={source.StackCount} used={openPlan.UsedCount} activeDouble={openPlan.HasActiveDoubleReward} ackPreview=0");
-                return;
-            }
-
-            if (!await TryOpen(session, request.SlotIndex, openPlan, null))
+            if (!await TryOpenWithPending(session, request.SlotIndex, openPlan, !hadPending))
             {
                 await SendError(session);
                 FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: open failed phase={request.Phase} slot={request.SlotIndex} mode={openPlan.Mode}");
@@ -305,12 +282,20 @@ namespace DfoServer.Network.Handlers
                 && lease.IsOwnedBy(session.SessionId);
         }
 
-        private static Task SendPhaseStart(EnhancedClientSession session)
+        private async Task<bool> TryOpenWithPending(
+            EnhancedClientSession session,
+            short slotIndex,
+            LotteryOpenPlan openPlan,
+            bool ensurePending)
         {
-            return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                0x01,
-                0x001B,
-                LotteryItemAckBuilder.BuildPhaseStartWithoutPreview()));
+            if (ensurePending)
+                _sessions.Set(session.SessionId, slotIndex, openPlan);
+
+            if (await TryOpen(session, slotIndex, openPlan, null))
+                return true;
+
+            _sessions.Remove(session.SessionId);
+            return false;
         }
 
         private static Task SendUsableCountLimitUpdateAsync(

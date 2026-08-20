@@ -7,6 +7,8 @@ namespace DfoServer.Network.Builders
 {
     public static class MagicBoxOpenAckBuilder
     {
+        private const int A21RewardTailSize = 23;
+
         public static byte[] BuildBatch(BoosterUseResult result)
         {
             result = result ?? new BoosterUseResult();
@@ -60,7 +62,7 @@ namespace DfoServer.Network.Builders
             if (result == null)
                 return items;
 
-            AddItems(items, result.DisplayRewards);
+            AddAggregatedDisplayItems(items, result.DisplayRewards, result.Rewards);
             if (items.Count > 0)
                 return items;
 
@@ -75,7 +77,10 @@ namespace DfoServer.Network.Builders
                     SlotIndex = reward.SlotIndex,
                     ItemTemplateId = reward.ItemTemplateId,
                     DisplayCount = reward.GrantedCount,
-                    Durability = 0,
+                    Durability = reward.Durability,
+                    Attr = reward.Attr,
+                    ExpireTime = reward.ExpireTime,
+                    SpecialOutcome = reward.SpecialOutcome,
                 });
             }
 
@@ -88,7 +93,7 @@ namespace DfoServer.Network.Builders
             if (result == null)
                 return items;
 
-            AddItems(items, result.DoubleRewards);
+            AddAggregatedDisplayItems(items, result.DoubleRewards, result.Rewards);
             return items;
         }
 
@@ -96,6 +101,12 @@ namespace DfoServer.Network.Builders
         {
             var items = new List<PackageGrantedItem>();
             if (result == null)
+                return items;
+
+            var usedGrantIndexes = new HashSet<int>();
+            AddDisplayItems(items, result.DisplayRewards, result.Rewards, usedGrantIndexes);
+            AddDisplayItems(items, result.DoubleRewards, result.Rewards, usedGrantIndexes);
+            if (items.Count > 0)
                 return items;
 
             foreach (var reward in result.Rewards)
@@ -109,15 +120,12 @@ namespace DfoServer.Network.Builders
                     SlotIndex = reward.SlotIndex,
                     ItemTemplateId = reward.ItemTemplateId,
                     DisplayCount = reward.GrantedCount,
-                    Durability = 0,
+                    Durability = reward.Durability,
+                    Attr = reward.Attr,
+                    ExpireTime = reward.ExpireTime,
                 });
             }
 
-            if (items.Count > 0)
-                return items;
-
-            AddItems(items, result.DisplayRewards);
-            AddItems(items, result.DoubleRewards);
             return items;
         }
 
@@ -138,8 +146,137 @@ namespace DfoServer.Network.Builders
                     ItemTemplateId = reward.ItemTemplateId,
                     DisplayCount = reward.DisplayCount,
                     Durability = reward.Durability,
+                    Attr = reward.Attr,
+                    ExpireTime = reward.ExpireTime,
+                    SpecialOutcome = reward.SpecialOutcome,
                 });
             }
+        }
+
+        private static void AddAggregatedDisplayItems(
+            List<PackageGrantedItem> target,
+            IEnumerable<PackageGrantedItem> source,
+            IReadOnlyList<BoosterRewardResult> grants)
+        {
+            if (target == null || source == null)
+                return;
+
+            var byItemId = new Dictionary<int, PackageGrantedItem>();
+            var ordered = new List<PackageGrantedItem>();
+            foreach (var reward in source)
+            {
+                if (reward == null || reward.ItemTemplateId <= 0 || reward.DisplayCount <= 0)
+                    continue;
+
+                if (byItemId.TryGetValue(reward.ItemTemplateId, out var existing))
+                {
+                    existing.DisplayCount = AddCount(existing.DisplayCount, reward.DisplayCount);
+                    if (existing.ExpireTime <= 0)
+                        existing.ExpireTime = reward.ExpireTime;
+                    continue;
+                }
+
+                var item = new PackageGrantedItem
+                {
+                    ListType = reward.ListType,
+                    SlotIndex = reward.SlotIndex,
+                    ItemTemplateId = reward.ItemTemplateId,
+                    DisplayCount = reward.DisplayCount,
+                    Durability = reward.Durability,
+                    Attr = reward.Attr,
+                    ExpireTime = reward.ExpireTime,
+                    SpecialOutcome = reward.SpecialOutcome,
+                };
+                byItemId[item.ItemTemplateId] = item;
+                ordered.Add(item);
+            }
+
+            foreach (var item in ordered)
+            {
+                var grantIndex = FindGrantIndex(item.ItemTemplateId, grants, null);
+                if (grantIndex >= 0)
+                {
+                    var grant = grants[grantIndex];
+                    item.ListType = grant.ListType;
+                    item.SlotIndex = grant.SlotIndex;
+                    item.Durability = grant.Durability;
+                    item.Attr = grant.Attr;
+                    if (grant.ExpireTime > 0)
+                        item.ExpireTime = grant.ExpireTime;
+                    item.SpecialOutcome = grant.SpecialOutcome;
+                }
+
+                target.Add(item);
+            }
+        }
+
+        private static void AddDisplayItems(
+            List<PackageGrantedItem> target,
+            IEnumerable<PackageGrantedItem> source,
+            IReadOnlyList<BoosterRewardResult> grants,
+            HashSet<int> usedGrantIndexes)
+        {
+            if (target == null || source == null)
+                return;
+
+            foreach (var reward in source)
+            {
+                if (reward == null || reward.ItemTemplateId <= 0 || reward.DisplayCount <= 0)
+                    continue;
+
+                var item = new PackageGrantedItem
+                {
+                    ListType = reward.ListType,
+                    SlotIndex = reward.SlotIndex,
+                    ItemTemplateId = reward.ItemTemplateId,
+                    DisplayCount = reward.DisplayCount,
+                    Durability = reward.Durability,
+                    Attr = reward.Attr,
+                    ExpireTime = reward.ExpireTime,
+                    SpecialOutcome = reward.SpecialOutcome,
+                };
+
+                var grantIndex = FindGrantIndex(reward.ItemTemplateId, grants, usedGrantIndexes);
+                if (grantIndex >= 0)
+                {
+                    var grant = grants[grantIndex];
+                    item.ListType = grant.ListType;
+                    item.SlotIndex = grant.SlotIndex;
+                    item.Durability = grant.Durability;
+                    item.Attr = grant.Attr;
+                    if (grant.ExpireTime > 0)
+                        item.ExpireTime = grant.ExpireTime;
+                    item.SpecialOutcome = grant.SpecialOutcome;
+                    usedGrantIndexes?.Add(grantIndex);
+                }
+
+                target.Add(item);
+            }
+        }
+
+        private static int FindGrantIndex(
+            int displayItemTemplateId,
+            IReadOnlyList<BoosterRewardResult> grants,
+            HashSet<int> usedGrantIndexes)
+        {
+            if (displayItemTemplateId <= 0 || grants == null)
+                return -1;
+
+            for (var i = 0; i < grants.Count; i++)
+            {
+                if (usedGrantIndexes != null && usedGrantIndexes.Contains(i))
+                    continue;
+
+                var grant = grants[i];
+                if (grant == null)
+                    continue;
+
+                if (grant.ItemTemplateId == displayItemTemplateId
+                    || grant.SpecialOutcome?.ItemTemplateId == displayItemTemplateId)
+                    return i;
+            }
+
+            return -1;
         }
 
         private static void WriteRewardList(GamePacketWriter writer, IReadOnlyList<PackageGrantedItem> rewards, Action<GamePacketWriter, PackageGrantedItem> writeRow)
@@ -153,32 +290,22 @@ namespace DfoServer.Network.Builders
         private static void WriteBatchRewardRow(GamePacketWriter writer, PackageGrantedItem reward)
         {
             WriteRewardRow(writer, reward);
-            writer.WriteInt32(0);
         }
 
         private static void WriteSingleRewardRow(GamePacketWriter writer, PackageGrantedItem reward)
         {
             WriteRewardRow(writer, reward);
-            writer.WriteInt32(0);
         }
 
         private static void WriteRewardRow(GamePacketWriter writer, PackageGrantedItem reward)
         {
-            writer.WriteInt16(-1);
+            writer.WriteInt16(reward.SlotIndex);
             writer.WriteInt32(reward.ItemTemplateId);
             writer.WriteInt32(Math.Max(1, reward.DisplayCount));
-            writer.WriteInt16(0);
-            writer.WriteByte(0);
-            writer.WriteInt32(0);
-            writer.WriteByte(0);
-            writer.WriteByte(0);
-            writer.WriteByte(0);
-            writer.WriteInt16(0);
-            writer.WriteByte(0);
-            writer.WriteByte(0);
-            writer.WriteByte(0);
-            writer.WriteByte(0);
-            writer.WriteByte(0);
+            writer.WriteUInt16(reward.Durability);
+            writer.WriteByte(reward.Attr);
+            writer.WriteInt32(reward.ExpireTime);
+            writer.WriteZeroBytes(A21RewardTailSize);
         }
 
         private static ushort ToUInt16(int value)
@@ -188,6 +315,12 @@ namespace DfoServer.Network.Builders
             if (value > ushort.MaxValue)
                 return ushort.MaxValue;
             return (ushort)value;
+        }
+
+        private static int AddCount(int left, int right)
+        {
+            var value = (long)Math.Max(0, left) + Math.Max(0, right);
+            return value > int.MaxValue ? int.MaxValue : (int)value;
         }
     }
 }

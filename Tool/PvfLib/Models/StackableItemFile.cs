@@ -618,7 +618,7 @@ namespace PvfLib
             // [upgradable legacy] pots store rewards as itemId/weight/count triples in [int data].
             for (var i = 0; i + 2 < ints.Count; i += 3)
             {
-                if (ints[i] <= 0)
+                if (ints[i] < 0)
                     continue;
 
                 rewards.Add(new BoosterRewardEntry
@@ -641,7 +641,7 @@ namespace PvfLib
             // [legacy] pots store rewards as itemId/weight pairs in [int data].
             for (var i = 0; i + 1 < ints.Count; i += 2)
             {
-                if (ints[i] <= 0)
+                if (ints[i] < 0)
                     continue;
 
                 rewards.Add(new BoosterRewardEntry

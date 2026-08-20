@@ -1208,6 +1208,9 @@ namespace DfoServer.Game.Inventory
                 ItemTemplateId = grant.ItemTemplateId,
                 StackCount = ResolveStackCount(core, grant),
                 GrantedCount = grant.GrantedCount,
+                Durability = core != null ? core.Durability : (ushort)0,
+                Attr = core != null ? core.Attr : (byte)0,
+                ExpireTime = core != null ? core.ExpireTime : 0,
             };
         }
 
@@ -1225,7 +1228,9 @@ namespace DfoServer.Game.Inventory
                 SlotIndex = reward.SlotIndex,
                 ItemTemplateId = reward.ItemTemplateId,
                 DisplayCount = reward.GrantedCount <= 0 ? 1 : reward.GrantedCount,
-                Durability = 0,
+                Durability = reward.Durability,
+                Attr = reward.Attr,
+                ExpireTime = reward.ExpireTime,
                 SpecialOutcome = reward.SpecialOutcome,
             };
         }
@@ -1324,6 +1329,7 @@ namespace DfoServer.Game.Inventory
                     ItemTemplateId = reward.ItemId,
                     DisplayCount = Math.Max(1, reward.Count),
                     Durability = 0,
+                    ExpireTime = ResolveUsablePeriodExpireTime(reward.UsablePeriodDays),
                 });
             }
         }

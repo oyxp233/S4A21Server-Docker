@@ -4,21 +4,7 @@ namespace DfoServer.Network.Builders
 {
     public static class LotteryItemAckBuilder
     {
-        public static byte[] BuildPhaseStart(short slotIndex, int previewItemTemplateId)
-        {
-            var writer = new GamePacketWriter();
-            writer.WriteByte(0x01);
-            writer.WriteInt16(slotIndex);
-            writer.WriteUInt16(0);
-            writer.WriteInt32(previewItemTemplateId);
-            writer.WriteInt32(previewItemTemplateId);
-            return writer.ToArray();
-        }
-
-        public static byte[] BuildPhaseStartWithoutPreview()
-        {
-            return BuildPhaseStart(-1, 0);
-        }
+        private const int A21CommonResultTailSize = 31;
 
         internal static byte[] BuildCommonItemResult(
             short sourceSlotIndex,
@@ -39,8 +25,7 @@ namespace DfoServer.Network.Builders
             writer.WriteByte(rewardItem.Attr);
             writer.WriteByte(rewardItem.AmplifyType);
             writer.WriteUInt16(rewardItem.AmplifyValue);
-            WriteEmptyEquipmentSocketExtension(writer, rewardItem);
-            WriteEmptyInvenItemTail(writer);
+            WriteA21CommonResultTail(writer, rewardItem);
             return writer.ToArray();
         }
 
@@ -60,6 +45,25 @@ namespace DfoServer.Network.Builders
             return writer.ToArray();
         }
 
+        internal static byte[] BuildGoldResult(short sourceSlotIndex, int grantedGold)
+        {
+            if (grantedGold <= 0)
+                return BuildError();
+
+            var writer = new GamePacketWriter();
+            writer.WriteByte(0x01);
+            writer.WriteInt16(sourceSlotIndex);
+            writer.WriteInt16(0);
+            writer.WriteInt32(0);
+            writer.WriteInt32(grantedGold);
+            writer.WriteUInt16(0);
+            writer.WriteByte(0);
+            writer.WriteByte(0);
+            writer.WriteUInt16(0);
+            WriteA21CommonResultTail(writer, null);
+            return writer.ToArray();
+        }
+
         public static byte[] BuildError()
         {
             var writer = new GamePacketWriter();
@@ -71,23 +75,12 @@ namespace DfoServer.Network.Builders
             return writer.ToArray();
         }
 
-        private static void WriteEmptyInvenItemTail(GamePacketWriter writer)
-        {
-            writer.WriteByte(0x00); // empty RandomOption packet
-            writer.WriteByte(0x00); // upgrade separate
-            writer.WriteByte(0x00); // trade restriction
-        }
-
-        private static void WriteEmptyEquipmentSocketExtension(
+        private static void WriteA21CommonResultTail(
             GamePacketWriter writer,
             ItemCore item)
         {
-            if (ItemMetadataResolver.Resolve(item.ItemId).IsStackable)
-                return;
-
-            writer.WriteByte(0xEF);
-            writer.WriteInt32(25);
-            writer.WriteZeroBytes(25);
+            writer.WriteInt32(item?.ExpireTime ?? 0);
+            writer.WriteZeroBytes(A21CommonResultTailSize - 4);
         }
     }
 }

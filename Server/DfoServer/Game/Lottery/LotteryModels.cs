@@ -45,6 +45,8 @@ namespace DfoServer.Game.Lottery
 
         public int UpdatedGold { get; set; }
 
+        public int GrantedGold { get; set; }
+
         public int ConsumedRequiredItemTemplateId { get; set; }
 
         public int ConsumedRequiredItemCount { get; set; }
