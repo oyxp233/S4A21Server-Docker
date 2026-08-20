@@ -26,17 +26,21 @@ namespace DfoServer.Network.Parsers.Dungeon
         public ushort UserId { get; }
         public bool IsCapture { get; }
         public bool IsPassiveObject { get; }
+        public bool HasMapOwnedPassiveObjectSignature { get; }
 
         public DieMonsterRequest(
             ushort localIndex,
             ushort userId,
             bool isCapture,
-            bool isPassiveObject)
+            bool isPassiveObject,
+            bool hasMapOwnedPassiveObjectSignature)
         {
             LocalIndex = localIndex;
             UserId = userId;
             IsCapture = isCapture;
             IsPassiveObject = isPassiveObject;
+            HasMapOwnedPassiveObjectSignature =
+                hasMapOwnedPassiveObjectSignature;
         }
 
         public static DieMonsterRequest Parse(byte[] body)
@@ -46,6 +50,8 @@ namespace DfoServer.Network.Parsers.Dungeon
 
             ushort localIndex = BitConverter.ToUInt16(body, 0);
             ushort userId = body.Length >= 4 ? BitConverter.ToUInt16(body, 2) : (ushort)0;
+            var hasMapOwnedPassiveObjectSignature = body.Length >= 6
+                && BitConverter.ToUInt16(body, 4) == ushort.MaxValue;
 
             
             bool isCapture = false;
@@ -63,7 +69,8 @@ namespace DfoServer.Network.Parsers.Dungeon
                 localIndex,
                 userId,
                 isCapture,
-                isPassive);
+                isPassive,
+                hasMapOwnedPassiveObjectSignature);
         }
     }
 }

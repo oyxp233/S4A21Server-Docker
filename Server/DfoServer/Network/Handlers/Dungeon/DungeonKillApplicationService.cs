@@ -807,6 +807,22 @@ namespace DfoServer.Network.Handlers.Dungeon
                 run.TotalGold = checked(run.TotalGold + goldGained);
             }
 
+            if (allowsExperience)
+            {
+                var definition = run.ExperienceDefinition;
+                FileLogger.Log(
+                    $"[DungeonExperience] kill result dungeon={run.DungeonId} " +
+                    $"difficulty={run.Difficulty} actorType={monster.Type} " +
+                    $"rewardKind={rewardMonsterType} code={monster.Code} " +
+                    $"level={monster.Level} named={isNamed} " +
+                    $"kindRate={definition?.GetMonsterKindRate(rewardMonsterType):R} " +
+                    $"difficultyRate={definition?.GetDifficultyRate(run.Difficulty):R} " +
+                    $"sharedBaseExp={baseExperience.SharedBaseExperience} " +
+                    $"participantBaseExp={baseExperience.ParticipantBaseExperience} " +
+                    $"growthContract={growthContractBonus} channel={channelBonus} " +
+                    $"awarded={awardedExp}");
+            }
+
             if (grant != null)
             {
                 await _services.ProgressNotifications.SendExpGrantNotificationAsync(

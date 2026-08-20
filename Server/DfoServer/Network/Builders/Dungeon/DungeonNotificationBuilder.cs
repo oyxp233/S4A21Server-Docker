@@ -25,9 +25,9 @@ namespace DfoServer.Network.Builders
         public const int ObjectExperienceEntriesOffset = 159;
 
         // NOTI 28 (0x001C) DUNGEON_INFO
-        // A21 固定 32B 布局。A12 的可变 pair/group 字段不再写入；当前
-        // 客户端抓包显示 offset 6/7 为 boss 坐标，offset 12 为固定 1，
-        // offset 18-21 为深渊房间坐标，尾部保持保留零值。
+        // A21 固定 32B 布局。客户端 reader 先读取 u32 dungeonId，再读取
+        // difficulty/maze/boss 四个 u8；offset 12 为固定 1，offset 18-21
+        // 为深渊房间坐标，尾部保持保留零值。
         public static byte[] BuildDungeonInfo(
             int dungeonId,
             byte difficulty,
@@ -53,9 +53,8 @@ namespace DfoServer.Network.Builders
         {
             var writer = new GamePacketWriter();
 
-            writer.WriteInt16((short)dungeonId);       // +0
-            writer.WriteByte(difficulty);              // +2
-            writer.WriteUInt16(0);                     // +3 reserved
+            writer.WriteInt32(dungeonId);              // +0
+            writer.WriteByte(difficulty);              // +4
             writer.WriteByte(mazeIndex);               // +5 selected maze index
             writer.WriteByte(bossX);                   // +6
             writer.WriteByte(bossY);                   // +7
@@ -112,8 +111,7 @@ namespace DfoServer.Network.Builders
             writer.WriteInt32(unchecked((int)roomStateValue));
             writer.WriteByte(roomStateFlag);
 
-            writer.WriteUInt16((ushort)maze.Index);
-            writer.WriteUInt16(0);                    // A21 reserved field at +16
+            writer.WriteInt32(maze.Index);            // +14 A21 u32 map id
             writer.WriteByte((byte)maze.Monsters.Count);
 
             int normalIndex = 0;
@@ -197,7 +195,11 @@ namespace DfoServer.Network.Builders
             writer.WriteByte(0);                      // 深渊模式后续未知字节
             writer.WriteInt32(1);                     // 房间状态值
             writer.WriteByte(0);                      // 房间状态标记，重访为 0
-            writer.WriteByte(0x00);                   // 深渊雾/小地图标记
+            writer.WriteInt32(maze.Index);            // A21 u32 map id
+            writer.WriteByte(0);                      // actor count
+            writer.WriteByte(0);                      // extra entry count
+            writer.WriteByte(0);                      // 深渊雾/小地图标记
+            writer.WriteByte(0);                      // 可骑乘对象分组数
             writer.WriteByte(0xFF);                   // 队员索引
             return writer.ToArray();
         }

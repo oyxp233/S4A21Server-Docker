@@ -63,6 +63,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             run.TryCaptureCurrentRoomSnapshot(out var currentRoomSnapshot);
             var treatAsPassiveObject = ShouldTreatAsPassiveObject(
                 request.IsPassiveObject,
+                request.HasMapOwnedPassiveObjectSignature,
                 request.LocalIndex,
                 currentRoomSnapshot);
             if (request.IsPassiveObject && !treatAsPassiveObject)
@@ -76,6 +77,11 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (treatAsPassiveObject)
             {
                 var objectCode = (int)request.LocalIndex;
+                var passiveObjectSource = request.IsPassiveObject
+                    ? "packet-marker"
+                    : request.HasMapOwnedPassiveObjectSignature
+                        ? "frozen-map-sentinel"
+                        : "frozen-map";
                 var passiveObjectEvent = DungeonEventEnvelope.Create(
                     run,
                     session.Player.CharacterId,
@@ -108,7 +114,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 }
 
                 FileLogger.Log(
-                    $"[DungeonHandler] DIE_MONSTER: passive object code={objectCode}");
+                    $"[DungeonHandler] DIE_MONSTER: passive object " +
+                    $"code={objectCode} source={passiveObjectSource}");
                 await DungeonActorQuestSync.SyncAsync(
                     session,
                     objectCode,
@@ -162,12 +169,19 @@ namespace DfoServer.Network.Handlers.Dungeon
 
         internal static bool ShouldTreatAsPassiveObject(
             bool passiveMarker,
+            bool mapOwnedPassiveObjectSignature,
             ushort sequenceId,
             DungeonRunRoomSnapshot roomSnapshot)
         {
-            return passiveMarker
-                && (roomSnapshot == null
-                    || !roomSnapshot.ContainsStaticActorSequence(sequenceId));
+            var matchesFrozenMap = roomSnapshot
+                ?.ContainsMapOwnedPassiveObjectCode(sequenceId) == true;
+            if (matchesFrozenMap && mapOwnedPassiveObjectSignature)
+                return true;
+
+            if (roomSnapshot?.ContainsStaticActorSequence(sequenceId) == true)
+                return false;
+
+            return passiveMarker || matchesFrozenMap;
         }
 
         internal async Task HandleBossDieCheck(

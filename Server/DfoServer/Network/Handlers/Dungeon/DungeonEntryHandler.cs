@@ -105,8 +105,39 @@ namespace DfoServer.Network.Handlers.Dungeon
 
         internal async Task HandleEnterSelectDungeon(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
+            if (!EnterSelectDungeonRequest.TryParse(body, out var request))
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"ENTER_SELECT_DUNGEON rejected: invalid body length={body?.Length ?? 0} " +
+                    $"minimum={EnterSelectDungeonRequest.MinimumBodyLength}");
+                await _svc.AdmissionRejects.SendAsync(
+                    session,
+                    header.type,
+                    DungeonAdmissionReject.InvalidSelectionState);
+                return;
+            }
+
+            await HandleEnterSelectDungeonCore(session, header, request);
+        }
+
+        private async Task HandleEnterSelectDungeonCore(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            EnterSelectDungeonRequest? request)
+        {
             var isA21TutorialEntry = IsFirstA21TutorialEntry(session);
-            FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] ENTER_SELECT_DUNGEON: cid={session.Player.CharacterId} uid={session.Player.UserId} town={session.Player.CurTownId} area={session.Player.CurAreaId}");
+            var requestDiagnostic = request.HasValue
+                ? $"source=wire dungeon={request.Value.DungeonId} " +
+                    $"bodyLength={request.Value.BodyLength} " +
+                    $"trailing={request.Value.TrailingLength} " +
+                    $"tailNonZero={request.Value.HasNonZeroTrailingBytes}"
+                : "source=party-projection";
+            FileLogger.Log(
+                $"[{DungeonSharedServices.ProtocolLogName}] ENTER_SELECT_DUNGEON: " +
+                $"cid={session.Player.CharacterId} uid={session.Player.UserId} " +
+                $"{requestDiagnostic} town={session.Player.CurTownId} " +
+                $"area={session.Player.CurAreaId}");
             if (!CanEnterRaidDungeonSelection(session))
             {
                 FileLogger.Log(
@@ -503,7 +534,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 {
                     FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] TOWER_OF_DESPAIR_ENTRY: cid={session.Player.CharacterId} requested={req.DungeonId} resolved={resolvedDungeonId}");
                     req = new Network.Parsers.Dungeon.SelectDungeonRequest(
-                        (ushort)resolvedDungeonId,
+                        resolvedDungeonId,
                         req.Difficulty,
                         req.Flag1,
                         req.Flag2);
@@ -1032,7 +1063,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
 
             var req = new Network.Parsers.Dungeon.SelectDungeonRequest(
-                (ushort)run.DungeonId,
+                run.DungeonId,
                 run.Difficulty,
                 0,
                 0);
@@ -1352,7 +1383,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     // ★前奏: 队员从没"打开副本选择页", 直接收 SELECT 会半悬空(显示进房间但不真换图)。
                     //   先给队员补发 ENTER_SELECT(0x17/0x02/0x03/0x1A/0x1B, =A 发 0x000F 时收到的),
                     //   让其客户端进入"进副本"状态, 再重放 SELECT 才能真换图。
-                    await HandleEnterSelectDungeon(bs, header, System.Array.Empty<byte>());
+                    await HandleEnterSelectDungeonCore(bs, header, request: null);
                     if (!leader.Player.IsCurrentDungeonRun(leaderRunIdentity))
                         return;
                     var memberSelection = bs.Player.CurrentDungeonSelection;

@@ -319,11 +319,30 @@ namespace DfoServer.SelfTests
                 && info.AsSpan().SequenceEqual(infoExpected),
                 ref failures);
 
+            var nonzeroDifficultyInfo =
+                DungeonNotificationBuilder.BuildDungeonInfo(
+                    160,
+                    difficulty: 1,
+                    mazeIndex: 1,
+                    bossX: 4,
+                    bossY: 0,
+                    hellPartyRoomX: 0xFF,
+                    hellPartyRoomY: 0xFF);
+            Check(
+                "A21 DUNGEON_INFO keeps u32 dungeon id before nonzero difficulty",
+                nonzeroDifficultyInfo.Length == 32
+                && BitConverter.ToInt32(nonzeroDifficultyInfo, 0) == 160
+                && nonzeroDifficultyInfo[4] == 1
+                && nonzeroDifficultyInfo[5] == 1
+                && nonzeroDifficultyInfo[6] == 4
+                && nonzeroDifficultyInfo[7] == 0,
+                ref failures);
+
             var maze = new Dungeon.MazeSumInfo
             {
                 X = 0,
                 Y = 1,
-                Index = 61000,
+                Index = 70000,
                 Monsters = new List<Dungeon.MonsterSumInfo>
                 {
                     new Dungeon.MonsterSumInfo
@@ -352,9 +371,9 @@ namespace DfoServer.SelfTests
                 hellPartyMode: 2,
                 hellPartyFogFlag: 0);
             Check(
-                "A21 START_MAP moves actor count to offset 18 and uses 21B actors",
+                "A21 START_MAP uses a u32 map id and 21B actors",
                 start.Length == 65
-                && BitConverter.ToUInt16(start, 14) == 61000
+                && BitConverter.ToInt32(start, 14) == 70000
                 && start[7] == 2
                 && start[18] == 2
                 && start[39] == 0
@@ -366,9 +385,15 @@ namespace DfoServer.SelfTests
                 maze,
                 seed: 232968);
             Check(
-                "A21 START_MAP revisit keeps the standard mode marker",
-                revisit.Length == 16
-                && revisit[7] == 2,
+                "A21 START_MAP revisit keeps the complete zero-count tail",
+                revisit.Length == 23
+                && revisit[7] == 2
+                && BitConverter.ToInt32(revisit, 14) == 70000
+                && revisit[18] == 0
+                && revisit[19] == 0
+                && revisit[20] == 0
+                && revisit[21] == 0
+                && revisit[22] == 0xFF,
                 ref failures);
 
             var townSnapshot = new TownUserSnapshot
@@ -488,8 +513,74 @@ namespace DfoServer.SelfTests
                 && select.Difficulty == 0
                 && select.HellPartyRequestFlag == 0
                 && select.HellPartyDifficultyFlag == 0
-                && select.A21Reserved0 == 0
-                && select.A21Reserved1 == 0,
+                && select.A21Sentinel == 0xFFFF
+                && select.TrailingLength == 6
+                && !select.HasNonZeroTrailingBytes,
+                ref failures);
+
+            var nonzeroDifficultySelectBody = new byte[]
+            {
+                0xD9, 0x07, 0x00, 0x00, 0x01, 0x00, 0x00,
+                0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            };
+            var nonzeroDifficultySelect = SelectDungeonRequest.Parse(
+                nonzeroDifficultySelectBody);
+            Check(
+                "A21 SELECT_DUNGEON reads difficulty at body offset +4",
+                nonzeroDifficultySelect.DungeonId == 2009
+                && nonzeroDifficultySelect.Difficulty == 1
+                && nonzeroDifficultySelect.HellPartyRequestFlag == 0
+                && nonzeroDifficultySelect.HellPartyDifficultyFlag == 0
+                && nonzeroDifficultySelect.A21Sentinel == 0xFFFF,
+                ref failures);
+
+            var highDungeonIdSelectBody = new byte[]
+            {
+                0x70, 0x11, 0x01, 0x00, 0x03, 0x00, 0x00,
+                0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            };
+            var highDungeonIdSelect = SelectDungeonRequest.Parse(
+                highDungeonIdSelectBody);
+            Check(
+                "A21 SELECT_DUNGEON preserves the high 16 bits of dungeon id",
+                highDungeonIdSelect.DungeonId == 70000
+                && highDungeonIdSelect.Difficulty == 3,
+                ref failures);
+
+            var hellSelectBody = new byte[]
+            {
+                0x68, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+                0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            };
+            var hellSelect = SelectDungeonRequest.Parse(hellSelectBody);
+            Check(
+                "A21 SELECT_DUNGEON accepts the 16B hell-entry variant",
+                hellSelect.DungeonId == 104
+                && hellSelect.HellPartyRequestFlag == 1
+                && hellSelect.TrailingLength == 7
+                && !hellSelect.HasNonZeroTrailingBytes,
+                ref failures);
+
+            var enterSelect4 = EnterSelectDungeonRequest.TryParse(
+                new byte[] { 0x68, 0x00, 0x00, 0x00 },
+                out var enter4);
+            var enterSelect7 = EnterSelectDungeonRequest.TryParse(
+                new byte[] { 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+                out var enter7);
+            var enterSelect8 = EnterSelectDungeonRequest.TryParse(
+                new byte[] { 0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+                out var enter8);
+            Check(
+                "A21 ENTER_SELECT_DUNGEON accepts 4B, 7B, and 8B bodies",
+                enterSelect4
+                && enterSelect7
+                && enterSelect8
+                && enter4.DungeonId == 104
+                && enter4.TrailingLength == 0
+                && enter7.TrailingLength == 3
+                && enter8.TrailingLength == 4
+                && !enter7.HasNonZeroTrailingBytes
+                && !enter8.HasNonZeroTrailingBytes,
                 ref failures);
 
             var circleEntryBody = new byte[CircleDungeonEntryRequest.BodySize];
@@ -624,6 +715,96 @@ namespace DfoServer.SelfTests
                     .ReferencedQuestId == 2274
                 && independentStory.StoryMode.IndependentRates[0]
                     .Values.Length == 5,
+                ref failures);
+
+            var warroomExpParsed = DungeonExperienceDefinitionCatalog
+                .TryNormalizeMonsterKindExperienceRates(
+                    "171",
+                    "344",
+                    "515",
+                    "687",
+                    out var warroomExpRates);
+            var warroomExpRateSource = warroomExpParsed
+                ? "dgn-exp-const"
+                : "invalid";
+            var fallbackExpRates = DungeonExperienceDefinitionCatalog
+                .ResolveMonsterKindExperienceRates(
+                    new PvfLib.DungeonFile(),
+                    out var fallbackExpRateSource);
+            Check(
+                "DGN monster exp constants normalize actor-kind rates",
+                warroomExpParsed
+                && warroomExpRateSource == "dgn-exp-const"
+                && warroomExpRates.Length == 4
+                && Math.Abs(warroomExpRates[0] - 1.0) < 0.0001
+                && Math.Abs(warroomExpRates[1] - 2.0) < 0.0001
+                && Math.Abs(warroomExpRates[2] - 3.0) < 0.0001
+                && Math.Abs(warroomExpRates[3] - 4.0) < 0.0001
+                && fallbackExpRateSource == "fallback-1-2-3-4"
+                && fallbackExpRates.Length == 4
+                && fallbackExpRates[0] == 1.0
+                && fallbackExpRates[1] == 2.0
+                && fallbackExpRates[2] == 3.0
+                && fallbackExpRates[3] == 4.0,
+                ref failures);
+
+            var warroomDefinition = DungeonExperienceDefinitionCatalog.Resolve(2000);
+            Check(
+                "WarRoom PVF DGN exposes 3x super-champion experience",
+                warroomDefinition != null
+                && warroomDefinition.UsesStandardFormula
+                && Math.Abs(warroomDefinition.GetMonsterKindRate(0) - 1.0) < 0.0001
+                && Math.Abs(warroomDefinition.GetMonsterKindRate(1) - 2.0) < 0.0001
+                && Math.Abs(warroomDefinition.GetMonsterKindRate(2) - 3.0) < 0.0001
+                && Math.Abs(warroomDefinition.GetMonsterKindRate(3) - 4.0) < 0.0001,
+                ref failures);
+
+            var expDefinition = new DungeonExperienceDefinition(
+                dungeonId: 9901,
+                kind: DungeonExperienceDefinitionKind.Standard,
+                standardLevel: 1,
+                experienceWeight: 1.0,
+                difficultyRates: new[] { 1.0 },
+                partyMemberRates: new[] { 1.0 },
+                monsterKindExperienceRates: warroomExpRates,
+                legacyMonsterOverallRate: 1.0);
+            var normalMonsterExperience = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    expDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 1,
+                        monsterLevel: 1,
+                        difficulty: 0,
+                        monsterKind: 0,
+                        isNamedMonster: false,
+                        partyMemberCount: 1));
+            var superChampionExperience = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    expDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 1,
+                        monsterLevel: 1,
+                        difficulty: 0,
+                        monsterKind: 2,
+                        isNamedMonster: false,
+                        partyMemberCount: 1));
+            var namedNormalExperience = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    expDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 1,
+                        monsterLevel: 1,
+                        difficulty: 0,
+                        monsterKind: 0,
+                        isNamedMonster: true,
+                        partyMemberCount: 1));
+            Check(
+                "super champion uses 3x actor-kind exp and named remains an independent 3x",
+                normalMonsterExperience.SharedBaseExperience > 0
+                && superChampionExperience.SharedBaseExperience
+                    == normalMonsterExperience.SharedBaseExperience * 3
+                && namedNormalExperience.SharedBaseExperience
+                    == normalMonsterExperience.SharedBaseExperience * 3,
                 ref failures);
 
             var prisonMazeResolved = Dungeon.TrySelectActiveQuestMaze(
@@ -1172,11 +1353,9 @@ namespace DfoServer.SelfTests
                 activeQuestIds: new HashSet<int> { 1790 },
                 clearedQuestIds: new HashSet<int>());
             Check(
-                "dungeon admission applies level before task state",
-                !levelPriorityAdmission.Allowed
-                && levelPriorityAdmission.Reason.StartsWith(
-                    "minimum_level_not_met:",
-                    StringComparison.Ordinal)
+                "story dungeon admission follows linked task state before DGN minimum level",
+                levelPriorityAdmission.Allowed
+                && levelPriorityAdmission.Reason != "minimum_level_not_met:14/15"
                 && taskAfterLevelAdmission.Allowed,
                 ref failures);
 
@@ -1312,7 +1491,7 @@ namespace DfoServer.SelfTests
                 skillPoints: default,
                 honorLevel: new DfoServer.Game.Accounts.HonorLevelSummary());
             Check(
-                "A21 EXP is 83B with Seria welcome at body offset 0x4B",
+                "A21 EXP keeps rejected labelled trial slots zero",
                 exp.Length == ExpNotificationBuilder.BodyLength
                 && exp.Length == 83
                 && BitConverter.ToUInt32(exp, 0x4B) == 0,
@@ -1356,26 +1535,56 @@ namespace DfoServer.SelfTests
                 monsterExp: 999,
                 bossExp: 135,
                 championExp: 340,
+                superChampionExp: 120,
+                channelExp: 59,
                 paidCardCost: 580,
                 objectExperienceEntries:
                     settlementExperienceSnapshot.ObjectExperienceEntries);
             var clearTailOffset = 159 + 2 * 8;
             Check(
-                "A21 CLEAR_DUNGEON_REWARD uses START_MAP actor sequence keys and a 115B tail",
+                "A21 CLEAR_DUNGEON_REWARD uses score quartet, u32 object count, actor sequence keys and 115B tail",
                 clearReward.Length == 290
                 && settlementExperienceSnapshot.ObjectExperienceEntries.Count == 2
                 && settlementExperienceSnapshot.ObjectExperienceEntries[0].ObjectKey == 10004
                 && settlementExperienceSnapshot.ObjectExperienceEntries[1].ObjectKey == 10003
-                && clearReward[155] == 2
-                && clearReward[156] == 0
-                && BitConverter.ToUInt32(clearReward, 159) == 10004
-                && BitConverter.ToUInt32(clearReward, 163) == 85
-                && BitConverter.ToInt32(clearReward, 143) == 475
+                && BitConverter.ToUInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.ObjectExperienceCountOffset) == 2
+                && BitConverter.ToUInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.ObjectExperienceEntriesOffset) == 10004
+                && BitConverter.ToUInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.ObjectExperienceEntriesOffset + 4) == 85
+                && BitConverter.ToInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.RewardSlotBlockOffset
+                        + (DungeonNotificationBuilder.EquipmentBonusExpSlotIndex * 4)) == 0
+                && clearReward[
+                    DungeonNotificationBuilder.FirstVariableRewardCountOffset] == 0
+                && clearReward[
+                    DungeonNotificationBuilder.SecondVariableRewardCountOffset] == 0
+                && BitConverter.ToUInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.PostVariableRewardBlockOffset) == 0
+                && BitConverter.ToInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.ScoreBreakdownOffset) == 0
+                && BitConverter.ToInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.ChampionExperienceOffset) == 340
+                && BitConverter.ToInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.SuperChampionExperienceOffset) == 120
+                && BitConverter.ToInt32(
+                    clearReward,
+                    DungeonNotificationBuilder.BossExperienceOffset) == 135
                 && clearReward[clearTailOffset] == 0
                 && clearReward[clearTailOffset + 1] == 1
                 && BitConverter.ToInt32(clearReward, clearTailOffset + 6) == 0
                 && BitConverter.ToInt32(clearReward, clearTailOffset + 73) == 580
-                && BitConverter.ToUInt32(clearReward, clearTailOffset + 103) == 475,
+                && BitConverter.ToUInt32(clearReward, clearTailOffset + 99) == 0
+                && BitConverter.ToUInt32(clearReward, clearTailOffset + 103) == 595,
                 ref failures);
 
             ClearRewardGenerator.WarmUp();
@@ -1884,26 +2093,244 @@ namespace DfoServer.SelfTests
             flaggedMonsterBody[20] = 0;
             flaggedMonsterBody[27] = 1;
             var flaggedMonster = DieMonsterRequest.Parse(flaggedMonsterBody);
+            var flaggedMonsterRoomState = new RoomState
+            {
+                Maze = new DfoServer.GameWorld.Dungeon.MazeSumInfo
+                {
+                    PassiveObjectCodes = new[] { 18648 },
+                },
+            };
             var flaggedMonsterRoom = new DungeonRunRoomSnapshot(
                 default,
                 default,
                 default,
                 roomStartSequence: 18646,
                 new DfoServer.GameWorld.Dungeon.MonsterSumInfo[4],
-                roomState: null);
+                flaggedMonsterRoomState);
             Check(
                 "A21 DIE_MONSTER current-room actor overrides unknown passive marker",
                 flaggedMonster.IsPassiveObject
                 && flaggedMonsterRoom.ContainsStaticActorSequence(18648)
                 && !DungeonCombatHandler.ShouldTreatAsPassiveObject(
                     flaggedMonster.IsPassiveObject,
+                    flaggedMonster.HasMapOwnedPassiveObjectSignature,
                     flaggedMonster.LocalIndex,
                     flaggedMonsterRoom)
                 && DungeonCombatHandler.ShouldTreatAsPassiveObject(
                     flaggedMonster.IsPassiveObject,
+                    flaggedMonster.HasMapOwnedPassiveObjectSignature,
                     20000,
                     flaggedMonsterRoom),
                 ref failures);
+
+            var ordinaryPassiveBody = new byte[66];
+            Buffer.BlockCopy(
+                BitConverter.GetBytes((ushort)52853),
+                0,
+                ordinaryPassiveBody,
+                0,
+                2);
+            ordinaryPassiveBody[4] = 0xFF;
+            ordinaryPassiveBody[5] = 0xFF;
+            var ordinaryPassiveRequest = DieMonsterRequest.Parse(
+                ordinaryPassiveBody);
+            var ordinaryPassiveMaze = new DfoServer.GameWorld.Dungeon.MazeSumInfo
+            {
+                PassiveObjectCodes = new[] { 52853, 52853 },
+            };
+            var ordinaryPassiveRoomState = new RoomState
+            {
+                Maze = ordinaryPassiveMaze,
+            };
+            var ordinaryPassiveRoomSnapshot = new DungeonRunRoomSnapshot(
+                default,
+                default,
+                default,
+                roomStartSequence: 41024,
+                new DfoServer.GameWorld.Dungeon.MonsterSumInfo[3],
+                ordinaryPassiveRoomState);
+            Check(
+                "A21 ordinary MAP passive object resolves from frozen code without legacy marker",
+                ordinaryPassiveRequest.LocalIndex == 52853
+                && !ordinaryPassiveRequest.IsPassiveObject
+                && ordinaryPassiveRequest.HasMapOwnedPassiveObjectSignature
+                && ordinaryPassiveRoomSnapshot
+                    .ContainsMapOwnedPassiveObjectCode(52853)
+                && DungeonCombatHandler.ShouldTreatAsPassiveObject(
+                    ordinaryPassiveRequest.IsPassiveObject,
+                    ordinaryPassiveRequest.HasMapOwnedPassiveObjectSignature,
+                    ordinaryPassiveRequest.LocalIndex,
+                    ordinaryPassiveRoomSnapshot),
+                ref failures);
+
+            var mapOwnedRoom = new DungeonInstanceRoom(
+                roomInstanceId: 7003,
+                new RoomKey(4, 1, 59241),
+                ordinaryPassiveMaze,
+                seed: 1);
+            mapOwnedRoom.AttachToInstance(7001);
+            var mapOwnedRunIdentity = new DungeonRunIdentity(7001, 7002, 1);
+            DungeonEventEnvelope CreatePassiveObjectEvent() =>
+                new DungeonEventEnvelope(
+                    Guid.NewGuid(),
+                    mapOwnedRunIdentity,
+                    roomInstanceId: 7003,
+                    sourcePlayerId: 11,
+                    affectedPlayerId: 11,
+                    sourceActorId: null,
+                    sourceActorCode: 52853,
+                    cause: "selftest-map-passive",
+                    occurredTick: Environment.TickCount64);
+            var firstOrdinaryPassiveDeath = mapOwnedRoom
+                .TryRecordNextMapOwnedPassiveObjectDeath(
+                    CreatePassiveObjectEvent(),
+                    actorCode: 52853,
+                    out var firstOrdinaryPassiveDefined);
+            var secondOrdinaryPassiveDeath = mapOwnedRoom
+                .TryRecordNextMapOwnedPassiveObjectDeath(
+                    CreatePassiveObjectEvent(),
+                    actorCode: 52853,
+                    out var secondOrdinaryPassiveDefined);
+            var exhaustedOrdinaryPassiveDeath = mapOwnedRoom
+                .TryRecordNextMapOwnedPassiveObjectDeath(
+                    CreatePassiveObjectEvent(),
+                    actorCode: 52853,
+                    out var exhaustedOrdinaryPassiveDefined);
+            Check(
+                "ordinary MAP passive objects consume same-code instances at most once",
+                firstOrdinaryPassiveDefined
+                && firstOrdinaryPassiveDeath.Accepted
+                && firstOrdinaryPassiveDeath.Created
+                && secondOrdinaryPassiveDefined
+                && secondOrdinaryPassiveDeath.Accepted
+                && secondOrdinaryPassiveDeath.Created
+                && exhaustedOrdinaryPassiveDefined
+                && !exhaustedOrdinaryPassiveDeath.Accepted
+                && !exhaustedOrdinaryPassiveDeath.Created,
+                ref failures);
+
+            var storyPauseCondition = new ClearConditionState(
+                new List<PvfLib.ClearConditionEntry>
+                {
+                    new PvfLib.ClearConditionEntry
+                    {
+                        Type = 0,
+                        TargetId = 10601,
+                        Count = 1,
+                    },
+                });
+            var storyPauseFirst = storyPauseCondition.TryCheckAny(
+                type: 0,
+                targetIds: new[] { 1050, 10601 },
+                out var storyPauseTarget);
+            var storyPauseRepeat = storyPauseCondition.TryCheckAny(
+                type: 0,
+                targetIds: new[] { 10601 },
+                out _);
+            Check(
+                "story pause consumes one pending destroy-object condition atomically",
+                storyPauseFirst
+                && storyPauseTarget == 10601
+                && storyPauseCondition.IsCleared
+                && !storyPauseRepeat,
+                ref failures);
+
+            var storyPauseRoom = new RoomState();
+            storyPauseRoom.TryActivate();
+            var storyPauseRoomFirst = storyPauseRoom.TryBeginStoryPauseClear();
+            var storyPauseRoomRepeat = storyPauseRoom.TryBeginStoryPauseClear();
+            Check(
+                "story pause clear is consumed at most once per room",
+                storyPauseRoomFirst && !storyPauseRoomRepeat,
+                ref failures);
+
+            var pvfArchivePath = Environment.GetEnvironmentVariable("PVF_ARCHIVE_PATH");
+            if (!string.IsNullOrWhiteSpace(pvfArchivePath))
+            {
+                var storyDungeon = Dungeon.GetDungeonFile(160);
+                var storyMaze = storyDungeon?.Mazes != null
+                    && storyDungeon.Mazes.Count > 2
+                    ? storyDungeon.Mazes[2]
+                    : null;
+                var storyBossMap = Dungeon.GetDungeonMapMonsterSummaryInformation(
+                    dungeonId: 160,
+                    x: 4,
+                    y: 2,
+                    mazeIndex: 2,
+                    overrideMapId: 59199,
+                    bossPos: new[] { 4, 2 });
+                var hasDestroyObjectCondition = storyMaze?.ClearConditions != null
+                    && storyMaze.ClearConditions.Exists(
+                        condition => condition.Type == 0
+                            && condition.TargetId == 10601
+                            && condition.Count == 1);
+                var hasBossPassiveObject = storyBossMap.PassiveObjectCodes != null
+                    && ContainsInt(storyBossMap.PassiveObjectCodes, 10601);
+                Check(
+                    "PVF story dungeon clear condition and boss passive object are resource-driven",
+                    hasDestroyObjectCondition && hasBossPassiveObject,
+                    ref failures);
+
+                var questConnectedMaze = storyDungeon?.Mazes != null
+                    && storyDungeon.Mazes.Count > 4
+                    ? storyDungeon.Mazes[4]
+                    : null;
+                var questConnectedBossMap = Dungeon.GetDungeonMapMonsterSummaryInformation(
+                    dungeonId: 160,
+                    x: 4,
+                    y: 3,
+                    mazeIndex: 4,
+                    overrideMapId: 59216,
+                    bossPos: new[] { 4, 3 });
+                var hasQuestConnectedCondition = questConnectedMaze?.QuestConnection != null
+                    && questConnectedMaze.QuestConnection.Length >= 2
+                    && questConnectedMaze.QuestConnection[0] == 0
+                    && questConnectedMaze.QuestConnection[1] == 1845
+                    && questConnectedMaze.ClearConditions != null
+                    && questConnectedMaze.ClearConditions.Exists(
+                        condition => condition.Type == 0
+                            && condition.TargetId == 10601
+                            && condition.Count == 1);
+                var hasQuestTargetPassiveObject = questConnectedBossMap.PassiveObjectCodes != null
+                    && ContainsInt(questConnectedBossMap.PassiveObjectCodes, 13099)
+                    && ContainsInt(questConnectedBossMap.PassiveObjectCodes, 10601);
+                Check(
+                    "PVF quest-connected maze exposes task and clear-condition passive objects",
+                    hasQuestConnectedCondition && hasQuestTargetPassiveObject,
+                    ref failures);
+
+                var seekingPassiveCandidates = QuestDropProvider.CheckEnemyDrop(
+                    new HashSet<int> { 1849 },
+                    dungeonIndex: 160,
+                    difficulty: 0,
+                    enemyCode: 52853,
+                    enemyType: QuestDropProvider.EnemyTypePassiveObject);
+                var seekingPassiveMap = Dungeon
+                    .GetDungeonMapMonsterSummaryInformation(
+                        dungeonId: 160,
+                        x: 4,
+                        y: 1,
+                        mazeIndex: 6,
+                        overrideMapId: 59241,
+                        bossPos: new[] { 4, 1 });
+                var hasSeekingPassiveCandidate =
+                    seekingPassiveCandidates != null
+                    && seekingPassiveCandidates.Exists(candidate =>
+                        candidate.QuestId == 1849
+                        && candidate.ItemId == 10099811
+                        && candidate.Count == 1
+                        && candidate.DropRate == 100
+                        && candidate.MaxStack == 5
+                        && candidate.PreferQuestInventory);
+                Check(
+                    "PVF seeking quest passive-object reward resolves through the frozen MAP",
+                    hasSeekingPassiveCandidate
+                    && seekingPassiveMap.PassiveObjectCodes != null
+                    && ContainsInt(
+                        seekingPassiveMap.PassiveObjectCodes,
+                        52853),
+                    ref failures);
+            }
 
             Console.WriteLine(
                 failures == 0
@@ -1967,6 +2394,20 @@ namespace DfoServer.SelfTests
                 if (match)
                     return true;
             }
+
+            return false;
+        }
+
+        private static bool ContainsInt(
+            IReadOnlyList<int> values,
+            int expected)
+        {
+            if (values == null)
+                return false;
+
+            for (var index = 0; index < values.Count; index++)
+                if (values[index] == expected)
+                    return true;
 
             return false;
         }

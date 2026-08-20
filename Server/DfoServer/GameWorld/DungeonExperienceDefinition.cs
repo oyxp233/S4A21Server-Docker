@@ -31,7 +31,7 @@ namespace DfoServer.GameWorld
             double experienceWeight,
             IReadOnlyList<double> difficultyRates,
             IReadOnlyList<double> partyMemberRates,
-            IReadOnlyList<double> monsterKindRates,
+            IReadOnlyList<double> monsterKindExperienceRates,
             double legacyMonsterOverallRate,
             bool isAvailable = true,
             DungeonClearExperienceBonusDefinition clearBonusDefinition = null)
@@ -42,7 +42,7 @@ namespace DfoServer.GameWorld
             ExperienceWeight = experienceWeight;
             _difficultyRates = Copy(difficultyRates);
             _partyMemberRates = Copy(partyMemberRates);
-            _monsterKindRates = Copy(monsterKindRates);
+            _monsterKindRates = Copy(monsterKindExperienceRates);
             LegacyMonsterOverallRate = legacyMonsterOverallRate;
             IsAvailable = isAvailable;
             ClearBonusDefinition = clearBonusDefinition
@@ -103,7 +103,7 @@ namespace DfoServer.GameWorld
                 experienceWeight: 0.0,
                 difficultyRates: Array.Empty<double>(),
                 partyMemberRates: Array.Empty<double>(),
-                monsterKindRates: Array.Empty<double>(),
+                monsterKindExperienceRates: Array.Empty<double>(),
                 legacyMonsterOverallRate: 0.0,
                 isAvailable: false);
 
@@ -121,6 +121,8 @@ namespace DfoServer.GameWorld
 
     internal static class DungeonExperienceDefinitionCatalog
     {
+        private static readonly double[] FallbackMonsterKindExperienceRates =
+            { 1.0, 2.0, 3.0, 4.0 };
         private const string ServerParameterPath = "Etc/ServerParameter.etc";
         private static readonly ConcurrentDictionary<int, DungeonExperienceDefinition>
             Definitions = new ConcurrentDictionary<int, DungeonExperienceDefinition>();
@@ -166,12 +168,20 @@ namespace DfoServer.GameWorld
                     experienceWeight,
                     parameters.DifficultyRates,
                     parameters.PartyMemberRates,
-                    parameters.MonsterKindRates,
+                    ResolveMonsterKindExperienceRates(
+                        dungeon,
+                        out var monsterKindRateSource),
                     parameters.LegacyMonsterOverallRate);
                 FileLogger.Log(
                     $"[DungeonExperienceDefinition] loaded dungeon={dungeonId} " +
                     $"kind={definition.Kind} standardLevel={definition.StandardLevel} " +
-                    $"weight={definition.ExperienceWeight:R}");
+                    $"weight={definition.ExperienceWeight:R} " +
+                    $"monsterKindExp=" +
+                    $"{definition.GetMonsterKindRate(0):R}," +
+                    $"{definition.GetMonsterKindRate(1):R}," +
+                    $"{definition.GetMonsterKindRate(2):R}," +
+                    $"{definition.GetMonsterKindRate(3):R} " +
+                    $"monsterKindExpSource={monsterKindRateSource}");
                 return definition;
             }
             catch (Exception ex)
@@ -201,6 +211,91 @@ namespace DfoServer.GameWorld
             return DungeonExperienceDefinitionKind.Standard;
         }
 
+        internal static double[] ResolveMonsterKindExperienceRates(
+            DungeonFile dungeon,
+            out string source)
+        {
+            if (TryNormalizeMonsterKindExperienceRates(
+                    dungeon?.CommonMonsterExpConst,
+                    dungeon?.CommonChampionExpConst,
+                    dungeon?.SuperChampionExpConst,
+                    dungeon?.BossExpConst,
+                    out var rates))
+            {
+                source = "dgn-exp-const";
+                return rates;
+            }
+
+            source = "fallback-1-2-3-4";
+            return CopyRates(FallbackMonsterKindExperienceRates);
+        }
+
+        internal static bool TryNormalizeMonsterKindExperienceRates(
+            string commonMonsterExpConst,
+            string commonChampionExpConst,
+            string superChampionExpConst,
+            string bossExpConst,
+            out double[] rates)
+        {
+            rates = null;
+            var constants = new[]
+            {
+                ParseFirstRate(commonMonsterExpConst),
+                ParseFirstRate(commonChampionExpConst),
+                ParseFirstRate(superChampionExpConst),
+                ParseFirstRate(bossExpConst),
+            };
+            if (!constants[0].HasValue || constants[0].Value <= 0.0)
+                return false;
+
+            var common = constants[0].Value;
+            var normalized = new double[constants.Length];
+            for (var index = 0; index < constants.Length; index++)
+            {
+                if (!constants[index].HasValue || constants[index].Value <= 0.0)
+                    return false;
+
+                var ratio = constants[index].Value / common;
+                if (double.IsNaN(ratio) || double.IsInfinity(ratio) || ratio <= 0.0)
+                    return false;
+
+                // DGN stores integer exp constants, so values such as 344/171
+                // are rounded representations of the intended 2x/3x/4x rates.
+                var nearestInteger = Math.Round(ratio, MidpointRounding.AwayFromZero);
+                normalized[index] = Math.Abs(ratio - nearestInteger) <= 0.05
+                    ? nearestInteger
+                    : ratio;
+            }
+
+            rates = normalized;
+            return true;
+        }
+
+        private static double? ParseFirstRate(string raw)
+        {
+            foreach (var token in ScriptValueTokenizer.Tokenize(raw ?? string.Empty))
+            {
+                if (double.TryParse(
+                        token,
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out var value))
+                {
+                    return value;
+                }
+            }
+
+            return null;
+        }
+
+        private static double[] CopyRates(IReadOnlyList<double> source)
+        {
+            var copy = new double[source.Count];
+            for (var index = 0; index < source.Count; index++)
+                copy[index] = source[index];
+            return copy;
+        }
+
         private static ServerExperienceParameters LoadServerParameters()
         {
             try
@@ -212,9 +307,6 @@ namespace DfoServer.GameWorld
                     text);
                 var partyMemberRates = ParseRates(
                     root.GetChild("party user number exp bonusrate"),
-                    text);
-                var monsterKindRates = ParseRates(
-                    root.GetChild("drop bonusrate of monster kind"),
                     text);
                 var legacyMonsterRates = ParseRates(
                     root.GetChild("monster exp bonusrate"),
@@ -229,10 +321,6 @@ namespace DfoServer.GameWorld
                     minimumCount: 4,
                     "party user number exp bonusrate");
                 RequireRates(
-                    monsterKindRates,
-                    minimumCount: 4,
-                    "drop bonusrate of monster kind");
-                RequireRates(
                     legacyMonsterRates,
                     minimumCount: 1,
                     "monster exp bonusrate");
@@ -240,12 +328,10 @@ namespace DfoServer.GameWorld
                 FileLogger.Log(
                     "[DungeonExperienceDefinition] server parameters loaded: " +
                     $"difficulty={string.Join(',', difficultyRates)} " +
-                    $"party={string.Join(',', partyMemberRates)} " +
-                    $"monsterKind={string.Join(',', monsterKindRates)}");
+                    $"party={string.Join(',', partyMemberRates)}");
                 return new ServerExperienceParameters(
                     difficultyRates,
                     partyMemberRates,
-                    monsterKindRates,
                     legacyMonsterRates[0]);
             }
             catch (Exception ex)
@@ -299,14 +385,12 @@ namespace DfoServer.GameWorld
             internal ServerExperienceParameters(
                 double[] difficultyRates,
                 double[] partyMemberRates,
-                double[] monsterKindRates,
                 double legacyMonsterOverallRate,
                 bool isAvailable = true,
                 string error = null)
             {
                 DifficultyRates = difficultyRates ?? Array.Empty<double>();
                 PartyMemberRates = partyMemberRates ?? Array.Empty<double>();
-                MonsterKindRates = monsterKindRates ?? Array.Empty<double>();
                 LegacyMonsterOverallRate = legacyMonsterOverallRate;
                 IsAvailable = isAvailable;
                 Error = error ?? string.Empty;
@@ -314,14 +398,12 @@ namespace DfoServer.GameWorld
 
             internal double[] DifficultyRates { get; }
             internal double[] PartyMemberRates { get; }
-            internal double[] MonsterKindRates { get; }
             internal double LegacyMonsterOverallRate { get; }
             internal bool IsAvailable { get; }
             internal string Error { get; }
 
             internal static ServerExperienceParameters Unavailable(string error)
                 => new ServerExperienceParameters(
-                    Array.Empty<double>(),
                     Array.Empty<double>(),
                     Array.Empty<double>(),
                     legacyMonsterOverallRate: 0.0,

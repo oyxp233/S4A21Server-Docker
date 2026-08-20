@@ -193,6 +193,9 @@ namespace DfoServer.Game.Dungeon
         private readonly Dictionary<int, DungeonActorDeathFact>
             _mapOwnedActorDeaths =
                 new Dictionary<int, DungeonActorDeathFact>();
+        private readonly Dictionary<int, DungeonActorDeathFact>
+            _ordinaryMapOwnedActorDeaths =
+                new Dictionary<int, DungeonActorDeathFact>();
         private Lazy<PassiveObjectDropPlan> _passiveObjectDropPlan;
         private DungeonRoomState _state = DungeonRoomState.Created;
         private long _partyDungeonInstanceId;
@@ -345,6 +348,32 @@ namespace DfoServer.Game.Dungeon
             {
                 if (_state == DungeonRoomState.Closed)
                     return default;
+
+                var ordinaryActors = Maze.PassiveObjectCodes;
+                if (ordinaryActors != null)
+                {
+                    for (var index = 0; index < ordinaryActors.Count; index++)
+                    {
+                        if (ordinaryActors[index] != actorCode)
+                            continue;
+
+                        actorDefined = true;
+                        if (_ordinaryMapOwnedActorDeaths.ContainsKey(index))
+                            continue;
+
+                        var fact = new DungeonActorDeathFact(
+                            source,
+                            sequenceId: 0,
+                            actorCode,
+                            SpecialPassiveObjectActorType,
+                            DungeonActorDeathKind.Defeated);
+                        _ordinaryMapOwnedActorDeaths.Add(index, fact);
+                        return new DungeonRoomActorDeathApplication(
+                            accepted: true,
+                            created: true,
+                            fact);
+                    }
+                }
 
                 var actors = Maze.SpecialPassiveObjects;
                 if (actors == null)
