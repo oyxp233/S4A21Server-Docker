@@ -97,6 +97,8 @@ namespace DfoServer.Game.Inventory
         public int DisplayCount { get; set; }
 
         public ushort Durability { get; set; }
+
+        public SpecialRewardOutcome SpecialOutcome { get; set; }
     }
 
     internal sealed class AvatarPackageDefinition

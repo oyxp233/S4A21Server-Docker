@@ -37,6 +37,8 @@ namespace DfoServer.Game.Dungeon
             new Dictionary<(InventoryListType, short), ItemCore>();
         private readonly Dictionary<short, int> _virtualCounts =
             new Dictionary<short, int>();
+        private readonly Dictionary<int, int> _epicPieceCounts =
+            new Dictionary<int, int>();
 
         internal static bool TryCapture(
             InventoryService inventory,
@@ -75,6 +77,15 @@ namespace DfoServer.Game.Dungeon
                     {
                         captured._virtualCounts[entry.SlotIndex] =
                             inventory.GetMainVirtualCount(entry.SlotIndex)?.Count ?? 0;
+                    }
+                    continue;
+                }
+                if (entry.Kind == InventoryRewardGrantKind.EpicPiece)
+                {
+                    if (!captured._epicPieceCounts.ContainsKey(entry.ItemTemplateId))
+                    {
+                        captured._epicPieceCounts[entry.ItemTemplateId] =
+                            inventory.EpicPieces.GetCountByPieceId(entry.ItemTemplateId);
                     }
                     continue;
                 }
@@ -121,6 +132,8 @@ namespace DfoServer.Game.Dungeon
             }
             foreach (var pair in _virtualCounts)
                 inventory.SetMainVirtualCount(pair.Key, pair.Value);
+            foreach (var pair in _epicPieceCounts)
+                inventory.EpicPieces.TrySetCountByPieceId(pair.Key, pair.Value);
         }
     }
 

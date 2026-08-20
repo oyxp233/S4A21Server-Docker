@@ -663,6 +663,13 @@ namespace DfoServer.Network.Handlers.Dungeon
                         session.Player.UserId,
                         (ushort)pickup.InventorySlot,
                         7)));
+                if (pickup.IsEpicPiece)
+                {
+                    await InventoryRefreshSender.SendEpicPieceInfo(
+                        session,
+                        pickup.PickedUpItemId,
+                        pickup.EpicPieceBalance);
+                }
                 if (session.Player.IsCurrentDungeonRun(runIdentity)
                     && session.GameSession?.QuestManager != null
                     && pickup.PickedUpItemId > 0)

@@ -26,6 +26,7 @@ namespace DfoServer.Game.Inventory
         public const byte KindSpecialMaterial = 11;
         public const byte KindGuildMedal = 12;
         public const byte KindGuardianGem = 13;
+        public const byte KindEpicPiece = 14;
 
         public const int ItemKindOffset = 0;
         public const int ItemIdOffset = 1;

@@ -450,6 +450,8 @@ namespace DfoServer.Network
             d[0x025C] = _inventoryHandler.Handle_UPGRADE_CARD;                     //604 monster card upgrade
             d[0x0207] = _inventoryHandler.Handle_OPEN_AVATAR_PACKAGE;
             d[0x0218] = _inventoryHandler.Handle_USE_BOOSTER_ITEM;
+            d[(ushort)CmdPacketTypeA21.EPIC_BOOK_MAKE_ITEM] =
+                _inventoryHandler.Handle_EPIC_BOOK_MAKE_ITEM;
             d[0x0239] = _inventoryHandler.Handle_SET_CLONE_TITLE;                  //569
             d[(ushort)CmdPacketType.USE_RANDOMBOX_ITEM_EXPAND] = _inventoryHandler.Handle_OPEN_MAGIC_BOX;
             d[0x0063] = _inventoryHandler.Handle_COMPOUND_AVATAR;                  //99 合并装扮(时装合成)

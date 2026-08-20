@@ -86,6 +86,34 @@ namespace DfoServer.Network.Handlers
             }
         }
 
+        internal static Task SendEpicPieceInfo(
+            EnhancedClientSession session,
+            int pieceId,
+            int value)
+        {
+            if (session == null || pieceId <= 0)
+                return Task.CompletedTask;
+
+            return SendEpicPieceInfo(
+                session,
+                new[] { new ItemValueEntrySnapshot { ItemId = pieceId, Value = Math.Max(0, value) } },
+                1);
+        }
+
+        internal static Task SendEpicPieceInfo(
+            EnhancedClientSession session,
+            IReadOnlyList<ItemValueEntrySnapshot> items,
+            byte mode)
+        {
+            if (session == null)
+                return Task.CompletedTask;
+
+            return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                (ushort)NotiPacketTypeA21.EPIC_BOOK_INFO,
+                A21UsableCount0465BodyBuilder.Build(items, mode)));
+        }
+
         internal static async Task<bool> TrySendOwnedItemListRefresh(
             EnhancedClientSession session,
             InventoryLease expectedLease,

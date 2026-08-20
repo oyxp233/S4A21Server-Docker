@@ -289,6 +289,7 @@ namespace DfoServer.Game.SelectCharacter
             LoadInitFieldsFromPacketTemplates(characterId, initSnapshot);
             initSnapshot.UsableCountItems.AddRange(
                 UsableCountLimitService.LoadCurrentDayItems(_connectionString, characterId));
+            LoadEpicPieceItems(characterId, accountId, initSnapshot);
             ApplyOnlineItemLockList(characterId, initSnapshot);
             // EQUIPMENT_RENTAL_LIST 是可变状态，加载模板后立即用当前背包/装备租赁重建。
             var rebuiltRentalInfo = _inventoryLifecycle.RebuildRentalInfoFromInventory(
@@ -421,6 +422,31 @@ namespace DfoServer.Game.SelectCharacter
                 KnightShieldDeck = knightShieldDeck,
                 CharacterRecord = characterRecord,
             };
+        }
+
+        private void LoadEpicPieceItems(
+            int characterId,
+            int accountId,
+            SelectCharacterInitializationSnapshot initSnapshot)
+        {
+            if (initSnapshot == null)
+                return;
+
+            initSnapshot.EpicPieceItems.Clear();
+            if (InventoryContext.TryGetLease(characterId, out var lease))
+            {
+                lock (lease.SyncRoot)
+                    initSnapshot.EpicPieceItems.AddRange(lease.Inventory.EpicPieces.BuildEntries());
+                return;
+            }
+
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                var model = new EpicPieceBookModel();
+                model.LoadFromBlob(EpicPieceBookRepository.LoadBlob(conn, null, accountId));
+                initSnapshot.EpicPieceItems.AddRange(model.BuildEntries());
+            }
         }
 
         internal void PrepareForSkillSynchronization(int characterId, int accountId)

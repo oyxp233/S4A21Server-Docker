@@ -7,7 +7,7 @@ namespace DfoServer.Infrastructure
 {
     public static class SqliteDatabaseBootstrap
     {
-        private static readonly IReadOnlyList<(string ColumnName, string ColumnDefinition)> AccountSoulColumns =
+        private static readonly IReadOnlyList<(string ColumnName, string ColumnDefinition)> AccountExtraColumns =
             new[]
             {
                 ("soul_10100115", "INTEGER NOT NULL DEFAULT 0"),
@@ -15,6 +15,7 @@ namespace DfoServer.Infrastructure
                 ("soul_10099773", "INTEGER NOT NULL DEFAULT 0"),
                 ("soul_10099774", "INTEGER NOT NULL DEFAULT 0"),
                 ("soul_10099775", "INTEGER NOT NULL DEFAULT 0"),
+                ("epic_piece_counts", "BLOB NOT NULL DEFAULT X''"),
             };
 
         private static readonly object InitLock = new object();
@@ -46,7 +47,7 @@ namespace DfoServer.Infrastructure
                         else
                             CreateCurrentDatabase(conn, File.ReadAllText(schemaFilePath));
 
-                        EnsureAccountSoulColumns(conn);
+                        EnsureAccountExtraColumns(conn);
 
                         // WAL 持久生效: 读写不互锁, 消除快速切角色时 database is locked
                         using (var walCmd = conn.CreateCommand())
@@ -104,7 +105,7 @@ namespace DfoServer.Infrastructure
             DfoServer.Sqlite.SqliteMigrations.Apply(connection);
         }
 
-        private static void EnsureAccountSoulColumns(SqliteConnection connection)
+        private static void EnsureAccountExtraColumns(SqliteConnection connection)
         {
             if (connection == null)
                 throw new ArgumentNullException(nameof(connection));
@@ -124,7 +125,7 @@ namespace DfoServer.Infrastructure
                 return;
 
             var missingColumns = new List<(string ColumnName, string ColumnDefinition)>();
-            foreach (var column in AccountSoulColumns)
+            foreach (var column in AccountExtraColumns)
             {
                 if (!existingColumns.Contains(column.ColumnName))
                     missingColumns.Add(column);
@@ -149,7 +150,7 @@ namespace DfoServer.Infrastructure
             }
 
             FileLogger.Log(
-                "[Db] accounts soul warehouse columns added: " +
+                "[Db] accounts extra columns added: " +
                 string.Join(", ", missingColumns.ConvertAll(column => column.ColumnName)));
         }
 

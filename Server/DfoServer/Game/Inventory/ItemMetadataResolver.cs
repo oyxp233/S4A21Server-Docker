@@ -458,6 +458,12 @@ namespace DfoServer.Game.Inventory
         internal static bool TryResolveItemKind(int itemTemplateId, ItemMetadata metadata, out byte itemKind)
         {
             itemKind = ItemCore.KindUnknown;
+            if (EpicPieceCatalogService.IsEpicPieceId(itemTemplateId))
+            {
+                itemKind = ItemCore.KindEpicPiece;
+                return true;
+            }
+
             if (metadata == null)
                 return false;
 

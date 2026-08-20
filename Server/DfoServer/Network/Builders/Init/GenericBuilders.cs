@@ -1,5 +1,6 @@
 using DfoServer.Game.SelectCharacter;
 using System;
+using System.Collections.Generic;
 
 namespace DfoServer.Network.Builders
 {
@@ -100,7 +101,7 @@ namespace DfoServer.Network.Builders
         }
     }
 
-    // A21 0245 后必须存在 0465。已有号的完整表尚待实机确认，当前按参考实现发送空态 5B。
+    // A21 0x0465: 史诗图鉴碎片数量，mode=0 全量，mode=1 增量。
     public sealed class A21UsableCount0465BodyBuilder : IInitPacketBuilder
     {
         public ushort NotiType => 0x0465;
@@ -110,8 +111,43 @@ namespace DfoServer.Network.Builders
             int occurrenceIndex,
             out byte[] body)
         {
-            body = new byte[5];
+            body = Build(snapshot?.InitializationSnapshot?.EpicPieceItems, 0);
             return true;
+        }
+
+        public static byte[] Build(
+            IReadOnlyList<ItemValueEntrySnapshot> items,
+            byte mode)
+        {
+            var count = items == null ? 0 : items.Count;
+            var writer = new GamePacketWriter();
+            writer.WriteByte(mode);
+            writer.WriteUInt32((uint)Math.Max(0, count));
+            if (items != null)
+            {
+                for (var index = 0; index < count; index++)
+                {
+                    var item = items[index];
+                    writer.WriteUInt32((uint)Math.Max(0, item.ItemId));
+                    writer.WriteUInt32((uint)Math.Max(0, item.Value));
+                }
+            }
+
+            return writer.ToArray();
+        }
+
+        public static byte[] BuildSingle(int itemId, int value)
+        {
+            return Build(
+                new[]
+                {
+                    new ItemValueEntrySnapshot
+                    {
+                        ItemId = itemId,
+                        Value = Math.Max(0, value),
+                    },
+                },
+                1);
         }
     }
 

@@ -200,6 +200,11 @@ namespace DfoServer.Network.Handlers.Dungeon
                     }
                 }
 
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    header.type,
+                    new byte[] { 0x01, 0x00, 0x00, 0x00, 0x00 }));
+
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0003, EnterSelectDungeonStateBuilder.BuildUserState(session.Player)));
 
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x001A, UdpHostBuilder.BuildUnavailable()));

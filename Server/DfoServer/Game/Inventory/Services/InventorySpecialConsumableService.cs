@@ -421,7 +421,8 @@ namespace DfoServer.Game.Inventory
                     return false;
 
                 var metadata = ItemMetadataResolver.Resolve(reward.ItemTemplateId);
-                if (metadata.ItemKind == "special")
+                if (metadata.ItemKind == "special"
+                    && !EpicPieceCatalogService.IsEpicPieceId(reward.ItemTemplateId))
                     return false;
 
                 rewardForResult = reward;
@@ -761,6 +762,13 @@ namespace DfoServer.Game.Inventory
                                 entry.SlotIndex,
                                 entry.SlotItemId,
                                 entry.FinalCount))
+                            return false;
+                        break;
+                    case InventoryRewardGrantKind.EpicPiece:
+                        if (!planningInventory.EpicPieces.TryAddByPieceId(
+                                entry.ItemTemplateId,
+                                entry.GrantedCount,
+                                out _))
                             return false;
                         break;
                     case InventoryRewardGrantKind.InventoryItem:
@@ -1115,6 +1123,7 @@ namespace DfoServer.Game.Inventory
 
             foreach (var item in source.GetMainVirtualCounts())
                 inventory.AttachMainVirtualCount(item.SlotIndex, item.ItemId, item.Count);
+            inventory.EpicPieces.CopyFrom(source.EpicPieces);
 
             inventory.ClearDirtyState();
             if (source.PendingHappyTokenCeraGrant > 0)
@@ -1217,6 +1226,7 @@ namespace DfoServer.Game.Inventory
                 ItemTemplateId = reward.ItemTemplateId,
                 DisplayCount = reward.GrantedCount <= 0 ? 1 : reward.GrantedCount,
                 Durability = 0,
+                SpecialOutcome = reward.SpecialOutcome,
             };
         }
 

@@ -314,6 +314,19 @@ namespace DfoServer.Game.Inventory
                 };
             }
 
+            if (outcome.Kind == SpecialRewardKind.EpicPiece)
+            {
+                return new BoosterRewardResult
+                {
+                    ListType = InventoryListType.Main,
+                    SlotIndex = -1,
+                    ItemTemplateId = outcome.ItemTemplateId,
+                    StackCount = outcome.WalletNewTotal,
+                    GrantedCount = outcome.Count,
+                    SpecialOutcome = outcome,
+                };
+            }
+
             // 契约: 不入库, SlotIndex=0 不对应真实槽位
             return new BoosterRewardResult
             {

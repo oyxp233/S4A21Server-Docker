@@ -59,7 +59,17 @@ namespace DfoServer.Game.Dungeon
                 }
 
                 var rarity = RollHellRarity(lcg, hellDifficulty);
-                var itemId = ChooseEquipment(lcg, dungeonMinimumLevel, itemBasisLevel, rarity, out var candidateCount, out var fallbackUsed, out var gradeMin, out var gradeMax);
+                var itemId = ChooseEquipment(
+                    lcg,
+                    dungeonMinimumLevel,
+                    itemBasisLevel,
+                    rarity,
+                    allowFallback: true,
+                    predicate: null,
+                    out var candidateCount,
+                    out var fallbackUsed,
+                    out var gradeMin,
+                    out var gradeMax);
                 if (itemId <= 0)
                 {
                     FileLogger.Log($"[HellMonsterDropConfig] roll#{i + 1}: no equipment dungeonLevelRange={dungeonMinimumLevel}-{itemBasisLevel} gradeRange={gradeMin}-{gradeMax} rarity={rarity} candidates={candidateCount} fallback={fallbackUsed}");
@@ -78,6 +88,33 @@ namespace DfoServer.Game.Dungeon
         public static void WarmUp()
         {
             EnsureLoaded();
+        }
+
+        internal static bool TryChooseSpecificEquipment(
+            DnfLcg lcg,
+            int dungeonMinimumLevel,
+            int itemBasisLevel,
+            int rarity,
+            bool allowFallback,
+            Func<int, bool> predicate,
+            out int itemId,
+            out int candidateCount,
+            out bool fallbackUsed,
+            out int gradeMin,
+            out int gradeMax)
+        {
+            itemId = ChooseEquipment(
+                lcg,
+                dungeonMinimumLevel,
+                itemBasisLevel,
+                rarity,
+                allowFallback,
+                predicate,
+                out candidateCount,
+                out fallbackUsed,
+                out gradeMin,
+                out gradeMax);
+            return itemId > 0;
         }
 
         private static void EnsureLoaded()
@@ -227,6 +264,8 @@ namespace DfoServer.Game.Dungeon
             int dungeonMinimumLevel,
             int itemBasisLevel,
             int rarity,
+            bool allowFallback,
+            Func<int, bool> predicate,
             out int candidateCount,
             out bool fallbackUsed,
             out int gradeMin,
@@ -242,10 +281,18 @@ namespace DfoServer.Game.Dungeon
 
             if (!EquipmentDropLevelRule.TryGetAtlasGradeRange(dungeonMinimumLevel, itemBasisLevel, out gradeMin, out gradeMax))
                 return -1;
-            var candidates = CollectWeightedFromPool(gradeMin, gradeMax, rarity);
-            if (candidates.Count == 0 && rarity > 0)
+            var candidates = CollectWeightedFromPool(
+                gradeMin,
+                gradeMax,
+                rarity,
+                predicate);
+            if (candidates.Count == 0 && allowFallback && rarity > 0)
             {
-                candidates = CollectWeightedFromPool(gradeMin, gradeMax, 0);
+                candidates = CollectWeightedFromPool(
+                    gradeMin,
+                    gradeMax,
+                    0,
+                    predicate);
                 fallbackUsed = true;
             }
             candidateCount = candidates.Count;
@@ -292,7 +339,8 @@ namespace DfoServer.Game.Dungeon
         private static List<(int Id, int Weight)> CollectWeightedFromPool(
             int gradeMin,
             int gradeMax,
-            int rarity)
+            int rarity,
+            Func<int, bool> predicate)
         {
             var result = new List<(int Id, int Weight)>();
             if (gradeMax < gradeMin)
@@ -302,7 +350,14 @@ namespace DfoServer.Game.Dungeon
             {
                 var key = (long)grade * 10 + rarity;
                 if (_equipPool.TryGetValue(key, out var items))
-                    result.AddRange(items);
+                {
+                    for (var i = 0; i < items.Count; i++)
+                    {
+                        var item = items[i];
+                        if (predicate == null || predicate(item.Id))
+                            result.Add(item);
+                    }
+                }
             }
             return result;
         }

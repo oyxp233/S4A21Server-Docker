@@ -9,12 +9,13 @@
 ## 总体规则
 
 - 在线角色的真源是 `InventoryService`。GM 直接改数据库只适合离线角色；在线角色需要下线重进或由服务端提供 GM 入口同步到在线模型。
-- 主背包、穿戴栏、时装栏、宠物栏、个人仓库、账号仓库统一用 82 字节 `ItemCore` 表示。
+- 主背包、穿戴栏、时装栏、宠物栏、个人仓库、账号仓库统一用 99 字节 `ItemCore` 表示。
 - 时装和宠物有额外 detail。`ItemCore.Value` 对时装是 `AvatarUid`，对宠物是 `CreatureUid`。
 - `character_inventory_items.item_uid` 只是物品行主键，不再等于时装 UID。
 - 名称装饰卡、收集箱、成就完成状态不是普通背包物品，不要强行塞进 `character_inventory_items`。
-- 晶体碎片持久化在账号表 `accounts.cube_*` 字段，运行时映射成主背包 354-359 虚拟槽，不写 `character_inventory_items`。
-- 所有 `item_core` BLOB 都是小端序，长度必须严格等于 82。
+- 晶体碎片持久化在账号表 `accounts.cube_*` 字段，运行时映射成主背包 354-359 虚拟槽；灵魂持久化在 `accounts.soul_*` 字段，运行时映射成主背包 360-364 虚拟槽，不写 `character_inventory_items`。
+- 史诗碎片是账号级史诗图鉴数量，持久化在 `accounts.epic_piece_counts`，运行时加载到 `InventoryService.EpicPieces`；它不占主背包、仓库或任何 `InventoryListType` 槽位，也不写 `character_inventory_items`。
+- 所有 `item_core` BLOB 都是小端序，长度必须严格等于 99。
 - 空槽通常没有数据库行。代码内存里空槽用 `ItemCore.Init()` 表示。
 - 金币槽 `list_type=0, slot_index=0` 的 `itemId=0` 是合法虚拟物品，判断空槽不能只看 `ItemId == 0`。
 - 当前代码已清理 `SqliteAssetService` / `IAssetService` / `IInventoryStore` / `CommonInventoryItem` 等旧物品门面和旧 DTO。GM 工具不要为了兼容重新引入这些结构。
@@ -50,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_character_inventory_items_character_space
 | character_id | 角色 ID |
 | list_type | 物品空间，见下文 `InventoryListType` |
 | slot_index | 空间内槽位 |
-| item_core | 82 字节 `ItemCore` |
+| item_core | 99 字节 `ItemCore` |
 | created_at / updated_at | 数据库维护时间 |
 
 GM 写入建议：角色物品只写 `character_id + list_type + slot_index + item_core`。账号仓库不要写这张表，使用 `account_inventory_items`。
@@ -78,7 +79,7 @@ CREATE TABLE IF NOT EXISTS account_inventory_items (
 |---|---|
 | account_id | 账号 ID |
 | slot_index | 账号仓库槽位，0-63 |
-| item_core | 82 字节 `ItemCore` |
+| item_core | 99 字节 `ItemCore` |
 
 ### character_avatar_detail
 
@@ -216,9 +217,9 @@ CREATE TABLE IF NOT EXISTS account_cargo_state (
 | value32 | 账号仓库金币 |
 | item_count | 协议/状态用数量字段 |
 
-### accounts 晶体字段
+### accounts 晶体/灵魂/史诗碎片字段
 
-晶体碎片是账号级货币，持久化在 `accounts` 表字段中，运行时由 `InventoryService` 加载为主背包 354-359 虚拟槽。
+晶体碎片和灵魂都是账号级货币，持久化在 `accounts` 表字段中，运行时由 `InventoryService` 加载为主背包 354-359 与 360-364 虚拟槽。
 
 | itemId | slot | accounts 字段 |
 |---:|---:|---|
@@ -229,7 +230,9 @@ CREATE TABLE IF NOT EXISTS account_cargo_state (
 | 3037 | 358 | cube_clear |
 | 3262 | 359 | cube_gold |
 
-GM 修改晶体数量时应更新账号表对应字段；不要在 `character_inventory_items` 中新增 354-359 的行。
+GM 修改晶体/灵魂数量时应更新账号表对应字段；不要在 `character_inventory_items` 中新增 354-364 的行。
+
+史诗碎片也存放在账号表，但它不是主背包虚拟槽。`accounts.epic_piece_counts` 是小端 `Int32 count[]` BLOB，数组下标对应 `etc/epicpieceinfo.etc` 的 `[equipment piece drop info] / [piece list]` 二元组顺序。GM 工具如需改碎片数量，应先按当前 PVF 图鉴目录解析下标，再写对应 count；不要把史诗碎片写成 `ItemCore` 行。
 
 ### character_name_tag_state
 
@@ -278,7 +281,7 @@ GM 移动物品时，如果 `ItemCore.EquipmentLockId != 0`，必须同步更新
 
 ### character_titlebook_items
 
-新称号簿表。每个称号簿格子单独存一条 82 字节 `ItemCore`。
+新称号簿表。每个称号簿格子单独存一条 99 字节 `ItemCore`。
 
 ```sql
 CREATE TABLE IF NOT EXISTS character_titlebook_items (
@@ -345,7 +348,7 @@ CREATE TABLE IF NOT EXISTS character_collectbox_slots (
 
 | 值 | 名称 | 说明 |
 |---:|---|---|
-| 0 | Main | 主背包，含金币/复活币/胜点虚拟槽 |
+| 0 | Main | 主背包，含金币/复活币/胜点/晶体/灵魂虚拟槽 |
 | 1 | Avatar | 时装背包 |
 | 2 | PersonalCargo | 个人仓库 |
 | 3 | Equipment | 穿戴栏 |
@@ -359,6 +362,7 @@ CREATE TABLE IF NOT EXISTS character_collectbox_slots (
 | 29 | QuickSlot | 快捷栏协议/系统枚举，不是普通新物品表空间 |
 | 33 | KnightShieldEquipped | 骑士盾穿戴枚举 |
 | 34 | KnightShieldCatalog | 骑士盾图鉴枚举 |
+| 38 | GuildMedal | 勋章栏，公会勋章/守护珠共用 0-97 |
 
 ## 槽位边界
 
@@ -378,6 +382,7 @@ CREATE TABLE IF NOT EXISTS character_collectbox_slots (
 | 289-351 | 徽章栏 |
 | 352-353 | 预留，客户端无对应位置 |
 | 354-359 | 晶体类虚拟槽，运行时来自 `accounts.cube_*` 字段 |
+| 360-364 | 灵魂类虚拟槽，运行时来自 `accounts.soul_*` 字段 |
 
 背包扩展阶段只影响 9-288 的开放末尾。实际开放末尾计算为：
 
@@ -421,12 +426,16 @@ mainExpandStageKey in {0, 8, 16, 24}
 | 9 | KindAvatarEmblem | 时装徽章 |
 | 10 | KindExpertJobMaterial | 副职业材料 |
 | 11 | KindSpecialMaterial | 特殊材料；当前金币/复活币/胜点虚拟槽也使用它 |
+| 12 | KindGuildMedal | 勋章类；公会勋章，使用勋章栏 `list_type=38`，槽位 0-48 |
+| 13 | KindGuardianGem | 守护珠；与公会勋章共用勋章栏 `list_type=38`，槽位 49-97 |
+| 14 | KindEpicPiece | 史诗碎片；由 `EpicPieceCatalogService.IsEpicPieceId(itemId)` 按 `etc/epicpieceinfo.etc [piece list]` 识别。该 kind 只用于奖励/创建链路分流，不生成可入槽的普通 `ItemCore` |
 
 快捷栏和仓库无法只靠槽位完全确认类型，应该按 PVF 静态数据解析 `itemKind`。`Charm` 不再单独作为 `itemKind`，本质仍是装备，必要时按装备 PVF 的 `EquipmentType=Charm` 区分。
 
-## ItemCore 82 字节结构
+## ItemCore 99 字节结构（A21）
 
 `ItemCore` 是服务端物品核心属性，不是 0x0D/0x0E 协议 entry。协议 entry 需要由协议 writer 根据 `list_type`、`slot`、`ItemCore`、detail 重新组装。
+A21 在旧 82B 基础上额外增加 17 字节，尾部主要用于勋章/守护珠 compact key 和保留字段。
 
 | 偏移 | 大小 | 字段 | 默认值 | 语义 |
 |---:|---:|---|---|---|
@@ -481,6 +490,10 @@ mainExpandStageKey in {0, 8, 16, 24}
 | 79 | 1 | remainUseCount | 0 | 剩余使用次数 |
 | 80 | 1 | sortLockFlag | 0 | 排序锁 |
 | 81 | 1 | equipmentLockId | 0 | 物品锁 ID |
+| 82 | 4 | A21Tail_Unknown84 | 0 | A21 追加尾部未知字段 |
+| 86 | 8 | GuardianGemCompactKeys | 0 | 公会勋章守护珠镶嵌 key，4 个 `UInt16` |
+| 94 | 1 | A21Tail_Unknown96 | 0 | 未知 |
+| 95 | 4 | A21Tail_Unknown97 | 0 | 未知 |
 
 常用别名：
 
@@ -573,7 +586,7 @@ character_creatures.creature_key = CreatureUid
 
 1. 用 PVF 或服务端同等规则解析 `itemKind`。
 2. 按 `ItemSlotBoundService` 规则选择 `list_type` 和空槽。
-3. 构造 82 字节 `ItemCore`。
+3. 构造 99 字节 `ItemCore`。
 4. 写入 `character_inventory_items`。
 5. 如果是带 detail 的时装/宠物，必须同时写 detail 表，并保证 UID 关联正确。
 
@@ -633,9 +646,9 @@ WHERE character_id = @characterId
   AND equipment_lock_id = @lockId;
 ```
 
-### 金币/复活币/胜点/晶体
+### 金币/复活币/胜点/晶体/灵魂
 
-金币、复活币、胜点走主背包 0-2 虚拟槽，并持久化为 `character_inventory_items` 的虚拟 `ItemCore`。晶体走主背包 354-359 虚拟槽，但持久化在 `accounts.cube_*` 字段。
+金币、复活币、胜点走主背包 0-2 虚拟槽，并持久化为 `character_inventory_items` 的虚拟 `ItemCore`。晶体走主背包 354-359 虚拟槽，灵魂走主背包 360-364 虚拟槽，但分别持久化在 `accounts.cube_*` 与 `accounts.soul_*` 字段。
 
 | slot | itemId | 语义 |
 |---:|---:|---|
@@ -663,6 +676,18 @@ Count/Value = 数量
 | 357 | 3036 | cube_blue |
 | 358 | 3037 | cube_clear |
 | 359 | 3262 | cube_gold |
+
+灵魂映射如下：
+
+| slot | itemId | accounts 字段 |
+|---:|---:|---|
+| 360 | 10100115 | soul_10100115 |
+| 361 | 10100116 | soul_10100116 |
+| 362 | 10099773 | soul_10099773 |
+| 363 | 10099774 | soul_10099774 |
+| 364 | 10099775 | soul_10099775 |
+
+史诗碎片不属于以上虚拟槽。服务端只在发放链路里临时把它标记为 `KindEpicPiece`，随后直接更新 `InventoryService.EpicPieces` 和 `accounts.epic_piece_counts`。GM 工具不要为史诗碎片分配 slot、不要构造 99B `ItemCore`、不要写 `character_inventory_items` 或 `account_inventory_items`。
 
 ### 称号簿
 
@@ -714,7 +739,7 @@ GM 工具重写时应直接面向：
 
 ```text
 character_inventory_items / account_inventory_items
-item_core(82B)
+item_core(99B)
 character_avatar_detail
 character_creatures
 character_titlebook_items

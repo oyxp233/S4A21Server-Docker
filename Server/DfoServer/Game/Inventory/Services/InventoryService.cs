@@ -117,6 +117,8 @@ namespace DfoServer.Game.Inventory
 
         public CollectBoxModel CollectBox { get; } = new CollectBoxModel();
 
+        public EpicPieceBookModel EpicPieces { get; } = new EpicPieceBookModel();
+
         public IReadOnlyCollection<InventoryListType> DirtyListTypes => _dirtySlots.Keys;
 
         public IReadOnlyCollection<short> DirtyMainVirtualCountSlots => _dirtyMainVirtualSlots;
@@ -164,6 +166,7 @@ namespace DfoServer.Game.Inventory
                 inventory.AttachItem(item);
 
             inventory.LoadMainVirtualCounts(connection);
+            inventory.LoadEpicPieceBook(connection);
             inventory.ClearDirtyState();
             return inventory;
         }
@@ -557,6 +560,7 @@ namespace DfoServer.Game.Inventory
             TitleBook.ClearDirtyState();
             Achievements.ClearDirtyState();
             CollectBox.ClearDirtyState();
+            EpicPieces.ClearDirtyState();
         }
 
         public static bool IsVirtualMainSlot(short slotIndex)
@@ -601,6 +605,11 @@ namespace DfoServer.Game.Inventory
 
             foreach (var soul in CurrencyService.LoadSoulWarehouseCounts(connection, null, AccountId))
                 AttachMainVirtualCount((short)soul.Slot, soul.ItemId, soul.Count);
+        }
+
+        private void LoadEpicPieceBook(SqliteConnection connection)
+        {
+            EpicPieces.LoadFromBlob(EpicPieceBookRepository.LoadBlob(connection, null, AccountId));
         }
 
         private void LoadTitleBook(SqliteConnection connection)

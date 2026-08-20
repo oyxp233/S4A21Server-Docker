@@ -14,6 +14,7 @@ namespace DfoServer.Game.Inventory
         Premium,
         ReviveCoin,
         HappyTokenCera,
+        EpicPiece,
     }
 
     internal static class SpecialRewardRouter

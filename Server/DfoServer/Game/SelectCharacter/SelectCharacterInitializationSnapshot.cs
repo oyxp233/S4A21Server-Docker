@@ -74,6 +74,8 @@ namespace DfoServer.Game.SelectCharacter
 
         public List<ItemValueEntrySnapshot> UsableCountItems { get; } = new List<ItemValueEntrySnapshot>();
 
+        public List<ItemValueEntrySnapshot> EpicPieceItems { get; } = new List<ItemValueEntrySnapshot>();
+
         public AchievementCompleteSnapshot AchievementComplete { get; set; } = new AchievementCompleteSnapshot();
 
         public Unknown730Snapshot Unknown730 { get; set; } = new Unknown730Snapshot();

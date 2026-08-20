@@ -1574,11 +1574,14 @@ namespace DfoServer.Network.Handlers
 
             if (grantedItems != null)
             {
-                foreach (var reward in grantedItems)
-                {
-                    if (reward != null && reward.ListType == InventoryListType.Main)
-                        slots.Add(reward.SlotIndex);
-                }
+            foreach (var reward in grantedItems)
+            {
+                if (reward != null
+                    && reward.ListType == InventoryListType.Main
+                    && reward.SlotIndex >= 0
+                    && reward.SpecialOutcome?.Kind != SpecialRewardKind.EpicPiece)
+                    slots.Add(reward.SlotIndex);
+            }
             }
 
             if (slots.Count > 0)
@@ -1639,7 +1642,17 @@ namespace DfoServer.Network.Handlers
             var guildMedalSlots = new HashSet<short>();
             foreach (var item in grantedItems)
             {
-                if (item.ListType == InventoryListType.Avatar)
+                if (item == null)
+                    continue;
+
+                if (item.SpecialOutcome?.Kind == SpecialRewardKind.EpicPiece)
+                {
+                    await InventoryRefreshSender.SendEpicPieceInfo(
+                        session,
+                        item.ItemTemplateId,
+                        item.SpecialOutcome.WalletNewTotal);
+                }
+                else if (item.ListType == InventoryListType.Avatar)
                     avatarSlots.Add(item.SlotIndex);
                 else if (item.ListType == InventoryListType.Pet)
                     petSlots.Add(item.SlotIndex);
@@ -1665,7 +1678,17 @@ namespace DfoServer.Network.Handlers
             var guildMedalSlots = new HashSet<short>();
             foreach (var item in result.Rewards)
             {
-                if (item.ListType == InventoryListType.Avatar)
+                if (item == null)
+                    continue;
+
+                if (item.SpecialOutcome?.Kind == SpecialRewardKind.EpicPiece)
+                {
+                    await InventoryRefreshSender.SendEpicPieceInfo(
+                        session,
+                        item.ItemTemplateId,
+                        item.StackCount);
+                }
+                else if (item.ListType == InventoryListType.Avatar)
                     avatarSlots.Add(item.SlotIndex);
                 else if (item.ListType == InventoryListType.Pet)
                     petSlots.Add(item.SlotIndex);

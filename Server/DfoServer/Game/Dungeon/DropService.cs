@@ -146,10 +146,54 @@ namespace DfoServer.Game.Dungeon
                     request.RewardRollCount,
                     ref slotCounter);
                 drops.AddRange(rewardDrops);
+
+                var epicPieceDrops = GenerateAbyssEpicPieceDrops(
+                    run,
+                    request,
+                    ref slotCounter);
+                drops.AddRange(epicPieceDrops);
             }
 
             run.SceneSlotCounter = slotCounter;
             RegisterDrops(run, drops);
+            return drops;
+        }
+
+        private static List<DropInfo> GenerateAbyssEpicPieceDrops(
+            DungeonRun run,
+            AbyssPartyDropRequest request,
+            ref ushort slotCounter)
+        {
+            var results = EpicPieceDropService.Instance.Roll(
+                new EpicPieceDropRollRequest
+                {
+                    DungeonId = run.DungeonId,
+                    MonsterId = request.MonsterCode,
+                    DungeonDifficulty = run.Difficulty,
+                    HellDifficulty = request.AbyssPartyDifficulty,
+                    DungeonMinimumLevel = request.DungeonMinimumLevel,
+                    DungeonBasisLevel = request.DungeonBasisLevel,
+                    Random = run.RoomLcg,
+                });
+            if (results.Count == 0)
+                return new List<DropInfo>();
+
+            var drops = new List<DropInfo>(results.Count);
+            for (var i = 0; i < results.Count; i++)
+            {
+                var result = results[i];
+                slotCounter++;
+                drops.Add(DropInfo.CreateItem(
+                    slotCounter,
+                    result.EpicPieceId,
+                    Math.Max(1, result.Count)));
+                FileLogger.Log(
+                    $"[DropService] abyss epic piece roll#{i + 1}: " +
+                    $"equipment={result.EpicEquipmentId} " +
+                    $"piece={result.EpicPieceId} " +
+                    $"count={result.Count} sceneSlot={slotCounter}");
+            }
+
             return drops;
         }
 
@@ -236,12 +280,15 @@ namespace DfoServer.Game.Dungeon
                         return PickupResult.InventoryFull;
 
                     run.Drops.Remove(srcSlot);
+                    var isEpicPiece = grant.Kind == InventoryRewardGrantKind.EpicPiece;
                     return new PickupResult
                     {
                         Success = true,
                         IsGold = false,
-                        InventorySlot = grant.SlotIndex,
+                        InventorySlot = isEpicPiece ? (short)64 : grant.SlotIndex,
                         PickedUpItemId = pickedItemId,
+                        IsEpicPiece = isEpicPiece,
+                        EpicPieceBalance = isEpicPiece ? grant.FinalCount : 0,
                     };
                 }
             }
@@ -559,6 +606,8 @@ namespace DfoServer.Game.Dungeon
         public int ExtraGold;
         public short InventorySlot;
         public int PickedUpItemId;
+        public bool IsEpicPiece;
+        public int EpicPieceBalance;
         public PickupFailReason FailReason;
 
         internal static readonly PickupResult NotFound = new PickupResult { FailReason = PickupFailReason.NotFound };
