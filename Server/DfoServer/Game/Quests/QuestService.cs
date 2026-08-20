@@ -15,6 +15,7 @@ namespace DfoServer.Game.Quests
         private readonly QuestAcceptanceApplicationService _acceptance;
         private readonly QuestGiveupApplicationService _giveup;
         private readonly QuestCompletionApplicationService _completion;
+        private readonly QuestScenarioModeClearApplicationService _scenarioModeClear;
 
         public QuestService(string connectionString)
         {
@@ -27,6 +28,8 @@ namespace DfoServer.Game.Quests
             _giveup = new QuestGiveupApplicationService(_repository);
             _completion = new QuestCompletionApplicationService(
                 connectionString,
+                _repository);
+            _scenarioModeClear = new QuestScenarioModeClearApplicationService(
                 _repository);
         }
 
@@ -96,6 +99,19 @@ namespace DfoServer.Game.Quests
             QuestCommandOwnerContext owner,
             QuestFinishCommand command)
             => _completion.Apply(owner, command);
+
+        internal bool HandleScenarioModeClearQuest(
+            QuestCommandOwnerContext owner,
+            QuestScenarioModeClearCommand command,
+            int characterLevel,
+            int characterJob,
+            int growType)
+            => _scenarioModeClear.Apply(
+                owner,
+                command,
+                characterLevel,
+                characterJob,
+                growType);
 
         private static QuestCommandOwnerContext ResolveCurrentOwnerContext(
             int characterId,

@@ -60,6 +60,22 @@ namespace DfoServer.Network.Parsers.Quest
             return true;
         }
 
+        internal static bool TryParseScenarioModeClearQuest(
+            byte[] body,
+            out QuestScenarioModeClearCommand command)
+        {
+            command = default;
+            if (body == null || body.Length != 4)
+                return false;
+
+            var questId = BitConverter.ToUInt32(body, 0);
+            if (questId == 0 || questId > ushort.MaxValue)
+                return false;
+
+            command = new QuestScenarioModeClearCommand((ushort)questId);
+            return true;
+        }
+
         internal static bool TryParseSaveNotify(
             byte[] body,
             out QuestNotifySelectionCommand command)

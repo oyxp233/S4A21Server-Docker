@@ -336,6 +336,51 @@ namespace DfoServer.Game.Quests
             await _notifications.ProjectFinishedQuestAsync(cid, result);
         }
 
+        public async Task HandleScenarioModeClearQuestAsync(
+            ushort wireType,
+            byte[] body,
+            Guid sessionId)
+        {
+            int cid = _sender.CharacterId;
+            if (cid <= 0 || _sender.Player == null)
+                return;
+
+            if (!QuestCommandParser.TryParseScenarioModeClearQuest(body, out var command))
+            {
+                FileLogger.Log(
+                    $"[QuestManager] SCENARIO_MODE_CLEAR_QUEST rejected malformed body: " +
+                    $"wireType=0x{wireType:X4} len={body?.Length ?? 0} " +
+                    $"body={(body != null ? BitConverter.ToString(body) : "null")}");
+                return;
+            }
+
+            InventoryContext.TryGetOwnedLease(sessionId, cid, out var lease);
+            var owner = new QuestCommandOwnerContext(
+                cid,
+                _sender.AccountId,
+                sessionId,
+                lease);
+            var player = _sender.Player;
+            var completed = _service.HandleScenarioModeClearQuest(
+                owner,
+                command,
+                player.Level,
+                player.Job,
+                player.GrowType);
+            if (!completed)
+                return;
+
+            await TrySendQuestStatePartAsync(
+                "active",
+                () => SendActiveQuestListAsync());
+            await TrySendQuestStatePartAsync(
+                "acceptable",
+                () => SendAcceptableQuestListAsync());
+            await TrySendQuestStatePartAsync(
+                "clear",
+                () => SendClearQuestListAsync());
+        }
+
         internal async Task SendPreFinishAckNotificationsAsync(
             QuestFinishResult result)
         {
@@ -918,6 +963,27 @@ namespace DfoServer.Game.Quests
         public async Task SendAcceptableQuestListAsync()
         {
             await _notifications.SendAcceptableQuestListAsync();
+        }
+
+        public async Task SendClearQuestListAsync()
+        {
+            await _notifications.SendClearQuestListAsync();
+        }
+
+        private static async Task TrySendQuestStatePartAsync(
+            string name,
+            Func<Task> send)
+        {
+            try
+            {
+                await send();
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[QuestManager] SCENARIO_MODE_CLEAR_QUEST {name} " +
+                    $"quest-state refresh failed: {ex.Message}");
+            }
         }
     }
 }

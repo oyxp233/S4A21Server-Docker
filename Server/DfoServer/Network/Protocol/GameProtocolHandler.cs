@@ -766,6 +766,14 @@ namespace DfoServer.Network
                         b,
                         s.SessionId);
             };
+            d[(ushort)CmdPacketTypeA21.SCENARIO_MODE_CLEAR_QUEST] = async (s, h, b) =>
+            {
+                if (s.GameSession != null)
+                    await s.GameSession.QuestManager.HandleScenarioModeClearQuestAsync(
+                        h.type,
+                        b,
+                        s.SessionId);
+            };
             d[0x01FB] = (s, h, b) =>
             {
                 s.GameSession?.QuestManager.HandleSaveQuestNotify(b);

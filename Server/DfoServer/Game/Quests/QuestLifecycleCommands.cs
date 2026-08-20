@@ -71,4 +71,14 @@ namespace DfoServer.Game.Quests
         internal ushort RewardSelectionIndex { get; }
         internal ushort CompletionCount { get; }
     }
+
+    internal readonly struct QuestScenarioModeClearCommand
+    {
+        internal QuestScenarioModeClearCommand(ushort questId)
+        {
+            QuestId = questId;
+        }
+
+        internal ushort QuestId { get; }
+    }
 }

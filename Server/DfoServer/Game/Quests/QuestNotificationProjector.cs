@@ -299,6 +299,19 @@ namespace DfoServer.Game.Quests
                     allowedCreatureKinds));
         }
 
+        internal async Task SendClearQuestListAsync()
+        {
+            var characterId = _sender.CharacterId;
+            if (characterId <= 0)
+                return;
+
+            var clearedFlags = new QuestRepository(_connectionString)
+                .LoadClearedFlags(characterId);
+            await _sender.SendNotiAsync(
+                (ushort)NotiPacketTypeA21.CLEAR_QUEST_LIST,
+                ClearQuestListBodyBuilder.BuildBody(clearedFlags));
+        }
+
         private async Task SendUserInfoBroadcastAsync(
             int characterId,
             HonorLevelSummary honorLevel = null)

@@ -14,8 +14,9 @@ namespace DfoServer.Network.Builders
         public const int HonorExpOffset = 0x3F;
         // A21 sub_1178CD0 consumes four trailing u32 values. Client reverse
         // engineering and real-client trials established three labels:
-        // +0x43 = speed-growth buff, +0x4B = Seria welcome, +0x4F = guild.
+        // +0x43 = speed-growth buff, +0x4B = channel bonus, +0x4F = guild.
         // +0x47 is consumed without adding a separate labelled bonus line.
+        public const int ChannelBonusExpOffset = 0x4B;
         public const int ClientReadLengthWithNoVariableEntries = 83;
         public const int CompatibilityTailLength = 0;
         public const int BodyLength = ClientReadLengthWithNoVariableEntries;
@@ -65,7 +66,7 @@ namespace DfoServer.Network.Builders
             w.WriteUInt32(honorLevel?.HonorExp ?? 0);   // +0x3F honor EXP
             w.WriteUInt32(0);                           // +0x43 speed-growth buff EXP
             w.WriteUInt32(0);                           // +0x47 unknown
-            w.WriteUInt32(0);                           // +0x4B Seria welcome EXP
+            w.WriteUInt32(channelBonusExp);             // +0x4B channel bonus EXP
             w.WriteUInt32(0);                           // +0x4F guild bonus EXP
             return w.ToArray();
         }
