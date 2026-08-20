@@ -332,7 +332,8 @@ namespace DfoServer.Infrastructure
                     world.Sessions,
                     world.DungeonInstances,
                     world.MercenaryRestrictions,
-                    core.Database),
+                    core.Database,
+                    core.DailyResetService),
                 new InventoryHandler(
                     core.ExperienceItemUseService,
                     core.SelectCharacterDataSource,
@@ -855,7 +856,8 @@ namespace DfoServer.Infrastructure
                 featureHandlers.CraneMiniGame,
                 socialHandlers.PvpRoom,
                 inventory.InventoryRefreshSender,
-                core.Database);
+                core.Database,
+                core.DailyResetService);
         }
 
         public void Dispose()

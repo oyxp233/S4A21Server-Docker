@@ -152,6 +152,14 @@ CREATE TABLE IF NOT EXISTS account_premiums (
     FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS account_daily_reset (
+    account_id INTEGER PRIMARY KEY,
+    last_logout_at TEXT,
+    last_reset_anchor_at TEXT,
+    last_reset_day_id INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS inventory_audit_log (
     audit_id INTEGER PRIMARY KEY AUTOINCREMENT,

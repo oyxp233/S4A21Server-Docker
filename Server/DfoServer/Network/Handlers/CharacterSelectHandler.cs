@@ -33,6 +33,7 @@ namespace DfoServer.Network.Handlers
         private readonly Game.Session.ISessionDirectory _sessions;   // 他人外观 PULL: 按 uid 找目标在线会话; 可空(上游注册表)
         private readonly GrowthCapsuleSyncService _growthCapsule;
         private readonly IMercenaryRestrictionService _mercenaryRestrictions;
+        private readonly DailyResetService _dailyResetService;
         private readonly Game.Dungeon.DungeonPersistentEffectApplicationService
             _dungeonPersistentEffects;
         private readonly Game.Dungeon.DungeonInstanceRegistry _dungeonInstances;
@@ -54,7 +55,8 @@ namespace DfoServer.Network.Handlers
             GetUserInfoTemplate getUserInfoTemplate,
             Game.Session.ISessionDirectory sessions = null,
             IMercenaryRestrictionService mercenaryRestrictions = null,
-            IGameDatabase database = null)
+            IGameDatabase database = null,
+            DailyResetService dailyResetService = null)
             : this(
                 null,
                 selectCharacterDataSource,
@@ -63,7 +65,8 @@ namespace DfoServer.Network.Handlers
                 sessions,
                 null,
                 mercenaryRestrictions,
-                database)
+                database,
+                dailyResetService)
         {
         }
 
@@ -76,7 +79,8 @@ namespace DfoServer.Network.Handlers
             Game.Session.ISessionDirectory sessions = null,
             Game.Dungeon.DungeonInstanceRegistry dungeonInstances = null,
             IMercenaryRestrictionService mercenaryRestrictions = null,
-            IGameDatabase database = null)
+            IGameDatabase database = null,
+            DailyResetService dailyResetService = null)
         {
             _database = database ?? GameDatabase.CreateDefault();
             _selectCharacterDataSource = selectCharacterDataSource ?? throw new ArgumentNullException(nameof(selectCharacterDataSource));
@@ -86,6 +90,7 @@ namespace DfoServer.Network.Handlers
             _sessions = sessions;
             _growthCapsule = new GrowthCapsuleSyncService(_characterRepository, _database);
             _mercenaryRestrictions = mercenaryRestrictions;
+            _dailyResetService = dailyResetService ?? new DailyResetService(_database);
             _dungeonPersistentEffects = dungeonPersistentEffects;
             _dungeonInstances = dungeonInstances;
             _subtype0Repository = new Game.CharacterData.SqliteSubtype0FieldsRepository(
@@ -228,6 +233,50 @@ namespace DfoServer.Network.Handlers
             }
         }
 
+        private bool TryApplyAccountDailyReset(int accountId)
+        {
+            if (accountId <= 0)
+                return true;
+
+            try
+            {
+                using (var connection = _database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    var applied = false;
+                    var ok = _dailyResetService.TryRunAccountFirstLoginReset(
+                        connection,
+                        transaction,
+                        accountId,
+                        (conn, tx) => _dailyResetService.ResetUsableCountLimitsForAccount(
+                            conn,
+                            tx,
+                            accountId),
+                        out applied);
+                    if (!ok)
+                    {
+                        transaction.Rollback();
+                        return false;
+                    }
+
+                    transaction.Commit();
+                    if (applied)
+                    {
+                        FileLogger.Log(
+                            $"[{ProtocolName}] account daily reset applied account_id={accountId}");
+                    }
+
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] account daily reset failed account_id={accountId}: {ex}");
+                return false;
+            }
+        }
+
         internal async Task HandleResolvedSelectCharacterAsync(
             EnhancedClientSession session,
             CharacterRecord record,
@@ -353,7 +402,20 @@ namespace DfoServer.Network.Handlers
             }
 
             var ownerCharId = session.Player.CharacterId > 0 ? session.Player.CharacterId : _selectCharacterDataSource.GetSeedCharacterId();
-            var ownerAcctId = session.Account?.AccountId ?? 1;
+            var ownerAcctId = ResolveAccountId(session, record);
+            if (ownerAcctId <= 0)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] Select character rejected: missing account id " +
+                    $"session={session.SessionId} cid={ownerCharId}");
+                session.Close();
+                return;
+            }
+            if (!TryApplyAccountDailyReset(ownerAcctId))
+            {
+                session.Close();
+                return;
+            }
             var characterList = BuildCharacterList(ownerAcctId);
             var routingByte = _getUserInfoTemplate != null ? _getUserInfoTemplate.Pkt0RoutingByte7 : (byte)0;
 

@@ -1,4 +1,5 @@
 using DfoServer.Game.Characters;
+using DfoServer.Game.DailyReset;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.SelectCharacter;
@@ -35,6 +36,7 @@ namespace DfoServer.Network.Handlers
         private readonly PvpRoomHandler _pvpRoomHandler;
         private readonly InventoryRefreshSender _inventoryRefreshSender;
         private readonly IGameDatabase _database;
+        private readonly DailyResetService _dailyResetService;
 
         internal CharacterSessionLifecycleCoordinator(
             LoginHandler loginHandler,
@@ -51,7 +53,8 @@ namespace DfoServer.Network.Handlers
             CraneMiniGameHandler craneMiniGameHandler,
             PvpRoomHandler pvpRoomHandler,
             InventoryRefreshSender inventoryRefreshSender,
-            IGameDatabase database)
+            IGameDatabase database,
+            DailyResetService dailyResetService = null)
         {
             _loginHandler = loginHandler;
             _characterSelectHandler = characterSelectHandler;
@@ -68,6 +71,7 @@ namespace DfoServer.Network.Handlers
             _pvpRoomHandler = pvpRoomHandler;
             _inventoryRefreshSender = inventoryRefreshSender;
             _database = database ?? throw new ArgumentNullException(nameof(database));
+            _dailyResetService = dailyResetService ?? new DailyResetService(_database);
         }
 
         internal async Task HandleConnectedAsync(
@@ -284,6 +288,9 @@ namespace DfoServer.Network.Handlers
                         $"[{ProtocolName}] disconnect pet cleanup failed " +
                         $"session={session.SessionId}: {ex}");
                 }
+
+                if (ownsGeneration)
+                    RecordAccountLogout(session, "disconnect");
             }
         }
 
@@ -530,6 +537,7 @@ namespace DfoServer.Network.Handlers
                         + $"session={session.SessionId}");
                     return;
                 }
+                RecordAccountLogout(session, "return_select");
                 session.GameSession = null;
                 session.PendingReturnSelectCharacterId = characterId;
                 await _characterSelectHandler
@@ -662,6 +670,7 @@ namespace DfoServer.Network.Handlers
                         + $"session={session.SessionId}");
                     return false;
                 }
+                RecordAccountLogout(session, "select_character");
                 session.GameSession = null;
                 session.PendingReturnSelectCharacterId = characterId;
                 EnterCharacterSelectionState(session);
@@ -719,6 +728,40 @@ namespace DfoServer.Network.Handlers
                     $"[{ProtocolName}] disconnect inventory reload failed: " +
                     $"cid={characterId} session={session.SessionId} error={ex}");
                 return false;
+            }
+        }
+
+        private void RecordAccountLogout(
+            EnhancedClientSession session,
+            string source)
+        {
+            var accountId = session?.Account?.AccountId ?? 0;
+            if (accountId <= 0)
+                return;
+
+            try
+            {
+                using (var connection = _database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    if (!_dailyResetService.TryRecordAccountLogout(
+                            connection,
+                            transaction,
+                            accountId,
+                            DateTime.UtcNow))
+                    {
+                        transaction.Rollback();
+                        return;
+                    }
+
+                    transaction.Commit();
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] {source} account logout record failed " +
+                    $"account_id={accountId}: {ex}");
             }
         }
 
@@ -790,6 +833,7 @@ namespace DfoServer.Network.Handlers
                         + $"for retry or already replaced: cid={characterId} "
                         + $"session={displaced.SessionId}");
                 }
+                RecordAccountLogout(displaced, "select-displaced");
                 displaced.GameSession = null;
                 displaced.Player.TownPresenceReady = false;
                 _dungeonRejoin.ClearSession(displaced.SessionId);

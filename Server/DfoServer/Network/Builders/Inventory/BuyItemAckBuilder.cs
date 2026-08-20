@@ -34,7 +34,7 @@ namespace DfoServer.Network.Builders
                 foreach (var cost in costItems)
                 {
                     writer.WriteInt32(cost.ItemTemplateId);
-                    writer.WriteInt32(cost.NewStackCount);
+                    writer.WriteInt32(cost.NewStackCount);//应该是本次购买的数量
                 }
             }
 

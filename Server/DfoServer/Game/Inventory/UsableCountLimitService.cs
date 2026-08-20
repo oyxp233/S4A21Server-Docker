@@ -155,7 +155,8 @@ WHERE {TableName}.day_id <> excluded.day_id
             using (var connection = new SqliteConnection(connectionString))
             {
                 connection.Open();
-                if (!EnsureSchema(connection, null))
+                if (!EnsureSchema(connection, null)
+                    || !ResetExpiredRows(connection, null, characterId))
                     return result;
                 using (var command = connection.CreateCommand())
                 {
@@ -191,6 +192,33 @@ ORDER BY item_id;";
             }
 
             return result;
+        }
+
+        // 每日切换时先清掉前一日的限购物品记录，和每日补发走同一时刻。
+        internal static bool ResetExpiredRows(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId)
+        {
+            if (connection == null || characterId <= 0)
+                return false;
+
+            if (!EnsureSchema(connection, transaction))
+                return false;
+
+            var today = DailyResetService.TodayId();
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $@"
+DELETE FROM {TableName}
+WHERE character_id = @cid
+  AND day_id <> @today;";
+                command.Parameters.AddWithValue("@cid", characterId);
+                command.Parameters.AddWithValue("@today", today);
+                command.ExecuteNonQuery();
+                return true;
+            }
         }
 
         internal static bool TryLoadCurrentState(

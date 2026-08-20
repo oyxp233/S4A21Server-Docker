@@ -214,6 +214,9 @@ namespace PvfLib
         public int ExpirationDate { get; set; } = -1;
         public int UsablePeriod { get; set; } = -1;
         public int TradeLimit { get; set; } = -1;
+        public string DailyPurchaseLimitScope { get; set; }
+        public int DailyPurchaseLimitCount { get; set; } = -1;
+        public bool ResetDailyPurchaseItem { get; set; }
         public int PortableDisjoint { get; set; } = -1;
         public string ExpertJobOnlyType { get; set; }
         public int ExpertJobOnlyLevel { get; set; } = -1;
@@ -369,6 +372,8 @@ namespace PvfLib
                     case "expiration date": stk.ExpirationDate = ParseInt(data); break;
                     case "usable period": stk.UsablePeriod = ParseInt(data); break;
                     case "trade limit max": stk.TradeLimit = ParseInt(data); break;
+                    case "daily purchase limit": ParseDailyPurchaseLimit(node, content, stk); break;
+                    case "reset daily purchase item": stk.ResetDailyPurchaseItem = true; break;
                     case "portable disjoint": stk.PortableDisjoint = ParseInt(data); break;
                     case "expertjob only": ParseExpertJobOnly(node, content, stk); break;
                     case "alchemist extraction": stk.AlchemistExtractionIndex = ParseInt(data); break;
@@ -1049,6 +1054,20 @@ namespace PvfLib
                 item.ExpertJobOnlyType = typeMatch.Groups[1].Value.Trim();
             if (values.Count > 0)
                 item.ExpertJobOnlyLevel = values[0];
+        }
+
+        private static void ParseDailyPurchaseLimit(ScriptNode node, string content, StackableItemFile item)
+        {
+            if (node == null || item == null)
+                return;
+
+            var raw = node.GetFirstDataContent(content);
+            var scopeMatch = Regex.Match(raw ?? string.Empty, "`([^`]*)`");
+            var values = ParseInts(raw);
+            if (scopeMatch.Success)
+                item.DailyPurchaseLimitScope = scopeMatch.Groups[1].Value.Trim();
+            if (values.Count > 0)
+                item.DailyPurchaseLimitCount = values[0];
         }
 
         private static List<AvatarSelectAbilityChangeEntry> ParseAvatarSelectAbilityChanges(
