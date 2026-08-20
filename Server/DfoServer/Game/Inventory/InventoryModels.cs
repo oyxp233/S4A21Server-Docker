@@ -139,7 +139,7 @@ namespace DfoServer.Game.Inventory
 
         public int CostItemTemplateId { get; set; }
 
-        public int CostItemNewStackCount { get; set; }
+        public int CostItemRemainingCount { get; set; }
 
         public short CostItemSlotIndex { get; set; }
 

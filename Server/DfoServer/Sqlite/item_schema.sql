@@ -161,6 +161,24 @@ CREATE TABLE IF NOT EXISTS account_daily_reset (
     FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS item_purchase_limits (
+    account_id INTEGER NOT NULL,
+    character_id INTEGER NOT NULL DEFAULT 0,
+    npc_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    buy_count INTEGER NOT NULL DEFAULT 0,
+    limit_type INTEGER NOT NULL DEFAULT 0,
+    reset_type INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_id, character_id, npc_id, item_id, limit_type, reset_type),
+    CHECK(limit_type IN (0, 1)),
+    CHECK(reset_type IN (0, 1)),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_item_purchase_limits_account_reset
+    ON item_purchase_limits(account_id, reset_type);
+
 CREATE TABLE IF NOT EXISTS inventory_audit_log (
     audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

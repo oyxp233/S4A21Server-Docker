@@ -15,12 +15,14 @@ namespace DfoServer.Game.Inventory
             InventoryService inventory,
             int itemTemplateId,
             int buyCount,
+            int npcId,
             out InventoryMutationResult result)
         {
             return TryBuyNpcItem(
                 inventory,
                 itemTemplateId,
                 buyCount,
+                npcId,
                 null,
                 null,
                 out result);
@@ -30,6 +32,7 @@ namespace DfoServer.Game.Inventory
             InventoryService inventory,
             int itemTemplateId,
             int buyCount,
+            int npcId,
             SqliteConnection sharedConnection,
             SqliteTransaction sharedTransaction,
             out InventoryMutationResult result)
@@ -56,6 +59,15 @@ namespace DfoServer.Game.Inventory
                 : 0;
 
             if (!CanGrant(inventory, itemTemplateId, effectiveCount))
+                return false;
+
+            if (!ItemPurchaseLimitService.TryRecordPurchase(
+                    inventory,
+                    npcId,
+                    itemTemplateId,
+                    effectiveCount,
+                    sharedConnection,
+                    sharedTransaction))
                 return false;
 
             if (!TrySpendCosts(
@@ -96,7 +108,7 @@ namespace DfoServer.Game.Inventory
             if (usesMaterialExchange)
             {
                 result.CostItemTemplateId = materialItemId;
-                result.CostItemNewStackCount = costItemRemaining;
+                result.CostItemRemainingCount = costItemRemaining;
                 result.CostItemSlotIndex = costItemSlot;
             }
 
@@ -162,7 +174,7 @@ namespace DfoServer.Game.Inventory
             if (usesItemCurrency)
             {
                 result.CostItemTemplateId = requiredItemId;
-                result.CostItemNewStackCount = costItemRemaining;
+                result.CostItemRemainingCount = costItemRemaining;
                 result.CostItemSlotIndex = costItemSlot;
             }
 

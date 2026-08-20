@@ -87,7 +87,7 @@ namespace DfoServer.Game.SecretShop
                     ExtData0 = mutation.ExtData0,
                     Durability = mutation.Durability,
                     UpdatedGold = mutation.UpdatedGold,
-                    CostItemRemainingCount = mutation.CostItemNewStackCount,
+                    CostItemRemainingCount = mutation.CostItemRemainingCount,
                     OfferRemainingCount = remainingCount,
                 };
                 return true;

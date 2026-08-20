@@ -6,7 +6,7 @@ namespace DfoServer.Network.Builders
 {
     public static class BuyItemAckBuilder
     {
-        public static byte[] Build(InventoryMutationResult result, List<CostItemUpdate> costItems = null)
+        public static byte[] Build(InventoryMutationResult result, List<PurchaseCountUpdate> purchaseCountUpdates = null)
         {
             var writer = new GamePacketWriter();
             writer.WriteByte(0x01);
@@ -20,21 +20,22 @@ namespace DfoServer.Network.Builders
                 ItemListProtocolWriter.WriteCommonEntry84(
                     writer,
                     result.SlotIndex,
-                    result.CoreSnapshot);
+                    result.CoreSnapshot,
+                    result.RequestedCount);
             }
             else
             {
                 WriteLegacyItemSummary(writer, result);
             }
 
-            var count = costItems != null ? costItems.Count : 0;
+            var count = purchaseCountUpdates != null ? purchaseCountUpdates.Count : 0;
             writer.WriteByte((byte)count);
-            if (costItems != null)
+            if (purchaseCountUpdates != null)
             {
-                foreach (var cost in costItems)
+                foreach (var update in purchaseCountUpdates)
                 {
-                    writer.WriteInt32(cost.ItemTemplateId);
-                    writer.WriteInt32(cost.NewStackCount);//应该是本次购买的数量
+                    writer.WriteInt32(update.ItemTemplateId);
+                    writer.WriteInt32(update.RequestedCount);
                 }
             }
 
@@ -73,9 +74,10 @@ namespace DfoServer.Network.Builders
         }
     }
 
-    public sealed class CostItemUpdate
+    public sealed class PurchaseCountUpdate
     {
         public int ItemTemplateId { get; set; }
-        public int NewStackCount { get; set; }
+
+        public int RequestedCount { get; set; }
     }
 }

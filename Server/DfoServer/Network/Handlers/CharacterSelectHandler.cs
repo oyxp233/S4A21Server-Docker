@@ -248,10 +248,21 @@ namespace DfoServer.Network.Handlers
                         connection,
                         transaction,
                         accountId,
-                        (conn, tx) => _dailyResetService.ResetUsableCountLimitsForAccount(
-                            conn,
-                            tx,
-                            accountId),
+                        (conn, tx) =>
+                        {
+                            if (!_dailyResetService.ResetUsableCountLimitsForAccount(
+                                    conn,
+                                    tx,
+                                    accountId))
+                            {
+                                return false;
+                            }
+
+                            return ItemPurchaseLimitService.ResetPurchasesForAccount(
+                                conn,
+                                tx,
+                                accountId);
+                        },
                         out applied);
                     if (!ok)
                     {

@@ -1334,7 +1334,7 @@ namespace DfoServer.Game.Inventory
                     RemainingStackCount = coupon.RemainingCount,
                     InstanceValue = coupon.RemainingCount,
                     CostItemTemplateId = couponId,
-                    CostItemNewStackCount = coupon.RemainingCount,
+                    CostItemRemainingCount = coupon.RemainingCount,
                     CostItemSlotIndex = coupon.SlotIndex,
                     RequestedCount = 1,
                     AppliedCount = 1,

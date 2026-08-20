@@ -370,7 +370,7 @@ namespace DfoServer.Game.Inventory
                     InstanceValue = consumeResult.RemainingCount,
                     UpdatedGold = inventory.CountMainItem(0),
                     CostItemTemplateId = materialItemId,
-                    CostItemNewStackCount = consumeResult.RemainingCount,
+                    CostItemRemainingCount = consumeResult.RemainingCount,
                     CostItemSlotIndex = consumeResult.SlotIndex,
                     RequestedCount = (short)Math.Min(short.MaxValue, materialCount),
                     AppliedCount = (short)Math.Min(short.MaxValue, consumeResult.ConsumedCount),

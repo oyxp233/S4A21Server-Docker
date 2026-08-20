@@ -17,6 +17,7 @@ namespace DfoServer.Sqlite
             {
                 new MigrationStep(2, "expand_item_core_to_99_and_shift_equipment_slots", ApplyExpandItemCoreTo99),
                 new MigrationStep(3, "import_character_new_items", ApplyImportCharacterNewItems),
+                new MigrationStep(4, "add_item_purchase_limits", ApplyPurchaseLimitTracking),
             };
 
         internal static int CurrentVersion =>
@@ -124,6 +125,35 @@ ON CONFLICT(singleton_id) DO UPDATE SET
             SqliteTransaction transaction)
         {
             ImportCharacterNewItems(connection, transaction, shiftEquipmentSlots: true, dropSourceTable: true);
+        }
+
+        private static void ApplyPurchaseLimitTracking(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = @"
+CREATE TABLE IF NOT EXISTS item_purchase_limits (
+    account_id INTEGER NOT NULL,
+    character_id INTEGER NOT NULL DEFAULT 0,
+    npc_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    buy_count INTEGER NOT NULL DEFAULT 0,
+    limit_type INTEGER NOT NULL DEFAULT 0,
+    reset_type INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_id, character_id, npc_id, item_id, limit_type, reset_type),
+    CHECK(limit_type IN (0, 1)),
+    CHECK(reset_type IN (0, 1))
+);";
+                command.ExecuteNonQuery();
+                command.CommandText = @"
+CREATE INDEX IF NOT EXISTS idx_item_purchase_limits_account_reset
+    ON item_purchase_limits(account_id, reset_type);";
+                command.ExecuteNonQuery();
+            }
         }
 
         private static void ImportCharacterNewItems(

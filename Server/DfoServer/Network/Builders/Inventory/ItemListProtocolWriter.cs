@@ -55,11 +55,16 @@ namespace DfoServer.Network.Builders
 
         public static void WriteCommonEntry84(GamePacketWriter writer, short slot, ItemCore core)
         {
+            WriteCommonEntry84(writer, slot, core, ResolveWireInstanceValue(core));
+        }
+
+        public static void WriteCommonEntry84(GamePacketWriter writer, short slot, ItemCore core, int protocolValue)
+        {
             WriteEntry84(
                 writer,
                 slot,
                 core,
-                ResolveWireInstanceValue(core),
+                protocolValue,
                 ResolveCommonMarker16(core));
             WriteA21CommonTail(writer, core);
         }

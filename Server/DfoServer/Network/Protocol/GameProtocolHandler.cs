@@ -416,6 +416,7 @@ namespace DfoServer.Network
                 await _inventoryHandler.Handle_ENUM_CMDPACKET_SORT_ITEM(s, h, b);
             };                                                                    //20
             d[0x0015] = _inventoryHandler.Handle_ENUM_CMDPACKET_BUY_ITEM;          //21
+            d[0x02CC] = _inventoryHandler.Handle_ENUM_CMDPACKET_SHOP_PURCHASE_COUNT;//716
             d[0x0016] = _inventoryHandler.Handle_ENUM_CMDPACKET_SELL_ITEM;         //22
             d[0x0017] = _inventoryHandler.Handle_ENUM_CMDPACKET_REPAIR_EQUIPMENT;  //23 装备修理
             d[0x0019] = _inventoryHandler.Handle_ENUM_CMDPACKET_COMPOUND_ITEM;     //25 compound item / recipe
