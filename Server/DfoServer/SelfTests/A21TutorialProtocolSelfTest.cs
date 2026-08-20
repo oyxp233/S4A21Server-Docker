@@ -272,21 +272,27 @@ namespace DfoServer.SelfTests
                 ref failures);
 
             var enterFirst = EnterSelectDungeonStateBuilder
-                .BuildA21EnterSelectDungeon(0x0439, initialTutorialLayout: true);
+                .BuildA21EnterSelectDungeon(0x0439);
             Check(
-                "A21 first tutorial NOTI 27 is 37B with user id at offset 11",
+                "A21 ENTER_SELECT_DUNGEON NOTI 27 is 37B without blocked slots",
                 enterFirst.Length == 37
+                && enterFirst[8] == 0
+                && enterFirst[9] == 0
                 && enterFirst[10] == 1
                 && BitConverter.ToUInt16(enterFirst, 11) == 0x0439
                 && enterFirst[18] == 1,
                 ref failures);
 
             var enterLater = EnterSelectDungeonStateBuilder
-                .BuildA21EnterSelectDungeon(0x0439, initialTutorialLayout: false);
+                .BuildA21EnterSelectDungeon(
+                    new ushort[] { 0x0439 },
+                    new ushort[] { 0 });
             Check(
-                "A21 later selection NOTI 27 is 39B with user id at offset 13",
+                "A21 ENTER_SELECT_DUNGEON NOTI 27 inserts blocked slots before users",
                 enterLater.Length == 39
                 && enterLater[8] == 1
+                && BitConverter.ToUInt16(enterLater, 9) == 0
+                && enterLater[11] == 0
                 && enterLater[12] == 1
                 && BitConverter.ToUInt16(enterLater, 13) == 0x0439
                 && enterLater[20] == 1,

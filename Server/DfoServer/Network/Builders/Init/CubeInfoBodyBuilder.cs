@@ -6,7 +6,7 @@ namespace DfoServer.Network.Builders
     
     public sealed class CubeInfoBodyBuilder : IInitPacketBuilder
     {
-        public ushort NotiType => 0x0300;
+        public ushort NotiType => 0x036A;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {

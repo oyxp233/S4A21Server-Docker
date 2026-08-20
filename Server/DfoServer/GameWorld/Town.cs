@@ -15,6 +15,8 @@ namespace DfoServer.GameWorld
         public short X { get; set; }
 
         public short Y { get; set; }
+
+        public int WorldMapAreaId { get; set; }
     }
 
     public class Town
@@ -113,6 +115,7 @@ namespace DfoServer.GameWorld
                                 Area = checked((byte)areaId),
                                 X = x,
                                 Y = y,
+                                WorldMapAreaId = area.LinkedId,
                             };
                         }
                     }

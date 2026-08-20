@@ -89,6 +89,7 @@ namespace DfoServer.Game.Inventory
                         break;
 
                     var item = pair.Value;
+                    var itemTemplateId = item.ItemId;
                     var available = InventoryStackRuleService.IsStackable(item)
                         ? Math.Max(0, item.Count)
                         : 1;
@@ -111,7 +112,7 @@ namespace DfoServer.Game.Inventory
                     consumed?.Add(new InventoryMaterialConsumptionEntry
                     {
                         SlotIndex = pair.Key,
-                        ItemTemplateId = item.ItemId,
+                        ItemTemplateId = itemTemplateId,
                         Count = delete.DeletedCount,
                     });
                     remaining -= delete.DeletedCount;

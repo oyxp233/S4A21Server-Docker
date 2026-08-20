@@ -46,7 +46,8 @@ namespace DfoServer.Network.Handlers.Dungeon
         internal Game.Session.ISessionDirectory Sessions { get; }
         internal CardRewardCoordinator CardRewards { get; }
         internal Game.Dungeon.DropService Drops { get; }
-        internal Game.Dungeon.DungeonEntryCostService EntryCost { get; }
+        internal Game.Dungeon.DungeonEntryAdmissionApplicationService
+            EntryAdmission { get; }
         internal DungeonAdmissionRejectSender AdmissionRejects { get; }
         internal DungeonProgressNotificationProjector ProgressNotifications { get; }
         internal DungeonTownReturnCoordinator TownReturn { get; }
@@ -144,6 +145,10 @@ namespace DfoServer.Network.Handlers.Dungeon
             TownReturn = new DungeonTownReturnCoordinator(
                 InstanceRegistry,
                 ProgressNotifications);
+            var entryCost = new Game.Dungeon.DungeonEntryCostService(Database);
+            EntryAdmission =
+                new Game.Dungeon.DungeonEntryAdmissionApplicationService(
+                    entryCost);
             Tournaments =
                 new Game.Dungeon.Tournament
                     .TournamentDungeonApplicationService();
@@ -177,7 +182,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                         Database));
             CardRewards = new CardRewardCoordinator(
                 new Game.Dungeon.CardRewardService(PersistentEffects));
-            EntryCost = new Game.Dungeon.DungeonEntryCostService(Database);
             AdmissionRejects = new DungeonAdmissionRejectSender();
         }
     }
