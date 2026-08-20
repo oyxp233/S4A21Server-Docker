@@ -323,6 +323,137 @@ namespace DfoServer.Network.Handlers.Dungeon
                 run,
                 objectCode);
 
+        internal static ClearRequest OnStoryPause(
+            EnhancedClientSession session,
+            DungeonRun run,
+            DungeonRunIdentity expectedRun,
+            byte pauseFlag)
+        {
+            if (pauseFlag != 1
+                || session?.Player == null
+                || run == null
+                || !run.Matches(expectedRun)
+                || run.Phase != DungeonRunPhase.InProgress
+                || run.ClearCondition == null
+                || !run.ClearCondition.HasConditions)
+            {
+                return default;
+            }
+
+            if (!run.TryCaptureCurrentRoomSnapshot(out var roomSnapshot)
+                || roomSnapshot?.RoomState == null)
+            {
+                return default;
+            }
+
+            var roomState = roomSnapshot.RoomState;
+            var passiveObjectCodes = roomState.Maze.PassiveObjectCodes;
+            if (passiveObjectCodes == null || passiveObjectCodes.Count == 0)
+                return default;
+
+            if (!roomState.TryBeginStoryPauseClear())
+                return default;
+
+            var conditionCleared = run.ClearCondition.TryCheckAny(
+                    type: 0,
+                    targetIds: passiveObjectCodes,
+                    out var matchedObjectCode);
+            if (matchedObjectCode == 0)
+            {
+                roomState.CancelStoryPauseClear();
+                return default;
+            }
+
+            var roomX = roomState.Maze.X;
+            var roomY = roomState.Maze.Y;
+            var mapId = roomState.Maze.Index;
+            FileLogger.Log(
+                $"[DungeonMechanism] STORY_PAUSE clear condition matched: " +
+                $"cid={session.Player.CharacterId} dungeon={run.DungeonId} " +
+                $"room=({roomX},{roomY}) map={mapId} " +
+                $"object={matchedObjectCode} cleared={run.ClearCondition.IsCleared}");
+
+            return new ClearRequest(
+                shouldClearDungeon: conditionCleared,
+                clearReason:
+                    $"story pause destroy-object clear: room=({roomX},{roomY}) " +
+                    $"map={mapId} object={matchedObjectCode}",
+                bossCode: 0);
+        }
+
+        internal static ClearRequest OnQuestProgressCompleted(
+            EnhancedClientSession session,
+            DungeonRun run,
+            DungeonRunIdentity expectedRun,
+            QuestSetTriggerResult result)
+        {
+            if (session?.Player == null
+                || run == null
+                || result == null
+                || !result.Success
+                || result.PreviousTriggerValue == 0
+                || result.TriggerValue != 0
+                || !run.MazeQuestConnected
+                || result.QuestId == 0
+                || result.QuestId != run.ActiveQuestMazeQuestId
+                || !run.Matches(expectedRun)
+                || run.Phase != DungeonRunPhase.InProgress
+                || run.ClearCondition == null
+                || !run.ClearCondition.HasConditions)
+            {
+                return default;
+            }
+
+            if (!run.TryCaptureCurrentRoomSnapshot(out var roomSnapshot)
+                || roomSnapshot?.RoomState == null)
+            {
+                return default;
+            }
+
+            var roomState = roomSnapshot.RoomState;
+            if (run.BossMapPos == null
+                || run.BossMapPos.Length < 2
+                || roomState.Maze.X != run.BossMapPos[0]
+                || roomState.Maze.Y != run.BossMapPos[1])
+            {
+                return default;
+            }
+
+            var passiveObjectCodes = roomState.Maze.PassiveObjectCodes;
+            if (passiveObjectCodes == null || passiveObjectCodes.Count == 0)
+                return default;
+
+            if (!roomState.TryBeginStoryPauseClear())
+                return default;
+
+            var conditionCleared = run.ClearCondition.TryCheckAny(
+                type: 0,
+                targetIds: passiveObjectCodes,
+                out var matchedObjectCode);
+            if (matchedObjectCode == 0)
+            {
+                roomState.CancelStoryPauseClear();
+                return default;
+            }
+
+            var roomX = roomState.Maze.X;
+            var roomY = roomState.Maze.Y;
+            var mapId = roomState.Maze.Index;
+            FileLogger.Log(
+                $"[DungeonMechanism] quest completion clear condition matched: " +
+                $"cid={session.Player.CharacterId} dungeon={run.DungeonId} " +
+                $"maze={run.MazeIndex} quest={result.QuestId} " +
+                $"room=({roomX},{roomY}) map={mapId} " +
+                $"object={matchedObjectCode} cleared={run.ClearCondition.IsCleared}");
+
+            return new ClearRequest(
+                shouldClearDungeon: conditionCleared,
+                clearReason:
+                    $"quest completion destroy-object clear: quest={result.QuestId} " +
+                    $"room=({roomX},{roomY}) map={mapId} object={matchedObjectCode}",
+                bossCode: 0);
+        }
+
         internal static CharacterDeathResolution OnCharacterDied(
             EnhancedClientSession session)
             => OnCharacterDied(

@@ -2143,6 +2143,24 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             }
 
+            var questCompletionClear =
+                DungeonMechanismCoordinator.OnQuestProgressCompleted(
+                    session,
+                    run,
+                    sourceEvent.RunIdentity,
+                    result);
+            if (questCompletionClear.ShouldClearDungeon
+                && session.Player.IsCurrentDungeonRun(sourceEvent.RunIdentity))
+            {
+                await SubmitClearIntentAsync(
+                    session,
+                    new DungeonClearIntent(
+                        sourceEvent,
+                        questCompletionClear.ClearReason,
+                        questCompletionClear.BossCode));
+                return;
+            }
+
             PvfLib.DungeonFile dungeonFile;
             try
             {

@@ -94,6 +94,11 @@ namespace DfoServer.GameWorld
             public IReadOnlyList<EventMonsterPositionInfo> EventMonsterPositions { get; set; }
 
             public IReadOnlyList<SpecialPassiveObjectInfo> SpecialPassiveObjects { get; set; }
+
+            // MAP-owned ordinary passive objects do not receive START_MAP
+            // actor sequences, but can satisfy type-0 destroy-object clear
+            // conditions after a story/NPC interaction.
+            public IReadOnlyList<int> PassiveObjectCodes { get; set; }
         }
 
         public struct DungeonRoomCoordinate

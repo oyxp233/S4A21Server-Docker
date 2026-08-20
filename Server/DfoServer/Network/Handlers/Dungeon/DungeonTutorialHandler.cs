@@ -56,6 +56,8 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             byte pauseFlag = body[0];
             byte requestType = body[1];
+            var storyRun = session.Player.CurrentRun;
+            var storyRunIdentity = storyRun?.CaptureIdentity() ?? default;
 
             FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] STORY_PAUSE CMD: pauseFlag={pauseFlag} requestType={requestType} cid={session.Player.CharacterId}");
 
@@ -65,11 +67,28 @@ namespace DfoServer.Network.Handlers.Dungeon
             w.WriteByte(requestType);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x00AA, w.ToArray()));
 
-            // df_game_r 没有"对话触发通关"路径。通关判定完全在 kill_monster 的
-            // prepare_dungeon_clear (check_grid_clear + check_end_point/ClearCondition)
-            // 和 ClearCondition(monsterType, monsterCode) 两条路径里。
-            // 教程副本 BOSS 房没有 blocking 怪(APC 的 spawnType!=100),
-            // check_grid_clear 直接返回 true → check_end_point 匹配 → ClearDungeon。
+            var clearRequest = DungeonMechanismCoordinator.OnStoryPause(
+                session,
+                storyRun,
+                storyRunIdentity,
+                pauseFlag);
+            if (!clearRequest.ShouldClearDungeon
+                || storyRun == null
+                || !session.Player.IsCurrentDungeonRun(storyRunIdentity))
+            {
+                return;
+            }
+
+            var clearSource = DungeonEventEnvelope.Create(
+                storyRun,
+                session.Player.CharacterId,
+                clearRequest.ClearReason);
+            await _settlement.SubmitClearIntentAsync(
+                session,
+                new DungeonClearIntent(
+                    clearSource,
+                    clearRequest.ClearReason,
+                    clearRequest.BossCode));
         }
 
         // CMD 0x008F (wire 143) CHANGE_TUTORIAL_FLAG

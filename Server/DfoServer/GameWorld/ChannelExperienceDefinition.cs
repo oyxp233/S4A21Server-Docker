@@ -117,10 +117,11 @@ namespace DfoServer.GameWorld
         {
             try
             {
-                var text = PvfArchiveAccessor.ReadChannelInfoEtc();
+                var text = File.ReadAllText(
+                    Infrastructure.ServerPaths.ChannelInfoFilePath);
                 var catalog = Parse(text);
                 FileLogger.Log(
-                    $"[ChannelExperienceDefinition] loaded path=pvf:channel_info.etc "
+                    $"[ChannelExperienceDefinition] loaded path={Infrastructure.ServerPaths.ChannelInfoFilePath} "
                     + $"channels={catalog.Definitions.Count} "
                     + $"dungeonGroups={catalog.DungeonGroups.Count}");
                 return catalog;
@@ -142,11 +143,25 @@ namespace DfoServer.GameWorld
 
             foreach (var server in root.GetChildren("server"))
             {
+                var serverItems = server.DataItems
+                    .Select(item => item.GetContent(text).Trim())
+                    .Where(part => !string.IsNullOrWhiteSpace(part))
+                    .ToArray();
+                var firstTokens = serverItems.Length == 0
+                    ? new List<string>()
+                    : ScriptValueTokenizer.Tokenize(serverItems[0]);
+                if (firstTokens.Count == 1
+                    && TryParseInt(firstTokens[0], out var legacyGroup)
+                    && legacyGroup == 1)
+                {
+                    foreach (var item in serverItems.Skip(1))
+                        ParseServerEntry(item, catalog);
+                    continue;
+                }
+
                 var line = string.Join(
                     " ",
-                    server.DataItems
-                        .Select(item => item.GetContent(text).Trim())
-                        .Where(part => !string.IsNullOrWhiteSpace(part)));
+                    serverItems);
                 var tokens = ScriptValueTokenizer.Tokenize(line);
                 if (LooksLikeA21ServerBlock(tokens))
                 {

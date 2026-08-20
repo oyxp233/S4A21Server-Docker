@@ -236,6 +236,7 @@ namespace DfoServer.GameWorld
             private readonly Dungeon.MonsterSumInfo[] _actors;
             private readonly EventMonsterPositionInfo[] _eventMonsterPositions;
             private readonly SpecialPassiveObjectInfo[] _specialPassiveObjects;
+            private readonly int[] _passiveObjectCodes;
 
             internal FrozenRoomTemplate(
                 int mapId,
@@ -261,6 +262,12 @@ namespace DfoServer.GameWorld
                     specialObjects.Count];
                 for (var index = 0; index < specialObjects.Count; index++)
                     _specialPassiveObjects[index] = Clone(specialObjects[index]);
+
+                var passiveObjects = mapFile.PassiveObjects
+                    ?? new List<PassiveObjectInfo>();
+                _passiveObjectCodes = new int[passiveObjects.Count];
+                for (var index = 0; index < passiveObjects.Count; index++)
+                    _passiveObjectCodes[index] = passiveObjects[index]?.ObjectCode ?? 0;
             }
 
             private int MapId { get; }
@@ -299,6 +306,8 @@ namespace DfoServer.GameWorld
                     SpecialPassiveObjects =
                         new ReadOnlyCollection<SpecialPassiveObjectInfo>(
                             specialObjects),
+                    PassiveObjectCodes =
+                        new ReadOnlyCollection<int>(_passiveObjectCodes),
                 };
             }
         }

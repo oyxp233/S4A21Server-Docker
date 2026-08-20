@@ -54,41 +54,40 @@ namespace DfoServer.Game.Dungeon
         {
             lock (_sync)
             {
-                for (int i = 0; i < _conditions.Count; i++)
+                ApplyLocked(type, targetId);
+                return IsClearedLocked();
+            }
+        }
+
+        /// <summary>
+        /// Atomically consumes one pending condition whose target is present in
+        /// a MAP-owned object set. This covers interaction-driven completion
+        /// events which have no DIE_MONSTER packet. At most one target is
+        /// consumed for a single protocol event.
+        /// </summary>
+        public bool TryCheckAny(
+            int type,
+            IReadOnlyList<int> targetIds,
+            out int matchedTarget)
+        {
+            matchedTarget = 0;
+            if (targetIds == null || targetIds.Count == 0)
+                return false;
+
+            lock (_sync)
+            {
+                for (var targetIndex = 0; targetIndex < targetIds.Count; targetIndex++)
                 {
-                    var c = _conditions[i];
-                    if (c.Type == type && c.TargetId == targetId)
-                    {
-                        if (c.GroupId > 0)
-                        {
-                            // A clear-map group counts distinct candidate maps. Replaying
-                            // the same room-clear event must not satisfy another member.
-                            if (_counters[i] > 0)
-                                continue;
+                    var targetId = targetIds[targetIndex];
+                    if (targetId <= 0 || !HasPendingLocked(type, targetId))
+                        continue;
 
-                            _counters[i] = 1;
-                            var required = _groupRequirements.TryGetValue(
-                                c.GroupId,
-                                out var groupRequired)
-                                ? groupRequired
-                                : 1;
-                            _groupCounters.TryGetValue(c.GroupId, out var groupCount);
-                            if (groupCount < required)
-                            {
-                                _groupCounters[c.GroupId] = groupCount + 1;
-                                CurrentProgress++;
-                            }
-                            continue;
-                        }
-
-                        if (_counters[i] < c.Count)
-                        {
-                            _counters[i]++;
-                            CurrentProgress++;
-                        }
-                    }
+                    ApplyLocked(type, targetId);
+                    matchedTarget = targetId;
+                    return IsClearedLocked();
                 }
-                return TotalRequired > 0 && TotalRequired <= CurrentProgress;
+
+                return false;
             }
         }
 
@@ -98,6 +97,69 @@ namespace DfoServer.Game.Dungeon
         }
 
         public bool HasConditions => TotalRequired > 0;
+
+        private bool HasPendingLocked(int type, int targetId)
+        {
+            for (var i = 0; i < _conditions.Count; i++)
+            {
+                var condition = _conditions[i];
+                if (condition.Type != type || condition.TargetId != targetId)
+                    continue;
+
+                if (condition.GroupId > 0)
+                {
+                    if (_counters[i] == 0)
+                        return true;
+                }
+                else if (_counters[i] < condition.Count)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void ApplyLocked(int type, int targetId)
+        {
+            for (var i = 0; i < _conditions.Count; i++)
+            {
+                var c = _conditions[i];
+                if (c.Type != type || c.TargetId != targetId)
+                    continue;
+
+                if (c.GroupId > 0)
+                {
+                    // A clear-map group counts distinct candidate maps. Replaying
+                    // the same room-clear event must not satisfy another member.
+                    if (_counters[i] > 0)
+                        continue;
+
+                    _counters[i] = 1;
+                    var required = _groupRequirements.TryGetValue(
+                        c.GroupId,
+                        out var groupRequired)
+                        ? groupRequired
+                        : 1;
+                    _groupCounters.TryGetValue(c.GroupId, out var groupCount);
+                    if (groupCount < required)
+                    {
+                        _groupCounters[c.GroupId] = groupCount + 1;
+                        CurrentProgress++;
+                    }
+                    continue;
+                }
+
+                if (_counters[i] < c.Count)
+                {
+                    _counters[i]++;
+                    CurrentProgress++;
+                }
+            }
+        }
+
+        private bool IsClearedLocked() =>
+            TotalRequired > 0 && TotalRequired <= CurrentProgress;
 
         private static List<ClearConditionEntry> SnapshotConditions(
             IReadOnlyList<ClearConditionEntry> conditions)

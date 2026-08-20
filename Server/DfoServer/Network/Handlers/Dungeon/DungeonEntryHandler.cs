@@ -414,7 +414,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] TOWER_OF_DESPAIR_ENTRY ERROR: cid={session.Player.CharacterId} requested={req.DungeonId}: {ex.Message}");
             }
 
-            if (!DungeonData.MeetsMinimumRequiredLevel(
+            if (!WorldMap.IsStoryDungeon(req.DungeonId)
+                && !DungeonData.MeetsMinimumRequiredLevel(
                     req.DungeonId,
                     session.Player.Level,
                     out var minimumRequiredLevel))

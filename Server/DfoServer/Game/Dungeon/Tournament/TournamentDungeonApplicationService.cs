@@ -101,6 +101,7 @@ namespace DfoServer.Game.Dungeon.Tournament
                 Monsters = CopyActors(runtime.PathActors),
                 EventMonsterPositions = source.EventMonsterPositions,
                 SpecialPassiveObjects = source.SpecialPassiveObjects,
+                PassiveObjectCodes = source.PassiveObjectCodes,
             };
             return true;
         }

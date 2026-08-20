@@ -2,6 +2,7 @@ using DfoServer.Game.Dungeon;
 using DfoServer.Game.Party;
 using DfoServer.Game.Session;
 using DfoServer.GameWorld;
+using DfoServer.Infrastructure;
 using System;
 using System.Collections.Generic;
 
@@ -73,6 +74,20 @@ namespace DfoServer.Network.Handlers.Dungeon
                 channelExperience = ChannelExperienceDefinitionCatalog.Resolve(
                     channel.ChannelId,
                     dungeonId);
+                FileLogger.Log(
+                    $"[DungeonExperience] entry channel: "
+                    + $"listener={leader.ListenerPort} "
+                    + $"channel={channel.ChannelId} "
+                    + $"dungeon={dungeonId} "
+                    + $"classification={channelExperience.DungeonClassification} "
+                    + $"resolved={channelExperience.IsResolved} "
+                    + $"rate={channelExperience.BonusRate:R}");
+            }
+            else if (leader != null)
+            {
+                FileLogger.Log(
+                    $"[DungeonExperience] entry channel unresolved: "
+                    + $"listener={leader.ListenerPort} dungeon={dungeonId}");
             }
 
             var partyHasEquippedAvatar = false;

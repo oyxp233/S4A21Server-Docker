@@ -64,6 +64,26 @@ namespace DfoServer.GameWorld
             return IsQuestDungeonAsset(dungeonId);
         }
 
+        // Story-mode entry is owned by the linked quest. The DGN minimum level
+        // remains presentation/experience data and does not block an accepted story quest.
+        public static bool IsStoryDungeon(int dungeonId)
+        {
+            if (dungeonId <= 0)
+                return false;
+
+            try
+            {
+                var story = Dungeon.GetDungeonFile(dungeonId)?.StoryMode;
+                return story != null
+                    && story.QuestIds != null
+                    && story.QuestIds.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static bool IsTaskExclusiveDungeonAvailable(
             int dungeonId,
             int characterLevel,
@@ -82,7 +102,8 @@ namespace DfoServer.GameWorld
             ISet<int> activeQuestIds,
             ISet<int> clearedQuestIds)
         {
-            if (!Dungeon.MeetsMinimumRequiredLevel(
+            if (!IsStoryDungeon(dungeonId)
+                && !Dungeon.MeetsMinimumRequiredLevel(
                     dungeonId,
                     characterLevel,
                     out var minimumRequiredLevel))

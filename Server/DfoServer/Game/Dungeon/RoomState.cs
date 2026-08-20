@@ -48,6 +48,7 @@ namespace DfoServer.Game.Dungeon
         private DungeonRoomState _state = DungeonRoomState.Created;
         private DungeonEncounterState _encounterState = DungeonEncounterState.NotStarted;
         private int _petExperienceGrantState;
+        private int _storyPauseClearApplied;
 
         public DungeonInstanceRoom InstanceRoom;
         public long RoomInstanceId => InstanceRoom?.RoomInstanceId ?? 0;
@@ -108,6 +109,25 @@ namespace DfoServer.Game.Dungeon
         {
             Interlocked.CompareExchange(
                 ref _petExperienceGrantState,
+                0,
+                1);
+        }
+
+        internal bool TryBeginStoryPauseClear()
+        {
+            if (State != DungeonRoomState.Active)
+                return false;
+
+            return Interlocked.CompareExchange(
+                ref _storyPauseClearApplied,
+                1,
+                0) == 0;
+        }
+
+        internal void CancelStoryPauseClear()
+        {
+            Interlocked.CompareExchange(
+                ref _storyPauseClearApplied,
                 0,
                 1);
         }

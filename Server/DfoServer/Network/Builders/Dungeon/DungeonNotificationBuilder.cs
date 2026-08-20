@@ -9,6 +9,21 @@ namespace DfoServer.Network.Builders
 {
     public static class DungeonNotificationBuilder
     {
+        // A21 sub_115CF80 reads 23 consecutive fixed reward values starting at
+        // body offset 17. Offset 109 is then a variable-list count, not slot 23.
+        public const int RewardSlotBlockOffset = 17;
+        public const int FixedRewardSlotCount = 23;
+        public const int EquipmentBonusExpSlotIndex = 20;
+        public const int FirstVariableRewardCountOffset = 109;
+        public const int SecondVariableRewardCountOffset = 110;
+        public const int PostVariableRewardBlockOffset = 111;
+        public const int ScoreBreakdownOffset = 139;
+        public const int ChampionExperienceOffset = 143;
+        public const int SuperChampionExperienceOffset = 147;
+        public const int BossExperienceOffset = 151;
+        public const int ObjectExperienceCountOffset = 155;
+        public const int ObjectExperienceEntriesOffset = 159;
+
         // NOTI 28 (0x001C) DUNGEON_INFO
         // A21 固定 32B 布局。A12 的可变 pair/group 字段不再写入；当前
         // 客户端抓包显示 offset 6/7 为 boss 坐标，offset 12 为固定 1，
@@ -363,14 +378,22 @@ namespace DfoServer.Network.Builders
             IReadOnlyList<DungeonObjectExperienceEntry> objectExperienceEntries = null)
         {
             var w = new GamePacketWriter();
+            // Current A21 client exposes no confirmed labelled channel field in
+            // this notification. The authoritative total already includes the
+            // channel bonus; do not feed it into a guessed presentation slot.
+            _ = channelExp;
+            // A12 wrote the aggregate monster EXP into its fixed tail. Current
+            // A21 captures keep that field zero and project per-object EXP from
+            // the u32 count/list at offsets 155/159 instead.
+            _ = monsterExp;
 
-            // === BASE BLOCK (117B = 4u32 + 1u8 + 25u32) ===
+            // === BASE BLOCK (109B = 4u32 + 1u8 + 23u32) ===
             w.WriteUInt32(clearBaseExp);
             w.WriteInt32(scoreBonusExp);
             w.WriteUInt32(partyClearBreakdownExp);
             w.WriteInt32(avatarExp);         // #4: 装扮通关奖励
             w.WriteByte(0);
-            for (int i = 0; i < 25; i++)
+            for (int i = 0; i < FixedRewardSlotCount; i++)
             {
                 var value = 0;
                 if (i == 2) value = blackDiamondExp;       // 槽位3: 黑钻
@@ -378,47 +401,53 @@ namespace DfoServer.Network.Builders
                 else if (i == 7) value = adventureGroupExp; // 槽 8：冒险团通关经验
                 else if (i == 9) value = growthContractExp; // 槽位10: 成长之契约
                 else if (i == 18) value = monsterGrowthContractExp; // 槽位19: 杀怪成长之契约
-                else if (i == 23) value = channelExp;       // 槽位24: 频道奖励
                 w.WriteInt32(value);
             }
 
-            // === ADD/MUL BONUS (2B) ===
-            w.WriteByte(0);
-            w.WriteByte(0);
+            // === VARIABLE REWARD LISTS ===
+            // Each list is u8 count followed by count * (u32 key + u32 value).
+            // Writing a u32 reward at offset 109 makes its low byte a count and
+            // causes the client to consume non-existent entries.
+            w.WriteByte(0);                    // first list count at offset 109
+            w.WriteByte(0);                    // second list count at offset 110
 
-            // === POST-BASE (32B = 8u32) ===
-            // A21 在此区后读取 1B 条目数；旧版把 score 四元组写在这里，
-            // 会让客户端把 score 的首字节当成条目数。抓包显示第 7 个
-            // 后置槽是 boss/champion/super-champion 经验合计，其余未知槽保持 0。
-            var specialMonsterExp = SaturatingSum(
-                bossExp,
-                championExp,
-                superChampionExp);
-            for (var i = 0; i < 6; i++)
+            // The reader consumes two u32 values before the legacy post-base
+            // block. They remain zero until their UI semantics are confirmed.
+            w.WriteUInt32(0);                  // offset 111
+            w.WriteUInt32(0);                  // offset 115
+
+            // === POST-BASE (20B = 5u32) ===
+            // sub_115CF80 consumes five fixed u32 values before the score
+            // quartet. Their UI semantics are still unconfirmed.
+            for (var i = 0; i < 5; i++)
                 w.WriteInt32(0);
-            w.WriteInt32(specialMonsterExp);
-            w.WriteInt32(0);
 
-            // === RESERVED (4B) ===
-            w.WriteUInt32((uint)Math.Max(0, superChampionExp));
+            // === SCORE BREAKDOWN (16B = 4u32) ===
+            // The A21 reader stores these four values by index. Current A21
+            // captures and the read-only A12 reference agree on the semantic
+            // order: reserved, champion, super-champion, boss.
+            w.WriteInt32(0);
+            w.WriteInt32(Math.Max(0, championExp));
+            w.WriteInt32(Math.Max(0, superChampionExp));
+            w.WriteInt32(Math.Max(0, bossExp));
 
             // === OBJECT/MONSTER EXPERIENCE ENTRIES ===
+            // A21 reads a u32 count at offset 155, not u8 plus padding.
             var entries = objectExperienceEntries
                 ?? Array.Empty<DungeonObjectExperienceEntry>();
-            if (entries.Count > byte.MaxValue)
-                throw new ArgumentOutOfRangeException(
-                    nameof(objectExperienceEntries),
-                    "A21 CLEAR_DUNGEON_REWARD supports at most 255 entries.");
-
-            w.WriteByte((byte)entries.Count);
-            w.WriteByte(0);
-            w.WriteByte(0);
-            w.WriteByte(0);
+            w.WriteUInt32((uint)entries.Count);
             foreach (var entry in entries)
             {
                 w.WriteUInt32(entry.ObjectKey);
                 w.WriteUInt32(entry.Experience);
             }
+
+            // The tail summary is the three score categories above. It is not
+            // the aggregate per-object monster EXP.
+            var specialMonsterExp = SaturatingSum(
+                bossExp,
+                championExp,
+                superChampionExp);
 
             // === CARD/BUFF/TAIL (A21 fixed 115B when no bonus item) ===
             w.WriteByte(0);                    // reserved before free-card data
