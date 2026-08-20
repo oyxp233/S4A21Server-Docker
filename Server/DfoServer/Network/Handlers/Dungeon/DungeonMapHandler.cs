@@ -665,7 +665,9 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             if (hellPartyMonsterInfoAfterStartMap != null && hellPartyMonsterInfoAfterStartMap.Count > 0)
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x02A6,
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.HELL_PARTY_MONSTER_INFO,
                     DungeonNotificationBuilder.BuildHellPartyMonsterInfo(hellPartyMonsterInfoAfterStartMap)));
                 if (!session.Player.IsCurrentDungeonParticipantRoom(roomIdentity))
                     return null;

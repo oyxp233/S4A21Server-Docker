@@ -162,9 +162,9 @@ namespace DfoServer.GameWorld
                 }
             }
 
-            // Keep a maze's explicit typed start when several start variants share
-            // the coordinate. A single typed start may still replace an ordinary
-            // map declaration when PVF provides it as the unique entrance variant.
+            // An explicit start MAP whose entrance mask matches the selected maze
+            // is authoritative. Directory-wide "start" variants can belong to a
+            // different quest route at the same physical coordinate.
             if (isStartRoom)
             {
                 var explicitStartMapId = ResolveFromMapSpecification(
@@ -177,6 +177,15 @@ namespace DfoServer.GameWorld
                 {
                     if (isQuestConnected)
                         return explicitStartMapId;
+
+                    if (IsMapCompatibleWithMazeCellEntrance(
+                            maze,
+                            x,
+                            y,
+                            explicitStartMapId))
+                    {
+                        return explicitStartMapId;
+                    }
 
                     var key = DungeonMapDirectoryIndex.CoordKey(x, y);
                     if (index.ByCoordinate.TryGetValue(
@@ -297,6 +306,18 @@ namespace DfoServer.GameWorld
 
             FileLogger.Log($"[DungeonMapResolver] UNRESOLVED: dungeon={dungeonId} maze={mazeIndex} room=({x},{y}) start={isStartRoom} boss={isBossRoom} quest={isQuestConnected} dirEntries={CountIndexEntries(index)}");
             return -1;
+        }
+
+        private static bool IsMapCompatibleWithMazeCellEntrance(
+            MazeInfo maze,
+            int x,
+            int y,
+            int mapId)
+        {
+            return TryGetMazeCellGreed(maze, x, y, out var cellGreed)
+                && TryDecodeGreedSymbol(cellGreed, out var expectedMask)
+                && TryGetMapEntranceMask(mapId, out var entranceMask)
+                && entranceMask == expectedMask;
         }
 
         private static int ResolveFromDeclaredDungeonOwner(

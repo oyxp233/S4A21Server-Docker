@@ -26,8 +26,8 @@ namespace DfoServer.Network.Builders
 
         // NOTI 28 (0x001C) DUNGEON_INFO
         // A21 固定 32B 布局。客户端 reader 先读取 u32 dungeonId，再读取
-        // difficulty/maze/boss 四个 u8；offset 12 为固定 1，offset 18-21
-        // 为深渊房间坐标，尾部保持保留零值。
+        // difficulty/maze/boss 四个 u8。官方普通/深渊样本只在 offset 8
+        // 切换 hell-party enabled；可变的 mode 属于 START_MAP offset 7。
         public static byte[] BuildDungeonInfo(
             int dungeonId,
             byte difficulty,
@@ -58,17 +58,21 @@ namespace DfoServer.Network.Builders
             writer.WriteByte(mazeIndex);               // +5 selected maze index
             writer.WriteByte(bossX);                   // +6
             writer.WriteByte(bossY);                   // +7
-            writer.WriteInt32(0);                      // +8 reserved
-            writer.WriteInt32(1);                      // +12 A21 fixed state marker
-            writer.WriteUInt16(0);                     // +16 reserved
-            writer.WriteByte(hellPartyRoomX);           // +18
-            writer.WriteByte(hellPartyRoomY);           // +19
-            writer.WriteUInt16(0xFFFF);                 // +20..21 reserved sentinel
-            writer.WriteZeroBytes(10);                 // +22..31 reserved
+            writer.WriteByte(hellPartyEnabled > 0 ? (byte)1 : (byte)0); // +8
+            writer.WriteByte(0);                       // +9
+            writer.WriteByte(0);                       // +10
+            writer.WriteByte(1);                       // +11 one minimap group
+            writer.WriteByte(0);                       // +12 empty group
+            writer.WriteByte(0);                       // +13
+            writer.WriteByte(0);                       // +14
+            writer.WriteByte(0);                       // +15
+            writer.WriteByte(0);                       // +16 empty trailing list
+            writer.WriteUInt32(0xFFFFFFFFu);            // +17..20 sentinels
+            writer.WriteZeroBytes(11);                 // +21..31 reserved
             return writer.ToArray();
         }
 
-        // NOTI 678 (0x02A6) ENUM_NOTIPACKET_HELL_PARTY_MONSTER_INFO
+        // NOTI 679 (0x02A7) ENUM_NOTIPACKET_HELL_PARTY_MONSTER_INFO
         // 86 客户端读取：int32 count + 重复的 int32 actorIdOrKey、int32 level。
         // 当前按怪物/APC code + 对象等级发送；该包不覆盖 START_MAP 隐藏行等级。
         public static byte[] BuildHellPartyMonsterInfo(IReadOnlyList<KeyValuePair<int, int>> actorLevels)

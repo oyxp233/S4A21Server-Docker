@@ -34,6 +34,13 @@ namespace DfoServer.SelfTests
                 && (ushort)CmdPacketTypeA21.GET_ITEM == 0x002B,
                 ref failures);
 
+            Check(
+                "A21 HELL_PARTY_MONSTER_INFO uses the enum-defined NOTI opcode",
+                (ushort)NotiPacketTypeA21.HELL_PARTY_MONSTER_INFO == 0x02A7
+                && DungeonNotificationBuilder.BuildHellPartyMonsterInfo(
+                    new[] { new KeyValuePair<int, int>(125, 85) }).Length == 12,
+                ref failures);
+
             var dungeonPermission = DungeonPermissionBodyBuilder.BuildEntries(
                 new[]
                 {
@@ -309,8 +316,8 @@ namespace DfoServer.SelfTests
             var infoExpected = new byte[]
             {
                 0x90, 0x00, 0x00, 0x00, 0x00, 0x01, 0x05, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             };
             Check(
@@ -336,6 +343,77 @@ namespace DfoServer.SelfTests
                 && nonzeroDifficultyInfo[5] == 1
                 && nonzeroDifficultyInfo[6] == 4
                 && nonzeroDifficultyInfo[7] == 0,
+                ref failures);
+
+            var hellInfoMode1 = DungeonNotificationBuilder.BuildDungeonInfo(
+                104,
+                difficulty: 0,
+                mazeIndex: 3,
+                bossX: 1,
+                bossY: 2,
+                hellPartyRoomX: 2,
+                hellPartyRoomY: 1,
+                dungeonMode: 1,
+                hellPartyEnabled: 1);
+            var hellInfoMode2 = DungeonNotificationBuilder.BuildDungeonInfo(
+                104,
+                difficulty: 0,
+                mazeIndex: 3,
+                bossX: 1,
+                bossY: 2,
+                hellPartyRoomX: 2,
+                hellPartyRoomY: 1,
+                dungeonMode: 2,
+                hellPartyEnabled: 1);
+            var hellInfoExpected = new byte[]
+            {
+                0x68, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x02,
+                0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            };
+            Check(
+                "A21 DUNGEON_INFO uses hell enabled while START_MAP owns the variable mode",
+                hellInfoMode1.Length == 32
+                && hellInfoMode1.AsSpan().SequenceEqual(hellInfoExpected)
+                && hellInfoMode2.AsSpan().SequenceEqual(hellInfoExpected),
+                ref failures);
+
+            var grandine = Dungeon.GetDungeonFile(104);
+            var grandineMaze = grandine?.Mazes != null
+                && grandine.Mazes.Count > 0
+                    ? grandine.Mazes[0]
+                    : null;
+            var grandineStartMap = grandineMaze == null
+                ? -1
+                : DungeonMapResolver.ResolveMapId(
+                    104,
+                    0,
+                    0,
+                    grandineMaze,
+                    0,
+                    grandineMaze.BossMap);
+            Check(
+                "explicit start MAP wins over an incompatible same-coordinate quest start",
+                grandineMaze != null
+                && DungeonMapResolver.TryGetMazeCellGreed(
+                    grandineMaze,
+                    0,
+                    0,
+                    out var grandineStartGreed)
+                && DungeonMapResolver.TryDecodeGreedSymbol(
+                    grandineStartGreed,
+                    out var grandineStartMask)
+                && grandineStartMask == 1
+                && DungeonMapResolver.TryGetMapEntranceMask(
+                    42001,
+                    out var explicitStartMask)
+                && explicitStartMask == grandineStartMask
+                && DungeonMapResolver.TryGetMapEntranceMask(
+                    15424,
+                    out var questStartMask)
+                && questStartMask == 8
+                && grandineStartMap == 42001,
                 ref failures);
 
             var maze = new Dungeon.MazeSumInfo
