@@ -178,7 +178,8 @@ namespace DfoServer.Game.CharacterData
                     }
                 }
 
-                snapshot.DailyChallengeRewardClaimFlags = new byte[6];
+                snapshot.DailyChallengeRewardClaimFlags = new byte[
+                    SelectCharacterInitializationSnapshot.DailyChallengeClaimFlagCount];
                 using (var cmd = new SqliteCommand(
                     "SELECT group_index FROM character_daily_challenge_claims WHERE character_id = @cid ORDER BY group_index", conn))
                 {
