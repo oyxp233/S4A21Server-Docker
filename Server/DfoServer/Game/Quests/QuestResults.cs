@@ -87,12 +87,14 @@ namespace DfoServer.Game.Quests
         public int ChainType;
         // A21 ordinary reward entries share one acquisition timestamp per completion.
         public uint RewardAcquiredAtUnixTime;
-        // chainType 1/2=转职号, 20=专家职类型, 30=开孔的装备栏位号。
+        // 业务奖励参数：chainType 1/2=转职号, 20=专家职类型, 30=开孔的装备栏位号。
+        // A21 chain 1/2 ACK 不直接序列化该值，而是在 chain 后写保留零值。
         public int GrowNumber;
         public PetCreatureEvolutionResult PetCreatureEvolution;
         public List<ConsumedItemEntry> ConsumedEntries = new List<ConsumedItemEntry>();
         public List<InsertedItemEntry> InsertedEntries = new List<InsertedItemEntry>();
-        // chainType 20 ACK 在 growNumber 后写两页压缩技能。
+        // chainType 1/2 在 chain+reserved 后、chainType 20 在 chain+growNumber 后
+        // 写当前角色自己的两页压缩技能。
         public List<QuestFinishSkillPage> SkillPages = new List<QuestFinishSkillPage>();
 
         public bool Success => ErrorCode == 0;

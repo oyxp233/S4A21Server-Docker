@@ -729,7 +729,7 @@ WHERE character_id = @cid AND delete_flag = 0;";
             var growNumber = rewardDefinition.RewardParameter;
             var petEvolution = PetCreatureEvolutionResult.Noop;
 
-            ApplySpecialReward(
+            var finishSkillSnapshot = ApplySpecialReward(
                 connection,
                 transaction,
                 characterId,
@@ -769,10 +769,16 @@ WHERE character_id = @cid AND delete_flag = 0;";
                 ChainType = chainType,
                 GrowNumber = growNumber,
                 PetCreatureEvolution = petEvolution,
+                SkillPages = chainType == 1
+                    || chainType == 2
+                    || chainType == 20
+                    ? QuestCompletionApplicationService.CaptureFinishSkillPages(
+                        finishSkillSnapshot)
+                    : new List<QuestFinishSkillPage>(),
             });
         }
 
-        private static void ApplySpecialReward(
+        private static SelectCharacter.SkillInfoSnapshot ApplySpecialReward(
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,
@@ -786,7 +792,7 @@ WHERE character_id = @cid AND delete_flag = 0;";
             {
                 case 1:
                 case 2:
-                    QuestCompletionApplicationService.UpdateGrowType(
+                    var growTypeSkills = QuestCompletionApplicationService.UpdateGrowType(
                         connection,
                         transaction,
                         characterId,
@@ -798,7 +804,7 @@ WHERE character_id = @cid AND delete_flag = 0;";
                         characterId,
                         "grow_type",
                         context.Character.GrowType);
-                    return;
+                    return growTypeSkills;
                 case 10:
                 case 25:
                     petEvolution = PetCreatureEvolutionRuntimeService
@@ -812,21 +818,20 @@ WHERE character_id = @cid AND delete_flag = 0;";
                         throw new InvalidOperationException(
                             $"pet creature evolution reward failed quest={questId}");
                     }
-                    return;
+                    return null;
                 case 20:
-                    QuestCompletionApplicationService.UpdateExpertJob(
+                    return QuestCompletionApplicationService.UpdateExpertJob(
                         connection,
                         transaction,
                         characterId,
                         rewardDefinition.RewardParameter);
-                    return;
                 case QuestData.ChainTypeSlotExpansion:
                     QuestCompletionApplicationService.UpdateSlotExpansion(
                         connection,
                         transaction,
                         characterId,
                         rewardDefinition.RewardParameter);
-                    return;
+                    return null;
                 case QuestData.ChainTypeTitle:
                     var achievement = TitleBookMutations.Value
                         .TriggerAchievement(
@@ -844,10 +849,10 @@ WHERE character_id = @cid AND delete_flag = 0;";
                             $"title reward trigger failed quest={questId}");
                     }
                     context.Result.AchievementResults.Add(achievement);
-                    return;
+                    return null;
                 default:
                     LogUnsupportedSpecialReward(questId, rewardDefinition);
-                    return;
+                    return null;
             }
         }
 

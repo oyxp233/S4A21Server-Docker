@@ -166,7 +166,7 @@ namespace DfoServer.Game.Quests
             var isTitleRewardQuest = GameWorld.QuestData.IsTitleRewardQuest(questId);
             var consumedEntries = new List<ConsumedItemEntry>();
             var insertedEntries = new List<InsertedItemEntry>();
-            SelectCharacter.SkillInfoSnapshot expertJobSkills = null;
+            SelectCharacter.SkillInfoSnapshot finishSkillSnapshot = null;
             uint goldReward = 0;
             uint expReward = 0;
             uint honorExpReward = 0;
@@ -398,7 +398,7 @@ namespace DfoServer.Game.Quests
 
                             if (reward.ChainType == 1 || reward.ChainType == 2)
                             {
-                                UpdateGrowType(
+                                finishSkillSnapshot = UpdateGrowType(
                                     connection,
                                     transaction,
                                     characterId,
@@ -407,7 +407,7 @@ namespace DfoServer.Game.Quests
                             }
                             else if (reward.ChainType == 20)
                             {
-                                expertJobSkills = UpdateExpertJob(
+                                finishSkillSnapshot = UpdateExpertJob(
                                     connection,
                                     transaction,
                                     characterId,
@@ -528,8 +528,10 @@ namespace DfoServer.Game.Quests
                 PetCreatureEvolution = petEvolution,
                 ConsumedEntries = consumedEntries,
                 InsertedEntries = insertedEntries,
-                SkillPages = reward.ChainType == 20
-                    ? CaptureExpertJobSkillPages(expertJobSkills)
+                SkillPages = reward.ChainType == 1
+                    || reward.ChainType == 2
+                    || reward.ChainType == 20
+                    ? CaptureFinishSkillPages(finishSkillSnapshot)
                     : new List<QuestFinishSkillPage>(),
             };
         }
@@ -1469,7 +1471,7 @@ namespace DfoServer.Game.Quests
             }
         }
 
-        internal static void UpdateGrowType(
+        internal static SelectCharacter.SkillInfoSnapshot UpdateGrowType(
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,
@@ -1537,9 +1539,10 @@ namespace DfoServer.Game.Quests
 
             var progressRepository = CharacterData.SqliteCharacterProgressRepository
                 .FromConnectionString(connection.ConnectionString);
+            SelectCharacter.SkillInfoSnapshot skills;
             if (chainType == 1)
             {
-                var rebuilt = Skills.CharacterSkillProfile.BuildSnapshot(
+                skills = Skills.CharacterSkillProfile.BuildSnapshot(
                     job,
                     firstGrow,
                     0,
@@ -1548,11 +1551,11 @@ namespace DfoServer.Game.Quests
                     connection,
                     transaction,
                     characterId,
-                    rebuilt);
+                    skills);
             }
             else if (chainType == 2)
             {
-                var current = progressRepository.LoadSkills(
+                skills = progressRepository.LoadSkills(
                     connection,
                     transaction,
                     characterId);
@@ -1561,7 +1564,7 @@ namespace DfoServer.Game.Quests
                     firstGrow,
                     secondGrow);
                 Skills.CharacterSkillProfile.MergeGrants(
-                    current,
+                    skills,
                     grants,
                     job,
                     characterLevel);
@@ -1569,7 +1572,12 @@ namespace DfoServer.Game.Quests
                     connection,
                     transaction,
                     characterId,
-                    current);
+                    skills);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"invalid grow type reward chain: {chainType}");
             }
 
             if (!Progression.CharacterProgressService.PersistLevelAndExp(
@@ -1583,6 +1591,8 @@ namespace DfoServer.Game.Quests
                     $"combat stat refresh failed after grow type update: " +
                     $"cid={characterId}");
             }
+
+            return skills;
         }
 
         internal static SelectCharacter.SkillInfoSnapshot UpdateExpertJob(
@@ -1665,7 +1675,7 @@ namespace DfoServer.Game.Quests
             return skills;
         }
 
-        private static List<QuestFinishSkillPage> CaptureExpertJobSkillPages(
+        internal static List<QuestFinishSkillPage> CaptureFinishSkillPages(
             SelectCharacter.SkillInfoSnapshot skills)
         {
             var pages = new List<QuestFinishSkillPage>(2);

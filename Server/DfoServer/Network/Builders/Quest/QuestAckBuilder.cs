@@ -73,6 +73,18 @@ namespace DfoServer.Network.Builders
                 return w.ToArray();
             }
 
+            if (r.ChainType == 1 || r.ChainType == 2)
+            {
+                // A21 career-change completion writes chain + one reserved zero
+                // directly after the common prefix, followed by both compact
+                // skill pages. The PVF grow number updates character state but
+                // is not serialized in this branch.
+                w.WriteByte((byte)r.ChainType);
+                w.WriteByte(0);
+                WriteSkillPages(w, r.SkillPages);
+                return w.ToArray();
+            }
+
             if (r.ChainType == 20)
             {
                 // chain 20：7 字节 consume，随后 chain/grow 与两页压缩技能。
@@ -82,7 +94,7 @@ namespace DfoServer.Network.Builders
                     WriteConsumedEntryWithoutReservedTail(w, ce);
                 w.WriteByte((byte)r.ChainType);
                 w.WriteByte((byte)r.GrowNumber);
-                WriteExpertJobSkillPages(w, r.SkillPages);
+                WriteSkillPages(w, r.SkillPages);
                 return w.ToArray();
             }
 
@@ -109,8 +121,7 @@ namespace DfoServer.Network.Builders
                     w.WriteUInt16(0); // A21 entry tail
                 }
             }
-            else if (r.ChainType == 1 || r.ChainType == 2
-                || r.ChainType == GameWorld.QuestData.ChainTypeSlotExpansion)
+            else if (r.ChainType == GameWorld.QuestData.ChainTypeSlotExpansion)
             {
                 w.WriteByte((byte)r.ChainType);
                 w.WriteByte((byte)r.GrowNumber);
@@ -133,7 +144,7 @@ namespace DfoServer.Network.Builders
             writer.WriteUInt32(entry.ConsumedCount);
         }
 
-        private static void WriteExpertJobSkillPages(
+        private static void WriteSkillPages(
             GamePacketWriter writer,
             List<QuestFinishSkillPage> pages)
         {

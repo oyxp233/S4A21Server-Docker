@@ -1969,6 +1969,95 @@ namespace DfoServer.SelfTests
                     capturedTitleSeekingExpected),
                 ref failures);
 
+            var capturedCareerFinish = new QuestFinishResult
+            {
+                QuestId = 7810,
+                FinishType = QuestFinishType.HuntMonster,
+                Exp = 6932,
+                ReservedAfterExperience = 0,
+                ChainType = 1,
+                // PVF reward parameter is 3, while the captured wire byte is 0.
+                GrowNumber = 3,
+            };
+            var capturedCareerExpected = new byte[]
+            {
+                0x01, 0x82, 0x1E, 0x02, 0x14, 0x1B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x0B, 0x66, 0xB3, 0x00, 0x07, 0x67, 0xAE, 0x00, 0x01, 0x68,
+                0xA9, 0x00, 0x01, 0x00, 0x05, 0x00, 0x01, 0x01, 0x2E, 0x00, 0x01, 0x69,
+                0xFF, 0x01, 0x01, 0x6A, 0x38, 0x00, 0x01, 0x02, 0x19, 0x00, 0x01, 0x03,
+                0x41, 0x00, 0x01, 0x04, 0x4C, 0x00, 0x01, 0x06, 0xC5, 0x00, 0x01, 0x0B,
+                0x66, 0xB3, 0x00, 0x07, 0x67, 0xAE, 0x00, 0x01, 0x68, 0xA9, 0x00, 0x01,
+                0x00, 0x05, 0x00, 0x01, 0x01, 0x2E, 0x00, 0x01, 0x69, 0xFF, 0x01, 0x01,
+                0x6A, 0x38, 0x00, 0x01, 0x02, 0x19, 0x00, 0x01, 0x03, 0x41, 0x00, 0x01,
+                0x04, 0x4C, 0x00, 0x01, 0x06, 0xC5, 0x00, 0x01,
+            };
+            FillSkillPagesFromCapturedFinishBody(
+                capturedCareerFinish,
+                capturedCareerExpected,
+                offset: 14);
+            var capturedCareerBody = QuestAckBuilder.BuildFinish(
+                capturedCareerFinish);
+            Check(
+                "A21 career FINISH_QUEST quest 7810 matches the captured 104B ACK",
+                capturedCareerBody.Length == 104
+                && capturedCareerBody.AsSpan().SequenceEqual(
+                    capturedCareerExpected)
+                && capturedCareerBody[12] == 1
+                && capturedCareerBody[13] == 0
+                && capturedCareerFinish.SkillPages[0].Entries.Count == 11
+                && capturedCareerFinish.SkillPages[1].Entries.Count == 11,
+                ref failures);
+
+            var launcherCareerSkills = CharacterSkillProfile.BuildSnapshot(
+                job: 5,
+                growType: 2,
+                secondGrowType: 0,
+                charLevel: 21);
+            var launcherCareerFinish = new QuestFinishResult
+            {
+                QuestId = 7873,
+                FinishType = QuestFinishType.HuntMonster,
+                Exp = 5836,
+                ReservedAfterExperience = 0,
+                ChainType = 1,
+                GrowNumber = 2,
+                SkillPages = QuestCompletionApplicationService
+                    .CaptureFinishSkillPages(launcherCareerSkills),
+            };
+            var launcherCareerBody = QuestAckBuilder.BuildFinish(
+                launcherCareerFinish);
+            Check(
+                "A21 launcher career snapshot has two captured 11-entry pages",
+                launcherCareerFinish.SkillPages.Count == 2
+                && launcherCareerFinish.SkillPages[0].Entries.Count == 11
+                && launcherCareerFinish.SkillPages[1].Entries.Count == 11,
+                ref failures);
+            Check(
+                "A21 launcher career snapshot remains profession-specific",
+                launcherCareerFinish.SkillPages.Count == 2
+                && launcherCareerFinish.SkillPages[0].Entries.Count > 0
+                && capturedCareerFinish.SkillPages.Count == 2
+                && capturedCareerFinish.SkillPages[0].Entries.Count > 0
+                && launcherCareerFinish.SkillPages[0].Entries.Exists(
+                    entry => entry.SkillId == 92)
+                && !capturedCareerFinish.SkillPages[0].Entries.Exists(
+                    entry => entry.SkillId == 92)
+                && capturedCareerFinish.SkillPages[0].Entries.Exists(
+                    entry => entry.SkillId == 56)
+                && !launcherCareerFinish.SkillPages[0].Entries.Exists(
+                    entry => entry.SkillId == 56),
+                ref failures);
+            Check(
+                "A21 career ACK keeps reserved zero and serializes the selected profession pages",
+                launcherCareerBody.Length == 16
+                    + 4 * (launcherCareerFinish.SkillPages[0].Entries.Count
+                        + launcherCareerFinish.SkillPages[1].Entries.Count)
+                && launcherCareerBody[12] == 1
+                && launcherCareerBody[13] == 0
+                && !launcherCareerBody.AsSpan().SequenceEqual(
+                    capturedCareerExpected),
+                ref failures);
+
             var capturedExpertJobFinish = new QuestFinishResult
             {
                 QuestId = 2710,
@@ -2010,9 +2099,10 @@ namespace DfoServer.SelfTests
                 0x07, 0xC5, 0x00, 0x01, 0x39, 0x4B, 0x00, 0x01, 0x03, 0x4A, 0x00, 0x01,
                 0x6A, 0xC2, 0x00, 0x01,
             };
-            FillExpertJobSkillPagesFromCapture(
+            FillSkillPagesFromCapturedFinishBody(
                 capturedExpertJobFinish,
-                capturedExpertJobExpected);
+                capturedExpertJobExpected,
+                offset: 22);
             var capturedExpertJobBody = QuestAckBuilder.BuildFinish(
                 capturedExpertJobFinish);
             Check(
@@ -2466,11 +2556,11 @@ namespace DfoServer.SelfTests
             return failures == 0 ? 0 : 1;
         }
 
-        private static void FillExpertJobSkillPagesFromCapture(
+        private static void FillSkillPagesFromCapturedFinishBody(
             QuestFinishResult result,
-            byte[] capturedBody)
+            byte[] capturedBody,
+            int offset)
         {
-            var offset = 22;
             result.SkillPages.Clear();
             for (var pageIndex = 0; pageIndex < 2; pageIndex++)
             {
