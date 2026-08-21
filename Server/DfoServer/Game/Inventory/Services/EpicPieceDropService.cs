@@ -123,12 +123,20 @@ namespace DfoServer.Game.Inventory
         {
             var hellCount = hellDifficulty switch
             {
-                1 => 3,
-                2 => 2,
+                1 => 1,
+                2 => 0,
                 _ => 0,
             };
 
-            var dungeonCount = Math.Min(4, (int)dungeonDifficulty) + 1;
+            var dungeonCount = dungeonDifficulty switch
+            {
+                0 => 5,
+                1 => 6,
+                2 => 8,
+                3 => 9,
+                4 => 10,
+                _ => 0,
+            };
             return hellCount + dungeonCount;
         }
 

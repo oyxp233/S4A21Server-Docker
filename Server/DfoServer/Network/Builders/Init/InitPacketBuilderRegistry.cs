@@ -84,12 +84,20 @@ namespace DfoServer.Network.Builders
             Register(new CeraBodyBuilder());
             Register(new PetCreatureWelcomeMessageBodyBuilder());
             Register(new UnitedServerFriendInfoBodyBuilder());
+            Register(new WeddingInfoBodyBuilder());
             Register(new StrikerSupportTagCharacterBodyBuilder(_database));
             RegisterCmd(new MercenaryInfoCmdBodyBuilder(_database));
+            RegisterCmd(new WeddingCharacCmdBodyBuilder());
         }
 
         public bool TryBuild(ushort notiType, SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {
+            if (notiType == (ushort)NotiPacketTypeA21.COUPLE_ROOM && occurrenceIndex == 1)
+            {
+                body = CoupleRoomBodyBuilder.BuildBody();
+                return true;
+            }
+
             if (_builders.TryGetValue(notiType, out var builder))
                 return builder.TryBuild(snapshot, occurrenceIndex, out body);
             body = null;

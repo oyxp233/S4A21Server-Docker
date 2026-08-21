@@ -147,7 +147,7 @@ namespace DfoServer.Network.Handlers
             int boxIndex)
         {
             if (CollectionBoxBodyBuilder.TryBuildForBox(model, boxIndex, out var body))
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0381, body));
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x03EB, body));
         }
 
         private static Task SendCommandAck(

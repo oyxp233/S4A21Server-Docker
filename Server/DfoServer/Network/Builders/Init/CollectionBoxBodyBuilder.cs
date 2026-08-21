@@ -15,7 +15,7 @@ namespace DfoServer.Network.Builders
             _progressRepository = progressRepository;
         }
 
-        public ushort NotiType => 0x0381;
+        public ushort NotiType => 0x03EB;
 
         public bool TryBuild(SelectCharacterDataSnapshot snapshot, int occurrenceIndex, out byte[] body)
         {
