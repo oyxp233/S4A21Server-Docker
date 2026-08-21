@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using DfoServer.Game.CharacterData;
 using DfoServer.Game.DailyReset;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Quests;
@@ -175,20 +176,7 @@ namespace DfoServer.SelfTests
                         .Distinct()
                         .Count() == generated.Snapshot.RacingDungeonGroups
                             .Sum(group => group.Entries.Count)
-                    && Enumerable.Range(1, 100).All(level =>
-                    {
-                        var levelPlan = DailyChallengeData.BuildGenerationPlan(
-                            CharacterId,
-                            level,
-                            dayId: 20260821);
-                        var ids = levelPlan.Groups
-                            .SelectMany(group => group.Entries)
-                            .Select(entry => entry.QuestId)
-                            .ToArray();
-                        return ids.Distinct().Count() == ids.Length
-                            && ids.All(id => DailyChallengeData
-                                .IsQuestEligibleAtLevel(id, level));
-                    }),
+                    && GenerationPlansKeepUniqueEligibleEntries(),
                     ref failures);
 
                 var levelFourPlan = DailyChallengeData.BuildGenerationPlan(
@@ -308,7 +296,41 @@ namespace DfoServer.SelfTests
                     "recommended dungeon progress is authoritative and source-event idempotent",
                     suitableClear.ChangedEntries == 1
                     && suitableReplay.ChangedEntries == 0
+                    && suitableReplay.HasRelevantProgress
                     && ReadRemaining(database.ConnectionString, suitableQuestId) == 2,
+                    ref failures);
+
+                SeedSingleEntry(
+                    database.ConnectionString,
+                    suitableQuestId,
+                    target: 1,
+                    remaining: 1);
+                var completingClearEventId = Guid.NewGuid();
+                var completingClear = service.ApplySuitableDungeonClear(
+                    CharacterId,
+                    dungeonId: 84,
+                    difficulty: 3,
+                    characterLevel: 62,
+                    completingClearEventId);
+                var completingClearReplay = service.ApplySuitableDungeonClear(
+                    CharacterId,
+                    dungeonId: 84,
+                    difficulty: 3,
+                    characterLevel: 62,
+                    completingClearEventId);
+                var laterClear = service.ApplySuitableDungeonClear(
+                    CharacterId,
+                    dungeonId: 84,
+                    difficulty: 3,
+                    characterLevel: 62,
+                    sourceEventId: Guid.NewGuid());
+                Check(
+                    "completed suitable challenge projects only its committed event or replay",
+                    completingClear.ChangedEntries == 1
+                    && completingClearReplay.ChangedEntries == 0
+                    && completingClearReplay.HasRelevantProgress
+                    && laterClear.ChangedEntries == 0
+                    && !laterClear.HasRelevantProgress,
                     ref failures);
 
                 const int bossChallengeQuestId = 14522;
@@ -527,14 +549,36 @@ namespace DfoServer.SelfTests
                     transaction.Commit();
                 }
 
+                InsertProgressEvent(
+                    database.ConnectionString,
+                    questCompletionId,
+                    "tutorial-flag-save-preservation");
+                var stateRepository = new SqliteCharacterStateRepository(database);
+                var genericFlagsSnapshot = new Game.SelectCharacter
+                    .SelectCharacterInitializationSnapshot();
+                stateRepository.LoadFlags(CharacterId, genericFlagsSnapshot);
+                stateRepository.SaveFlags(CharacterId, genericFlagsSnapshot);
+                Check(
+                    "generic init-flag save preserves the daily challenge owner ledger",
+                    Scalar(
+                        database.ConnectionString,
+                        "SELECT COUNT(*) FROM character_daily_challenge_entries WHERE character_id=@cid;") == 1
+                    && Scalar(
+                        database.ConnectionString,
+                        "SELECT COUNT(*) FROM character_daily_challenge_entry_claims WHERE character_id=@cid;") == 1
+                    && Scalar(
+                        database.ConnectionString,
+                        "SELECT COUNT(*) FROM character_daily_challenge_progress_events WHERE character_id=@cid;") == 1,
+                    ref failures);
+
                 MarkForRollover(database.ConnectionString);
                 service.EnsureInitialized(CharacterId);
                 CompleteFirstEntries(
                     database.ConnectionString,
                     groupIndex: 0,
                     count: 2);
-                var firstReward = service.ClaimReward(owner, 61, 0);
-                var replayReward = service.ClaimReward(owner, 61, 0);
+                var firstReward = service.ClaimReward(owner, 0);
+                var replayReward = service.ClaimReward(owner, 0);
                 Check(
                     "group reward accepts the A21 2/2 threshold and is replay-idempotent",
                     firstReward.Status == DailyChallengeRewardClaimStatus.Success
@@ -603,6 +647,31 @@ PRAGMA user_version=5;";
             return BitConverter.ToUInt32(body, 16) == entry.TrackLikeId
                 && BitConverter.ToUInt32(body, 20) == entry.RemainingValue
                 && BitConverter.ToUInt32(body, 24) == entry.TargetValue;
+        }
+
+        private static bool GenerationPlansKeepUniqueEligibleEntries()
+        {
+            foreach (var characterSeed in Enumerable.Range(1, 16))
+            foreach (var dayOffset in Enumerable.Range(0, 8))
+            foreach (var level in Enumerable.Range(1, 100))
+            {
+                var levelPlan = DailyChallengeData.BuildGenerationPlan(
+                    CharacterId + characterSeed,
+                    level,
+                    dayId: 20260821 + dayOffset);
+                var ids = levelPlan.Groups
+                    .SelectMany(group => group.Entries)
+                    .Select(entry => entry.QuestId)
+                    .ToArray();
+                if (ids.Distinct().Count() != ids.Length
+                    || ids.Any(id => !DailyChallengeData
+                        .IsQuestEligibleAtLevel(id, level)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static void Seed(string connectionString)
@@ -683,6 +752,28 @@ UPDATE character_daily_challenge_entries SET value_b=@remaining
 WHERE character_id=@cid AND group_index=0 AND entry_index=0;";
                 command.Parameters.AddWithValue("@cid", CharacterId);
                 command.Parameters.AddWithValue("@remaining", (long)remaining);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static void InsertProgressEvent(
+            string connectionString,
+            int questId,
+            string sourceEventId)
+        {
+            using (var connection = new SqliteConnection(connectionString))
+            using (var command = connection.CreateCommand())
+            {
+                connection.Open();
+                command.CommandText = @"
+INSERT INTO character_daily_challenge_progress_events
+    (character_id, source_event_id, group_index, entry_index, quest_id)
+SELECT character_id, @eventId, group_index, entry_index, track_like_id
+FROM character_daily_challenge_entries
+WHERE character_id=@cid AND track_like_id=@questId;";
+                command.Parameters.AddWithValue("@cid", CharacterId);
+                command.Parameters.AddWithValue("@questId", questId);
+                command.Parameters.AddWithValue("@eventId", sourceEventId);
                 command.ExecuteNonQuery();
             }
         }

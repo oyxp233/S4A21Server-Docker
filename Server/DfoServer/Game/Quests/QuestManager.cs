@@ -311,7 +311,6 @@ namespace DfoServer.Game.Quests
                 lease);
             return _dailyChallengeService.ClaimReward(
                 owner,
-                _sender.Player?.Level ?? 0,
                 groupIndex);
         }
 

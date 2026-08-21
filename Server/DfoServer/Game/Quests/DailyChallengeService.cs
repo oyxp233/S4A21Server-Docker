@@ -12,8 +12,8 @@ namespace DfoServer.Game.Quests
 {
     internal sealed class DailyChallengeService
     {
-        private static readonly ConcurrentDictionary<long, byte> MissingEntryWarnings =
-            new ConcurrentDictionary<long, byte>();
+        private readonly ConcurrentDictionary<ushort, byte> _missingEntryWarnings =
+            new ConcurrentDictionary<ushort, byte>();
 
         private readonly DailyChallengeRepository _repository;
         private readonly string _connectionString;
@@ -112,8 +112,10 @@ WHERE character_id = @cid;";
 
             if (!stored.Found)
             {
-                var warningKey = ((long)characterId << 32) | questId;
-                if (MissingEntryWarnings.TryAdd(warningKey, 0))
+                // This service is scoped to its composition owner. Keep the
+                // warning cache instance-local so stale client reports cannot
+                // accumulate one process-lifetime entry per character.
+                if (_missingEntryWarnings.TryAdd(questId, 0))
                 {
                     FileLogger.Log(
                         $"[DailyChallenge] configured quest missing from character ledger: "
@@ -225,7 +227,6 @@ WHERE character_id = @cid;";
 
         internal DailyChallengeRewardClaimResult ClaimReward(
             QuestCommandOwnerContext owner,
-            int characterLevel,
             int groupIndex)
         {
             var characterId = owner.CharacterId;
@@ -269,11 +270,12 @@ WHERE character_id = @cid;";
                         using (var transaction = connection.BeginTransaction(deferred: false))
                         {
                             if (!owner.IsCurrentInventoryOwner()
-                                || !IsCharacterOwnedByAccount(
+                                || !TryLoadOwnedCharacterLevel(
                                     connection,
                                     transaction,
                                     characterId,
-                                    owner.AccountId))
+                                    owner.AccountId,
+                                    out var characterLevel))
                             {
                                 return DailyChallengeRewardClaimResult.Rejected(
                                     DailyChallengeRewardClaimStatus.InvalidRequest,
@@ -343,6 +345,18 @@ WHERE character_id = @cid;";
                             {
                                 return DailyChallengeRewardClaimResult.Rejected(
                                     DailyChallengeRewardClaimStatus.InventoryFull,
+                                    groupIndex,
+                                    snapshot,
+                                    reward,
+                                    state.CompletedEntryCount);
+                            }
+
+                            if (plan.Entries.Count != 1
+                                || !RewardInventoryRollback.CanRestore(
+                                    plan.Entries[0]))
+                            {
+                                return DailyChallengeRewardClaimResult.Rejected(
+                                    DailyChallengeRewardClaimStatus.RewardUnavailable,
                                     groupIndex,
                                     snapshot,
                                     reward,
@@ -432,20 +446,27 @@ WHERE character_id = @cid;";
             }
         }
 
-        private static bool IsCharacterOwnedByAccount(
+        private static bool TryLoadOwnedCharacterLevel(
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,
-            int accountId)
+            int accountId,
+            out int characterLevel)
         {
+            characterLevel = 0;
             using (var command = new SqliteCommand(@"
-SELECT 1
+SELECT level
 FROM characters
 WHERE character_id = @cid AND account_id = @aid;", connection, transaction))
             {
                 command.Parameters.AddWithValue("@cid", characterId);
                 command.Parameters.AddWithValue("@aid", accountId);
-                return command.ExecuteScalar() != null;
+                var value = command.ExecuteScalar();
+                if (value == null || value == DBNull.Value)
+                    return false;
+
+                characterLevel = Convert.ToInt32(value);
+                return characterLevel > 0;
             }
         }
 
@@ -549,6 +570,11 @@ WHERE character_id = @cid AND account_id = @aid;", connection, transaction))
         internal short SlotIndex { get; private set; }
         internal ItemCore PreviousItem { get; private set; }
         internal VirtualCountItem PreviousVirtualCount { get; private set; }
+
+        internal static bool CanRestore(InventoryRewardGrantPlanEntry entry) =>
+            entry != null
+            && (entry.Kind == InventoryRewardGrantKind.InventoryItem
+                || entry.Kind == InventoryRewardGrantKind.MainVirtualCount);
 
         internal static RewardInventoryRollback Capture(
             InventoryService inventory,

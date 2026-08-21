@@ -315,13 +315,13 @@ namespace DfoServer.SelfTests
                 hellPartyRoomY: 0xFF);
             var infoExpected = new byte[]
             {
-                0x90, 0x00, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF,
+                0x90, 0x00, 0x00, 0x00, 0x00, 0x01, 0x05, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             };
             Check(
-                "A21 DUNGEON_INFO dungeon 144 keeps maze index at offset 5",
+                "A21 DUNGEON_INFO keeps maze index and boss coordinates",
                 info.Length == 32
                 && info.AsSpan().SequenceEqual(infoExpected),
                 ref failures);
@@ -341,8 +341,8 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToInt32(nonzeroDifficultyInfo, 0) == 160
                 && nonzeroDifficultyInfo[4] == 1
                 && nonzeroDifficultyInfo[5] == 1
-                && nonzeroDifficultyInfo[6] == DungeonNotificationBuilder.NoBossMapMarkerCoordinate
-                && nonzeroDifficultyInfo[7] == DungeonNotificationBuilder.NoBossMapMarkerCoordinate,
+                && nonzeroDifficultyInfo[6] == 4
+                && nonzeroDifficultyInfo[7] == 0,
                 ref failures);
 
             var hellInfoMode1 = DungeonNotificationBuilder.BuildDungeonInfo(
@@ -367,7 +367,7 @@ namespace DfoServer.SelfTests
                 hellPartyEnabled: 1);
             var hellInfoExpected = new byte[]
             {
-                0x68, 0x00, 0x00, 0x00, 0x00, 0x03, 0xFF, 0xFF,
+                0x68, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x02,
                 0x02, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -393,8 +393,8 @@ namespace DfoServer.SelfTests
             Check(
                 "A21 DUNGEON_INFO serializes minimap groups without dropping coordinates",
                 minimapInfo.Length == 40
-                && minimapInfo[6] == DungeonNotificationBuilder.NoBossMapMarkerCoordinate
-                && minimapInfo[7] == DungeonNotificationBuilder.NoBossMapMarkerCoordinate
+                && minimapInfo[6] == 5
+                && minimapInfo[7] == 1
                 && minimapInfo[11] == 2
                 && minimapInfo[12] == 2
                 && minimapInfo[13] == 2

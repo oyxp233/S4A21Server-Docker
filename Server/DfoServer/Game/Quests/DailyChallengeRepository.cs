@@ -496,6 +496,31 @@ VALUES (@cid, @eventId, @groupIndex, @entryIndex, @questId);",
             }
         }
 
+        private static bool HasProgressEvent(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            Guid sourceEventId,
+            DailyChallengeEntryRecord entry)
+        {
+            using (var command = new SqliteCommand(@"
+SELECT 1
+FROM character_daily_challenge_progress_events
+WHERE character_id = @cid
+  AND source_event_id = @eventId
+  AND group_index = @groupIndex
+  AND entry_index = @entryIndex
+  AND quest_id = @questId;", connection, transaction))
+            {
+                command.Parameters.AddWithValue("@cid", characterId);
+                command.Parameters.AddWithValue("@eventId", sourceEventId.ToString("N"));
+                command.Parameters.AddWithValue("@groupIndex", entry.GroupIndex);
+                command.Parameters.AddWithValue("@entryIndex", entry.EntryIndex);
+                command.Parameters.AddWithValue("@questId", entry.QuestId);
+                return command.ExecuteScalar() != null;
+            }
+        }
+
         internal DailyChallengeDungeonClearResult ApplySuitableDungeonClear(
             int characterId,
             int dungeonId,
@@ -532,9 +557,25 @@ VALUES (@cid, @eventId, @groupIndex, @entryIndex, @questId);",
                                 continue;
                             }
 
+                            if (entry.ValueB == 0)
+                            {
+                                // Only a replay of the event that completed the
+                                // entry needs a recovery snapshot. A new clear
+                                // after completion must not keep emitting 0x0286.
+                                if (HasProgressEvent(
+                                        connection,
+                                        transaction,
+                                        characterId,
+                                        sourceEventId,
+                                        entry))
+                                {
+                                    relevantEntries++;
+                                }
+                                continue;
+                            }
+
                             relevantEntries++;
-                            if (entry.ValueB == 0
-                                || !TryClaimProgressEvent(
+                            if (!TryClaimProgressEvent(
                                     connection,
                                     transaction,
                                     characterId,
@@ -624,9 +665,22 @@ WHERE character_id = @cid
                                 continue;
                             }
 
+                            if (entry.ValueB == 0)
+                            {
+                                if (HasProgressEvent(
+                                        connection,
+                                        transaction,
+                                        characterId,
+                                        sourceEventId,
+                                        entry))
+                                {
+                                    relevantEntries++;
+                                }
+                                continue;
+                            }
+
                             relevantEntries++;
-                            if (entry.ValueB == 0
-                                || !TryClaimProgressEvent(
+                            if (!TryClaimProgressEvent(
                                     connection,
                                     transaction,
                                     characterId,

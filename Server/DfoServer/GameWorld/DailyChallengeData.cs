@@ -93,6 +93,7 @@ namespace DfoServer.GameWorld
             int dayId)
         {
             var plan = new DailyChallengeGenerationPlan();
+            var selectedQuestIds = new HashSet<int>();
             foreach (var group in Catalog.Value.Groups)
             {
                 if (characterLevel < group.MinimumLevel
@@ -119,8 +120,11 @@ namespace DfoServer.GameWorld
                     var candidates = new List<int>();
                     foreach (var questId in slot.QuestIds)
                     {
-                        if (IsQuestEligibleAtLevel(questId, characterLevel))
+                        if (!selectedQuestIds.Contains(questId)
+                            && IsQuestEligibleAtLevel(questId, characterLevel))
+                        {
                             candidates.Add(questId);
+                        }
                     }
 
                     if (candidates.Count == 0)
@@ -138,6 +142,7 @@ namespace DfoServer.GameWorld
                         slot.SlotIndex,
                         candidates.Count);
                     var selectedQuestId = candidates[selectedIndex];
+                    selectedQuestIds.Add(selectedQuestId);
                     generatedGroup.Entries.Add(new DailyChallengeGenerationEntry
                     {
                         EntryIndex = generatedGroup.Entries.Count,

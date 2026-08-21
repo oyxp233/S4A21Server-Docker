@@ -60,10 +60,10 @@ namespace DfoServer.Network.Builders
             writer.WriteByte(mazeIndex);               // +5 selected maze index
             // BossMapPos remains a runtime fact for route selection, room
             // topology and settlement. A21 uses FF/FF as the no-marker
-            // sentinel for the built-in boss minimap marker, so the network
-            // projection hides it globally without changing dungeon logic.
-            writer.WriteByte(NoBossMapMarkerCoordinate); // +6
-            writer.WriteByte(NoBossMapMarkerCoordinate); // +7
+            // sentinel for the built-in boss minimap marker; preserve the
+            // caller's resolved coordinates, including that sentinel.
+            writer.WriteByte(bossX); // +6
+            writer.WriteByte(bossY); // +7
             writer.WriteByte(hellPartyEnabled > 0 ? (byte)2 : (byte)0); // +8 official hell marker
             writer.WriteByte(hellPartyEnabled > 0 ? (byte)1 : (byte)0); // +9 hell enabled
             writer.WriteByte(0);                       // +10
