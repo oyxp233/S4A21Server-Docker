@@ -669,14 +669,20 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
             else
             {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                    0x00,
-                    (ushort)NotiPacketTypeA21.GET_ITEM,
-                    DropItemBuilder.BuildPickupItem(
+                var pickupBody = pickup.IsEpicPiece
+                    ? DropItemBuilder.BuildPickupEpicPiece(
+                        req.SrcSlot,
+                        session.Player.UserId)
+                    : DropItemBuilder.BuildPickupItem(
                         req.SrcSlot,
                         session.Player.UserId,
                         (ushort)pickup.InventorySlot,
-                        7)));
+                        7);
+
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.GET_ITEM,
+                    pickupBody));
                 if (pickup.IsEpicPiece)
                 {
                     await InventoryRefreshSender.SendEpicPieceInfo(
@@ -692,7 +698,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                         .RecalibrateItemSeekingQuestProgressWithoutNotification(
                             new[] { pickup.PickedUpItemId });
                 }
-                FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] GET_ITEM: item pickup srcSlot={req.SrcSlot} templateId={pickup.PickedUpItemId} invSlot={pickup.InventorySlot}");
+                var inventorySlotLog = pickup.IsEpicPiece ? "none" : pickup.InventorySlot.ToString();
+                FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] GET_ITEM: item pickup srcSlot={req.SrcSlot} templateId={pickup.PickedUpItemId} invSlot={inventorySlotLog}");
             }
         }
 

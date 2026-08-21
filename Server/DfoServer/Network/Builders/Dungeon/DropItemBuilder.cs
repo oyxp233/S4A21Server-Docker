@@ -106,6 +106,12 @@ namespace DfoServer.Network.Builders
             return w.ToArray();
         }
 
+        public static byte[] BuildPickupEpicPiece(ushort srcSlot, ushort pickerActorId)
+        {
+            // 史诗碎片不进入背包，实机 GET_ITEM 通知的目的槽位固定为 0。
+            return BuildPickupItem(srcSlot, pickerActorId, 0, 7);
+        }
+
         
         
         

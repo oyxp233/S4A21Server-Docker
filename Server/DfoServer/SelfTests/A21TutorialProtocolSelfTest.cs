@@ -1535,6 +1535,19 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToUInt16(pickupItem, 15) == 0x79,
                 ref failures);
 
+            var pickupEpicPiece = DropItemBuilder.BuildPickupEpicPiece(
+                srcSlot: 0x71,
+                pickerActorId: 0x0BEB);
+            Check(
+                "A21 GET_ITEM epic piece notification has no destination slot",
+                pickupEpicPiece.Length == 18
+                && BitConverter.ToUInt16(pickupEpicPiece, 0) == 0x71
+                && BitConverter.ToUInt16(pickupEpicPiece, 2) == 0x0BEB
+                && pickupEpicPiece[4] == 1
+                && BitConverter.ToUInt16(pickupEpicPiece, 13) == 0x0BEB
+                && BitConverter.ToUInt16(pickupEpicPiece, 15) == 0,
+                ref failures);
+
             var pickupGold = DropItemBuilder.BuildPickupGold(
                 srcSlot: 0x66,
                 pickerActorId: 1081,

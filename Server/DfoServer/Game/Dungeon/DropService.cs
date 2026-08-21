@@ -280,15 +280,14 @@ namespace DfoServer.Game.Dungeon
                         return PickupResult.InventoryFull;
 
                     run.Drops.Remove(srcSlot);
-                    var isEpicPiece = grant.Kind == InventoryRewardGrantKind.EpicPiece;
                     return new PickupResult
                     {
                         Success = true,
                         IsGold = false,
-                        InventorySlot = isEpicPiece ? (short)64 : grant.SlotIndex,
+                        InventorySlot = grant.SlotIndex,
                         PickedUpItemId = pickedItemId,
-                        IsEpicPiece = isEpicPiece,
-                        EpicPieceBalance = isEpicPiece ? grant.FinalCount : 0,
+                        IsEpicPiece = grant.Kind == InventoryRewardGrantKind.EpicPiece,
+                        EpicPieceBalance = grant.Kind == InventoryRewardGrantKind.EpicPiece ? grant.FinalCount : 0,
                     };
                 }
             }
