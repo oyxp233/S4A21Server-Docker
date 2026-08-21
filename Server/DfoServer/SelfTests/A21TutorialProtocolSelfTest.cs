@@ -316,7 +316,7 @@ namespace DfoServer.SelfTests
             var infoExpected = new byte[]
             {
                 0x90, 0x00, 0x00, 0x00, 0x00, 0x01, 0x05, 0x00,
-                0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
                 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             };
@@ -368,15 +368,61 @@ namespace DfoServer.SelfTests
             var hellInfoExpected = new byte[]
             {
                 0x68, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x02,
-                0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+                0x02, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
                 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             };
             Check(
-                "A21 DUNGEON_INFO uses hell enabled while START_MAP owns the variable mode",
+                "A21 DUNGEON_INFO uses official hell flags while START_MAP owns the variable mode",
                 hellInfoMode1.Length == 32
                 && hellInfoMode1.AsSpan().SequenceEqual(hellInfoExpected)
                 && hellInfoMode2.AsSpan().SequenceEqual(hellInfoExpected),
+                ref failures);
+
+            var minimapInfo = DungeonNotificationBuilder.BuildDungeonInfo(
+                104,
+                difficulty: 0,
+                mazeIndex: 0,
+                bossX: 5,
+                bossY: 1,
+                extraPairGroups: new List<IReadOnlyList<(byte, byte)>>
+                {
+                    new List<(byte, byte)> { (2, 1), (4, 0) },
+                    new List<(byte, byte)> { (5, 1) },
+                });
+            Check(
+                "A21 DUNGEON_INFO serializes minimap groups without dropping coordinates",
+                minimapInfo.Length == 40
+                && minimapInfo[11] == 2
+                && minimapInfo[12] == 2
+                && minimapInfo[13] == 2
+                && minimapInfo[14] == 1
+                && minimapInfo[15] == 4
+                && minimapInfo[16] == 0
+                && minimapInfo[17] == 1
+                && minimapInfo[18] == 5
+                && minimapInfo[19] == 1,
+                ref failures);
+            Check(
+                "A21 DUNGEON_INFO keeps the fixed marker after minimap groups",
+                minimapInfo[20] == 1
+                && minimapInfo[21] == 0
+                && minimapInfo[24] == 0,
+                ref failures);
+
+            var normalizedMinimapGroups = DungeonMinimapProjectionService.Resolve(
+                new List<IReadOnlyList<(byte, byte)>>
+                {
+                    new List<(byte, byte)> { (2, 1), (2, 1) },
+                    Array.Empty<(byte, byte)>(),
+                },
+                null);
+            Check(
+                "minimap projection removes empty groups and duplicate coordinates",
+                normalizedMinimapGroups != null
+                && normalizedMinimapGroups.Count == 1
+                && normalizedMinimapGroups[0].Count == 1
+                && normalizedMinimapGroups[0][0] == (2, 1),
                 ref failures);
 
             var grandine = Dungeon.GetDungeonFile(104);

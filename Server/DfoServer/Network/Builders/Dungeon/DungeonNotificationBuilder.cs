@@ -25,9 +25,10 @@ namespace DfoServer.Network.Builders
         public const int ObjectExperienceEntriesOffset = 159;
 
         // NOTI 28 (0x001C) DUNGEON_INFO
-        // A21 固定 32B 布局。客户端 reader 先读取 u32 dungeonId，再读取
-        // difficulty/maze/boss 四个 u8。官方普通/深渊样本只在 offset 8
-        // 切换 hell-party enabled；可变的 mode 属于 START_MAP offset 7。
+        // A21 的固定前缀从 u32 dungeonId 开始。客户端 reader 还会读取
+        // 一段可变的 minimap group 列表；无图标时官方样本的组数为 0，
+        // 随后的固定标记为 1，因此仍然是 32B。存在图标组时，body 按
+        // 组/条目数量增长，固定标记仍位于动态组列表之后。
         public static byte[] BuildDungeonInfo(
             int dungeonId,
             byte difficulty,
@@ -58,18 +59,48 @@ namespace DfoServer.Network.Builders
             writer.WriteByte(mazeIndex);               // +5 selected maze index
             writer.WriteByte(bossX);                   // +6
             writer.WriteByte(bossY);                   // +7
-            writer.WriteByte(hellPartyEnabled > 0 ? (byte)1 : (byte)0); // +8
-            writer.WriteByte(0);                       // +9
+            writer.WriteByte(hellPartyEnabled > 0 ? (byte)2 : (byte)0); // +8 official hell marker
+            writer.WriteByte(hellPartyEnabled > 0 ? (byte)1 : (byte)0); // +9 hell enabled
             writer.WriteByte(0);                       // +10
-            writer.WriteByte(1);                       // +11 one minimap group
-            writer.WriteByte(0);                       // +12 empty group
-            writer.WriteByte(0);                       // +13
-            writer.WriteByte(0);                       // +14
-            writer.WriteByte(0);                       // +15
-            writer.WriteByte(0);                       // +16 empty trailing list
-            writer.WriteUInt32(0xFFFFFFFFu);            // +17..20 sentinels
-            writer.WriteZeroBytes(11);                 // +21..31 reserved
+            WriteMinimapGroups(writer, extraPairGroups);
+            writer.WriteByte(1);                      // fixed marker after minimap groups
+            writer.WriteZeroBytes(4);                 // trailing fixed u8 list
+            writer.WriteUInt32(0xFFFFFFFFu);            // trailing sentinel
+            writer.WriteZeroBytes(11);                 // remaining reserved bytes
             return writer.ToArray();
+        }
+
+        private static void WriteMinimapGroups(
+            GamePacketWriter writer,
+            IReadOnlyList<IReadOnlyList<(byte X, byte Y)>> groups)
+        {
+            // The current A21 client expects a zero group count for the
+            // ordinary no-icon baseline. The following fixed marker is written
+            // by BuildDungeonInfo and must remain outside this dynamic list.
+            if (groups == null)
+            {
+                writer.WriteByte(0);
+                return;
+            }
+
+            if (groups.Count > byte.MaxValue)
+                throw new InvalidOperationException("A21 DUNGEON_INFO minimap group count exceeds one byte.");
+
+            writer.WriteByte((byte)groups.Count);
+            for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+            {
+                var group = groups[groupIndex];
+                var count = group?.Count ?? 0;
+                if (count > byte.MaxValue)
+                    throw new InvalidOperationException("A21 DUNGEON_INFO minimap entry count exceeds one byte.");
+
+                writer.WriteByte((byte)count);
+                for (var entryIndex = 0; entryIndex < count; entryIndex++)
+                {
+                    writer.WriteByte(group[entryIndex].X);
+                    writer.WriteByte(group[entryIndex].Y);
+                }
+            }
         }
 
         // NOTI 679 (0x02A7) ENUM_NOTIPACKET_HELL_PARTY_MONSTER_INFO

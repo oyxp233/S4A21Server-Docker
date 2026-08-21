@@ -9,7 +9,7 @@ namespace DfoServer.Game.Dungeon
             IReadOnlyList<RidableObjectSpawnEntry> randomizedObjects)
         {
             if (mechanismGroups != null && mechanismGroups.Count > 0)
-                return mechanismGroups;
+                return NormalizeGroups(mechanismGroups);
             if (randomizedObjects == null || randomizedObjects.Count == 0)
                 return null;
 
@@ -38,6 +38,35 @@ namespace DfoServer.Game.Dungeon
             var result = new List<IReadOnlyList<(byte, byte)>>(groups.Count);
             foreach (var group in groups.Values)
                 result.Add(group);
+            return result;
+        }
+
+        private static IReadOnlyList<IReadOnlyList<(byte, byte)>> NormalizeGroups(
+            IReadOnlyList<IReadOnlyList<(byte, byte)>> source)
+        {
+            var result = new List<IReadOnlyList<(byte, byte)>>();
+            if (source == null)
+                return result;
+
+            foreach (var group in source)
+            {
+                if (group == null || group.Count == 0)
+                    continue;
+
+                var points = new List<(byte, byte)>();
+                var seen = new HashSet<int>();
+                for (var index = 0; index < group.Count; index++)
+                {
+                    var point = group[index];
+                    var key = (point.Item1 << 8) | point.Item2;
+                    if (seen.Add(key))
+                        points.Add(point);
+                }
+
+                if (points.Count > 0)
+                    result.Add(points);
+            }
+
             return result;
         }
     }
