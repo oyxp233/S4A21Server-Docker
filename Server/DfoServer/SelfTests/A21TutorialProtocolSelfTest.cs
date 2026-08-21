@@ -315,9 +315,9 @@ namespace DfoServer.SelfTests
                 hellPartyRoomY: 0xFF);
             var infoExpected = new byte[]
             {
-                0x90, 0x00, 0x00, 0x00, 0x00, 0x01, 0x05, 0x00,
+                0x90, 0x00, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF,
                 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-                0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             };
             Check(
@@ -341,8 +341,8 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToInt32(nonzeroDifficultyInfo, 0) == 160
                 && nonzeroDifficultyInfo[4] == 1
                 && nonzeroDifficultyInfo[5] == 1
-                && nonzeroDifficultyInfo[6] == 4
-                && nonzeroDifficultyInfo[7] == 0,
+                && nonzeroDifficultyInfo[6] == DungeonNotificationBuilder.NoBossMapMarkerCoordinate
+                && nonzeroDifficultyInfo[7] == DungeonNotificationBuilder.NoBossMapMarkerCoordinate,
                 ref failures);
 
             var hellInfoMode1 = DungeonNotificationBuilder.BuildDungeonInfo(
@@ -367,9 +367,9 @@ namespace DfoServer.SelfTests
                 hellPartyEnabled: 1);
             var hellInfoExpected = new byte[]
             {
-                0x68, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x02,
+                0x68, 0x00, 0x00, 0x00, 0x00, 0x03, 0xFF, 0xFF,
                 0x02, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-                0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             };
             Check(
@@ -393,6 +393,8 @@ namespace DfoServer.SelfTests
             Check(
                 "A21 DUNGEON_INFO serializes minimap groups without dropping coordinates",
                 minimapInfo.Length == 40
+                && minimapInfo[6] == DungeonNotificationBuilder.NoBossMapMarkerCoordinate
+                && minimapInfo[7] == DungeonNotificationBuilder.NoBossMapMarkerCoordinate
                 && minimapInfo[11] == 2
                 && minimapInfo[12] == 2
                 && minimapInfo[13] == 2
@@ -404,10 +406,11 @@ namespace DfoServer.SelfTests
                 && minimapInfo[19] == 1,
                 ref failures);
             Check(
-                "A21 DUNGEON_INFO keeps the fixed marker after minimap groups",
+                "A21 DUNGEON_INFO preserves the captured fixed value after groups",
                 minimapInfo[20] == 1
                 && minimapInfo[21] == 0
-                && minimapInfo[24] == 0,
+                && minimapInfo[25] == 0
+                && minimapInfo[26] == 0xFF,
                 ref failures);
 
             var normalizedMinimapGroups = DungeonMinimapProjectionService.Resolve(

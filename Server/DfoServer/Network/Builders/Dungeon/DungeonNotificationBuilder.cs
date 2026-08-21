@@ -23,6 +23,7 @@ namespace DfoServer.Network.Builders
         public const int BossExperienceOffset = 151;
         public const int ObjectExperienceCountOffset = 155;
         public const int ObjectExperienceEntriesOffset = 159;
+        public const byte NoBossMapMarkerCoordinate = 0xFF;
 
         // NOTI 28 (0x001C) DUNGEON_INFO
         // A21 的固定前缀从 u32 dungeonId 开始。客户端 reader 还会读取
@@ -57,16 +58,23 @@ namespace DfoServer.Network.Builders
             writer.WriteInt32(dungeonId);              // +0
             writer.WriteByte(difficulty);              // +4
             writer.WriteByte(mazeIndex);               // +5 selected maze index
-            writer.WriteByte(bossX);                   // +6
-            writer.WriteByte(bossY);                   // +7
+            // BossMapPos remains a runtime fact for route selection, room
+            // topology and settlement. A21 uses FF/FF as the no-marker
+            // sentinel for the built-in boss minimap marker, so the network
+            // projection hides it globally without changing dungeon logic.
+            writer.WriteByte(NoBossMapMarkerCoordinate); // +6
+            writer.WriteByte(NoBossMapMarkerCoordinate); // +7
             writer.WriteByte(hellPartyEnabled > 0 ? (byte)2 : (byte)0); // +8 official hell marker
             writer.WriteByte(hellPartyEnabled > 0 ? (byte)1 : (byte)0); // +9 hell enabled
             writer.WriteByte(0);                       // +10
             WriteMinimapGroups(writer, extraPairGroups);
-            writer.WriteByte(1);                      // fixed marker after minimap groups
-            writer.WriteZeroBytes(4);                 // trailing fixed u8 list
+            // Official A21 samples keep the post-group fixed value at 1.
+            // Its client-side semantic is not closed; preserve the captured
+            // bytes instead of using this field as an unverified red-cross switch.
+            writer.WriteByte(1);
+            writer.WriteZeroBytes(5);                 // trailing fixed u8/reserved bytes
             writer.WriteUInt32(0xFFFFFFFFu);            // trailing sentinel
-            writer.WriteZeroBytes(11);                 // remaining reserved bytes
+            writer.WriteZeroBytes(10);                 // remaining reserved bytes
             return writer.ToArray();
         }
 
