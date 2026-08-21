@@ -39,13 +39,13 @@ namespace DfoServer.Game.Inventory
             if (body == null || body.Length < 21)
                 return false;
 
-            var sourceSlot = ReadInt32Slot(body, 17);
+            var sourceSlot = ReadInt32Slot(body, 18);
             if (!IsPlausibleSlot(sourceSlot))
                 sourceSlot = ReadInt32Slot(body, 8);
             if (!IsPlausibleSlot(sourceSlot))
                 return false;
 
-            var targetSlot = ReadInt32Slot(body, 13);
+            var targetSlot = ReadInt32Slot(body, 14);
             if (!IsPlausibleSlot(targetSlot))
                 return false;
 
