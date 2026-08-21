@@ -127,6 +127,10 @@ namespace DfoServer.Game.Inventory
 
         public int PendingHappyTokenCeraGrant => _pendingHappyTokenCeraGrant;
 
+        public byte AuraSkinFlag { get; private set; }
+
+        public bool IsAuraSkinSlotOpened => AuraSkinFlag != 0;
+
         public static InventoryService LoadFromDb(SqliteConnection connection, int characterId, int accountId)
         {
             return LoadFromDb(
@@ -158,6 +162,7 @@ namespace DfoServer.Game.Inventory
             inventory.LoadTitleBook(connection);
             inventory.Achievements.LoadForCharacter(connection, characterId);
             CollectBoxProgressRepository.LoadModel(connection, null, characterId, inventory.CollectBox);
+            inventory.LoadAuraSkinFlag(connection);
 
             foreach (var item in InventoryItemRepository.LoadCharacterItems(connection, characterId))
                 inventory.AttachItem(item);
@@ -325,6 +330,11 @@ namespace DfoServer.Game.Inventory
             };
             _dirtyMainVirtualSlots.Add(slotIndex);
             return true;
+        }
+
+        public void SetAuraSkinFlag(byte auraSkinFlag)
+        {
+            AuraSkinFlag = auraSkinFlag != 0 ? (byte)1 : (byte)0;
         }
 
         public int CountMainItem(int itemId)
@@ -626,6 +636,19 @@ namespace DfoServer.Game.Inventory
                 NameTag.Set(state.ItemId, state.ExpireTime);
             else
                 NameTag.Clear();
+        }
+
+        private void LoadAuraSkinFlag(SqliteConnection connection)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT aura_skin_flag FROM characters WHERE character_id=@cid;";
+                command.Parameters.AddWithValue("@cid", CharacterId);
+                var value = command.ExecuteScalar();
+                AuraSkinFlag = value == null || value == DBNull.Value
+                    ? (byte)0
+                    : (Convert.ToInt32(value) != 0 ? (byte)1 : (byte)0);
+            }
         }
 
         private bool TryGetArray(InventoryListType listType, out ItemCore[] items)

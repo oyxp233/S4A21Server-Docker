@@ -35,6 +35,8 @@ namespace DfoServer.Game.SelectCharacter
         
         public byte ExEquipSlotStat { get; set; }
 
+        public byte AuraSkinFlag { get; set; }
+
         
         public List<EquippedEntrySnapshot> EquippedEntries { get; } = new List<EquippedEntrySnapshot>();
 

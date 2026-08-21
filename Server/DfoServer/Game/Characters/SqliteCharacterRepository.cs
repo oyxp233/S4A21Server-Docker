@@ -164,6 +164,30 @@ WHERE character_id = @id;";
             }
         }
 
+        internal static bool UpdateAuraSkinFlagInTransaction(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            byte auraSkinFlag)
+        {
+            if (connection == null)
+                throw new ArgumentNullException(nameof(connection));
+            if (characterId <= 0)
+                return false;
+
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = @"UPDATE characters
+SET aura_skin_flag = @flag,
+    updated_at = CURRENT_TIMESTAMP
+WHERE character_id = @id;";
+                command.Parameters.AddWithValue("@flag", auraSkinFlag != 0 ? 1 : 0);
+                command.Parameters.AddWithValue("@id", characterId);
+                return command.ExecuteNonQuery() == 1;
+            }
+        }
+
         public void UpdateSeedFields(int characterId, byte[] name, byte job, byte growType, byte level,
             byte pvpGrade, byte pvpRatingGrade, byte userState,
             CharacterAppearanceEntry[] appearance, DateTime? createdAt = null)
@@ -317,7 +341,8 @@ WHERE character_id = @id;";
 SELECT character_id, account_id, CAST(name AS BLOB), job, grow_type, level,
        town_id, area_id, pos_x, pos_y, direction, area_state, appearance_blob,
        delete_flag, created_at, updated_at, exp, ex_equip_slot_stat,
-       pvp_grade, pvp_rating_grade, user_state, bonus_sp, bonus_tp, slot_index
+       pvp_grade, pvp_rating_grade, user_state, bonus_sp, bonus_tp, slot_index,
+       aura_skin_flag
 FROM characters";
 
         private static CharacterRecord Map(IDataRecord r)
@@ -349,6 +374,7 @@ FROM characters";
                 BonusSp = r.FieldCount > 21 && !r.IsDBNull(21) ? r.GetInt32(21) : 0,
                 BonusTp = r.FieldCount > 22 && !r.IsDBNull(22) ? r.GetInt32(22) : 0,
                 SlotIndex = r.FieldCount > 23 && !r.IsDBNull(23) ? (byte)r.GetInt32(23) : (byte)0,
+                AuraSkinFlag = r.FieldCount > 24 && !r.IsDBNull(24) ? (byte)r.GetInt32(24) : (byte)0,
             };
         }
 

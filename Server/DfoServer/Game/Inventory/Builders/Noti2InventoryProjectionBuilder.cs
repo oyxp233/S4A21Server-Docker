@@ -17,6 +17,7 @@ namespace DfoServer.Game.Inventory
                 inventory.GetItems(InventoryListType.Equipment),
                 core => ResolveAvatarDetail(inventory, core),
                 core => ResolveCreatureDetail(inventory, core));
+            snapshot.AuraSkinFlag = inventory.AuraSkinFlag;
             ApplyNameTagFields(inventory, snapshot);
             return snapshot;
         }

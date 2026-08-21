@@ -108,7 +108,8 @@ namespace DfoServer.Network.Builders
                     UserInfoBodyBuilder.WriteA21Subtype1Prefix(
                         writer,
                         targetUserId,
-                        initialization.UserInfoAddition.ManageLevel);
+                        initialization.UserInfoAddition.ManageLevel,
+                        initialization.UserInfoAddition.AuraSkinFlag);
                     writer.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                         initialization.UserInfoAddition,
                         initialization.SkillInfo,

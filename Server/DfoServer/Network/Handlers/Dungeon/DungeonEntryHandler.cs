@@ -215,7 +215,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                         UserInfoBodyBuilder.WriteA21Subtype1Prefix(
                             w,
                             (ushort)record.CharacterId,
-                            addition.ManageLevel);
+                            addition.ManageLevel,
+                            addition.AuraSkinFlag);
                         w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                             addition,
                             skillSnap,

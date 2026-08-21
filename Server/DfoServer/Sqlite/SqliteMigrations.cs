@@ -18,6 +18,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(2, "expand_item_core_to_99_and_shift_equipment_slots", ApplyExpandItemCoreTo99),
                 new MigrationStep(3, "import_character_new_items", ApplyImportCharacterNewItems),
                 new MigrationStep(4, "add_item_purchase_limits", ApplyPurchaseLimitTracking),
+                new MigrationStep(5, "add_aura_skin_flag", ApplyAuraSkinFlag),
             };
 
         internal static int CurrentVersion =>
@@ -154,6 +155,18 @@ CREATE INDEX IF NOT EXISTS idx_item_purchase_limits_account_reset
     ON item_purchase_limits(account_id, reset_type);";
                 command.ExecuteNonQuery();
             }
+        }
+
+        private static void ApplyAuraSkinFlag(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            AddColumnIfMissing(
+                connection,
+                transaction,
+                "characters",
+                "aura_skin_flag",
+                "INTEGER NOT NULL DEFAULT 0");
         }
 
         private static void ImportCharacterNewItems(
@@ -536,6 +549,48 @@ WHERE type = 'table' AND name = @name;";
                 command.Parameters.AddWithValue("@name", tableName);
                 return Convert.ToInt32(command.ExecuteScalar()) != 0;
             }
+        }
+
+        private static bool ColumnExists(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            string tableName,
+            string columnName)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $"PRAGMA table_info({tableName});";
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        if (string.Equals(
+                                reader.GetString(1),
+                                columnName,
+                                StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static void AddColumnIfMissing(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            string tableName,
+            string columnName,
+            string columnDefinition)
+        {
+            if (ColumnExists(connection, transaction, tableName, columnName))
+                return;
+
+            ExecuteSql(
+                connection,
+                transaction,
+                $"ALTER TABLE {tableName} ADD COLUMN {columnName} {columnDefinition};");
         }
 
         internal static long ReadVersion(SqliteConnection connection)

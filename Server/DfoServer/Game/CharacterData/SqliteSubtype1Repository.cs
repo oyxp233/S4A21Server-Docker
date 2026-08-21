@@ -114,7 +114,7 @@ namespace DfoServer.Game.CharacterData
                 }
 
                 
-                using (var cmd = new SqliteCommand("SELECT exp, ex_equip_slot_stat, clone_title_item_id, job, grow_type FROM characters WHERE character_id=@cid", conn))
+                using (var cmd = new SqliteCommand("SELECT exp, ex_equip_slot_stat, clone_title_item_id, job, grow_type, aura_skin_flag FROM characters WHERE character_id=@cid", conn))
                 {
                     cmd.Parameters.AddWithValue("@cid", characterId);
                     using (var r = cmd.ExecuteReader())
@@ -126,6 +126,7 @@ namespace DfoServer.Game.CharacterData
                             snap.CloneTitleItemId = r.IsDBNull(2) ? 0u : (uint)r.GetInt64(2);
                             characterJob = (byte)r.GetInt32(3);
                             characterGrowType = r.GetInt32(4);
+                            snap.AuraSkinFlag = r.FieldCount > 5 && !r.IsDBNull(5) ? (byte)r.GetInt32(5) : (byte)0;
                         }
                     }
                 }
@@ -138,6 +139,7 @@ namespace DfoServer.Game.CharacterData
                     lock (lease.SyncRoot)
                     {
                         var equippedProjection = projectionBuilder.BuildUserInfoAddition(lease.Inventory);
+                        snap.AuraSkinFlag = equippedProjection.AuraSkinFlag;
                         snap.NameTagItemId = equippedProjection.NameTagItemId;
                         snap.NameTagExpireTime = equippedProjection.NameTagExpireTime;
                         snap.EquippedEntries.AddRange(equippedProjection.EquippedEntries);

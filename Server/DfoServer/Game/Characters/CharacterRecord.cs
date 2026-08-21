@@ -24,6 +24,7 @@ namespace DfoServer.Game.Characters
         public SelectCharacter.UserInfoMinimumTailSnapshot Subtype0Tail { get; set; }
         public uint Exp { get; set; }
         public byte ExEquipSlotStat { get; set; }
+        public byte AuraSkinFlag { get; set; }
         public int BonusSp { get; set; }
         public int BonusTp { get; set; }
         public byte SlotIndex { get; set; }

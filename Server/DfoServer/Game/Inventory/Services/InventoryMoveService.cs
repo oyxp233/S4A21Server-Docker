@@ -578,6 +578,11 @@ namespace DfoServer.Game.Inventory
             }
 
             if (targetListType == InventoryListType.Equipment
+                && targetSlotIndex == (short)EquipmentType.AuraSkinAvatar
+                && !inventory.IsAuraSkinSlotOpened)
+                return Fail(result, InventoryMoveServiceError.InvalidDestinationSlot);
+
+            if (targetListType == InventoryListType.Equipment
                 && !IsValidEquipmentSlotForItem(
                     item,
                     targetSlotIndex,

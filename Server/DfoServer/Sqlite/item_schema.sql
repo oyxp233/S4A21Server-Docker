@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS characters (
     delete_flag INTEGER NOT NULL DEFAULT 0,
     exp INTEGER NOT NULL DEFAULT 0,
     ex_equip_slot_stat INTEGER NOT NULL DEFAULT 0,
+    aura_skin_flag INTEGER NOT NULL DEFAULT 0,
     bonus_sp INTEGER NOT NULL DEFAULT 0,
     bonus_tp INTEGER NOT NULL DEFAULT 0,
     slot_index INTEGER NOT NULL DEFAULT 0,

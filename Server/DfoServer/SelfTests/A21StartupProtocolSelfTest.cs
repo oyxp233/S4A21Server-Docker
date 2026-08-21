@@ -284,6 +284,18 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToInt32(userInfo1, 4) == 88,
                 ref failures);
 
+            var auraLockedPrefix = BuildUserInfo1PrefixForSelfTest(123, 7, 0);
+            var auraOpenedPrefix = BuildUserInfo1PrefixForSelfTest(123, 7, 1);
+            Check(
+                "A21 USERINFO1 prefix[14] mirrors aura skin open flag",
+                auraLockedPrefix.Length == 20
+                && auraOpenedPrefix.Length == 20
+                && auraLockedPrefix[9] == 7
+                && auraOpenedPrefix[9] == 7
+                && auraLockedPrefix[17] == 0
+                && auraOpenedPrefix[17] == 1,
+                ref failures);
+
             var roster = AccountCharacterListBodyBuilder.Build(
                 new[]
                 {
@@ -415,6 +427,20 @@ namespace DfoServer.SelfTests
             }
 
             return offset == body.Length;
+        }
+
+        private static byte[] BuildUserInfo1PrefixForSelfTest(
+            ushort characterId,
+            byte manageLevel,
+            byte auraSkinFlag)
+        {
+            var writer = new GamePacketWriter();
+            UserInfoBodyBuilder.WriteA21Subtype1Prefix(
+                writer,
+                characterId,
+                manageLevel,
+                auraSkinFlag);
+            return writer.ToArray();
         }
 
         private static bool TryReadByte(

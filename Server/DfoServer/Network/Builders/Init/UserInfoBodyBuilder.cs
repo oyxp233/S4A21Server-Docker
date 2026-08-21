@@ -25,7 +25,8 @@ namespace DfoServer.Network.Builders
                 WriteA21Subtype1Prefix(
                     w,
                     (ushort)c.CharacterId,
-                    addition.ManageLevel);
+                    addition.ManageLevel,
+                    addition.AuraSkinFlag);
                 w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                     addition,
                     snapshot.InitializationSnapshot.SkillInfo,
@@ -54,12 +55,14 @@ namespace DfoServer.Network.Builders
         internal static void WriteA21Subtype1Prefix(
             GamePacketWriter writer,
             ushort characterId,
-            byte manageLevel)
+            byte manageLevel,
+            byte auraSkinFlag)
         {
             writer.WriteByte(1);
             writer.WriteUInt16(1);
             var prefix = new byte[15];
             prefix[6] = manageLevel;
+            prefix[14] = auraSkinFlag != 0 ? (byte)1 : (byte)0;
             writer.WriteBytes(prefix);
             writer.WriteUInt16(characterId);
         }

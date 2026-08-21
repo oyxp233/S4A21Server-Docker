@@ -47,6 +47,50 @@ namespace DfoServer.Network.Handlers
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0002, noti2Body));
         }
 
+        public async Task SendUserInfoSubtype1Refresh(
+            EnhancedClientSession session,
+            string logTag)
+        {
+            try
+            {
+                var player = session?.Player;
+                if (player == null || player.CharacterId <= 0)
+                    return;
+
+                var characterId = player.CharacterId;
+                var record = _characterRepository.GetById(characterId);
+                var addition = new SqliteSubtype1Repository(_database).Load(characterId);
+                if (record == null || addition == null)
+                    return;
+
+                var accountId = session.Account?.AccountId ?? record.AccountId;
+                var accountCharacters = _characterRepository.ListByAccount(accountId);
+                var honor = _honorLevel.LoadSummary(accountId, accountCharacters);
+                var skills = new SqliteCharacterProgressRepository(_database)
+                    .LoadSkills(characterId);
+
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.USERINFO,
+                    UserInfoBroadcastService.BuildSubtype1Body(
+                        record,
+                        addition,
+                        accountCharacters,
+                        honor,
+                        skills)));
+
+                FileLogger.Log(
+                    $"[{ProtocolName}] {logTag ?? "USERINFO1_REFRESH"}: "
+                    + $"cid={characterId} auraSkinFlag={addition.AuraSkinFlag}");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] {logTag ?? "USERINFO1_REFRESH"} failed: "
+                    + ex.Message);
+            }
+        }
+
         public void ReloadSubtype0Tail(EnhancedClientSession session)
         {
             if (session?.Player == null)
