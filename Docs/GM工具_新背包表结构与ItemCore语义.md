@@ -267,7 +267,7 @@ CREATE TABLE IF NOT EXISTS character_item_states (
 );
 ```
 
-`expire_time` 是到期 Unix 秒时间戳，不是剩余秒数。在线角色应通过服务端接口修改 `InventoryService.ItemStates` 并保存；离线 GM 修改时也必须保持 `(character_id, state_kind, item_id)` 唯一。
+`expire_time` 是到期 Unix 秒时间戳，不是剩余秒数。在线角色应通过服务端接口修改 `InventoryService.ItemStates` 并保存；离线 GM 修改时也必须保持 `(character_id, state_kind, item_id)` 唯一。登录 0x00AC/0x00AE 从该 Unix 秒投影，但协议字段发送 `expire_time - now` 的剩余秒。
 
 ### character_item_locks
 

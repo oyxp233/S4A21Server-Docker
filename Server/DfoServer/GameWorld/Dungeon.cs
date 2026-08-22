@@ -906,20 +906,50 @@ namespace DfoServer.GameWorld
             if (maze?.MapSpecifications == null)
                 return new HellPartyRoomInfo();
 
-            if (maze.SealDoorMapIndex > 0
-                && maze.SealDoorPos != null
-                && maze.SealDoorPos.Length >= 2)
+            var preferSeason = HellPartyData.ShouldUseSeasonSealDoor(difficulty);
+            if (preferSeason)
             {
-                var sealX = maze.SealDoorPos[0];
-                var sealY = maze.SealDoorPos[1];
-                var normalMapId = FindNormalMapIdForRoom(maze, sealX, sealY);
-                if (normalMapId > 0)
-                {
-                    FileLogger.Log($"[Dungeon] HellParty seal door: dungeon={dungeonId} room=({sealX},{sealY}) hellMap={maze.SealDoorMapIndex} normalMap={normalMapId}");
-                    return BuildHellPartyRoomInfo(maze.SealDoorMapIndex, normalMapId, sealX, sealY, dungeonId, difficulty);
-                }
+                if (TryBuildSealDoorHellPartyRoom(
+                        dungeonId,
+                        maze,
+                        difficulty,
+                        "season",
+                        maze.SeasonSealDoorMapIndex,
+                        maze.SeasonSealDoorPos,
+                        out var seasonRoom))
+                    return seasonRoom;
 
-                FileLogger.Log($"[Dungeon] HellParty seal door ignored: dungeon={dungeonId} room=({sealX},{sealY}) hellMap={maze.SealDoorMapIndex} normalMap missing");
+                if (TryBuildSealDoorHellPartyRoom(
+                        dungeonId,
+                        maze,
+                        difficulty,
+                        "ordinary-fallback",
+                        maze.SealDoorMapIndex,
+                        maze.SealDoorPos,
+                        out var ordinaryFallbackRoom))
+                    return ordinaryFallbackRoom;
+            }
+            else
+            {
+                if (TryBuildSealDoorHellPartyRoom(
+                        dungeonId,
+                        maze,
+                        difficulty,
+                        "ordinary",
+                        maze.SealDoorMapIndex,
+                        maze.SealDoorPos,
+                        out var ordinaryRoom))
+                    return ordinaryRoom;
+
+                if (TryBuildSealDoorHellPartyRoom(
+                        dungeonId,
+                        maze,
+                        difficulty,
+                        "season-fallback",
+                        maze.SeasonSealDoorMapIndex,
+                        maze.SeasonSealDoorPos,
+                        out var seasonFallbackRoom))
+                    return seasonFallbackRoom;
             }
 
             foreach (var spec in maze.MapSpecifications)
@@ -932,6 +962,81 @@ namespace DfoServer.GameWorld
             }
 
             return new HellPartyRoomInfo();
+        }
+
+        private static bool TryBuildSealDoorHellPartyRoom(
+            int dungeonId,
+            MazeInfo maze,
+            byte difficulty,
+            string owner,
+            int hellMapId,
+            int[] position,
+            out HellPartyRoomInfo room)
+        {
+            room = new HellPartyRoomInfo();
+            if (hellMapId <= 0 || position == null || position.Length < 2)
+                return false;
+
+            var x = position[0];
+            var y = position[1];
+            var normalMapId = FindNormalMapIdForRoom(maze, x, y);
+            var hasHellParty = IsHellPartyMap(hellMapId);
+            if (normalMapId <= 0 || !hasHellParty)
+            {
+                FileLogger.Log(
+                    $"[Dungeon] HellParty seal door ignored: dungeon={dungeonId} "
+                    + $"mode={difficulty} owner={owner} room=({x},{y}) "
+                    + $"hellMap={hellMapId} normalMap={normalMapId} "
+                    + $"hellPartyMap={hasHellParty}");
+                return false;
+            }
+
+            var candidate = BuildHellPartyRoomInfo(
+                hellMapId,
+                normalMapId,
+                x,
+                y,
+                dungeonId,
+                difficulty);
+            if (!candidate.Found || candidate.Waves.Count == 0)
+            {
+                FileLogger.Log(
+                    $"[Dungeon] HellParty seal door build rejected: dungeon={dungeonId} "
+                    + $"mode={difficulty} owner={owner} room=({x},{y}) "
+                    + $"hellMap={hellMapId} waves={candidate.Waves.Count}");
+                return false;
+            }
+
+            FileLogger.Log(
+                $"[Dungeon] HellParty seal door selected: dungeon={dungeonId} "
+                + $"mode={difficulty} seasonEnabled={HellPartyData.IsSeasonHellPartyEnabled()} "
+                + $"owner={owner} room=({x},{y}) hellMap={hellMapId} "
+                + $"normalMap={normalMapId}");
+            room = candidate;
+            return true;
+        }
+
+        private static bool IsHellPartyMap(int mapId)
+        {
+            if (mapId <= 0)
+                return false;
+
+            try
+            {
+                var mapFile = LoadMapFile(mapId);
+                if (mapFile?.SpecialPassiveObjects == null)
+                    return false;
+
+                foreach (var obj in mapFile.SpecialPassiveObjects)
+                    if (obj?.HellPartyEntries != null && obj.HellPartyEntries.Count > 0)
+                        return true;
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"[Dungeon] HellParty map validation failed: map={mapId} {ex.Message}");
+            }
+
+            return false;
         }
 
         private static int FindNormalMapIdForRoom(MazeInfo maze, int x, int y)

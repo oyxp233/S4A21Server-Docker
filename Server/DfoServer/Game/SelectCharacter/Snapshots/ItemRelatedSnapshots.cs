@@ -50,6 +50,7 @@ namespace DfoServer.Game.SelectCharacter
     {
         public int ItemId { get; set; }
 
+        // 0x00AC/0x00AE 协议字段：客户端按剩余秒解释。
         public int ExpireTime { get; set; }
     }
 

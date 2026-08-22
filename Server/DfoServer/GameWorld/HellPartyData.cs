@@ -28,6 +28,9 @@ namespace DfoServer.GameWorld
         private static readonly Lazy<Dictionary<char, HellPartyDifficultyRule>> DifficultyRules =
             new Lazy<Dictionary<char, HellPartyDifficultyRule>>(LoadDifficultyRules);
 
+        private static readonly Lazy<bool> SeasonHellPartyEnabled =
+            new Lazy<bool>(LoadSeasonHellPartyEnabled);
+
         public static IReadOnlyList<HellPartyGroupEntry> GetEntries(int groupId, byte difficulty)
         {
             if (!Groups.Value.TryGetValue(groupId, out var group))
@@ -50,21 +53,24 @@ namespace DfoServer.GameWorld
             return rule;
         }
 
-        public static byte PickManualHellPartyMode()
+        public static byte ResolveManualHellPartyMode()
         {
-            var rules = DifficultyRules.Value;
-            rules.TryGetValue('A', out var veryHard);
-            rules.TryGetValue('B', out var hard);
+            // A21's normal manual hell entry does not send the
+            // VERY_DIFFICULT_HELL_PARTY toggle. Official captures with
+            // SELECT_DUNGEON flag2=0 enter the ordinary seal-door route
+            // and project START_MAP +7=2. Mode 1 is reserved for an
+            // explicit very-difficult/gorgeous challenge selection.
+            return 2;
+        }
 
-            // [difficulty] 第 4 项是手动开启深渊时的 A/B 权重；配置缺失时沿用非常困难。
-            var veryHardWeight = Math.Max(0, veryHard?.Probability ?? 0);
-            var hardWeight = Math.Max(0, hard?.Probability ?? 0);
-            var total = veryHardWeight + hardWeight;
-            if (total <= 0)
-                return 1;
+        public static bool IsSeasonHellPartyEnabled()
+        {
+            return SeasonHellPartyEnabled.Value;
+        }
 
-            var roll = Infrastructure.ServerRandom.Next(total);
-            return roll < veryHardWeight ? (byte)1 : (byte)2;
+        public static bool ShouldUseSeasonSealDoor(byte difficulty)
+        {
+            return difficulty == 1 && SeasonHellPartyEnabled.Value;
         }
 
         private static Dictionary<int, HellPartyMonsterGroup> LoadGroups()
@@ -134,6 +140,39 @@ namespace DfoServer.GameWorld
             catch
             {
                 try { return PvfArchiveAccessor.ReadText("Etc/hellparty.etc"); }
+                catch { return string.Empty; }
+            }
+        }
+
+        private static bool LoadSeasonHellPartyEnabled()
+        {
+            var content = ReadSeasonServerScript();
+            if (string.IsNullOrWhiteSpace(content))
+                return false;
+
+            var root = new ScriptParser().Parse(content);
+            foreach (var seasonNode in root.GetChildren("season no"))
+            {
+                var valueNode = seasonNode.GetChild("season hellparty");
+                if (valueNode == null)
+                    continue;
+
+                return StripBacktick(valueNode.GetFirstDataContent(content))
+                    .Equals("on", StringComparison.OrdinalIgnoreCase);
+            }
+
+            var rootValueNode = root.GetChild("season hellparty");
+            return rootValueNode != null
+                && StripBacktick(rootValueNode.GetFirstDataContent(content))
+                    .Equals("on", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ReadSeasonServerScript()
+        {
+            try { return PvfArchiveAccessor.ReadText("etc/seasonserver/season.etc"); }
+            catch
+            {
+                try { return PvfArchiveAccessor.ReadText("Etc/seasonserver/season.etc"); }
                 catch { return string.Empty; }
             }
         }

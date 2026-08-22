@@ -100,7 +100,7 @@ namespace DfoServer.Game.Quests
             QuestFinishCommand command)
             => _completion.Apply(owner, command);
 
-        internal bool HandleScenarioModeClearQuest(
+        internal QuestScenarioModeClearResult HandleScenarioModeClearQuest(
             QuestCommandOwnerContext owner,
             QuestScenarioModeClearCommand command,
             int characterLevel,

@@ -12,11 +12,9 @@ namespace DfoServer.Network.Builders
         public const int GrowthCapsuleExpOffset = 0x37;
         public const int HonorLevelOffset = 0x3B;
         public const int HonorExpOffset = 0x3F;
-        // A21 sub_1178CD0 consumes four trailing u32 values. Client reverse
-        // engineering and real-client trials established three labels:
-        // +0x43 = speed-growth buff, +0x4B = channel bonus, +0x4F = guild.
-        // +0x47 is consumed without adding a separate labelled bonus line.
-        public const int ChannelBonusExpOffset = 0x4B;
+        // A21 sub_1178CD0 consumes four trailing u32 values. The current
+        // version has no channel EXP source; the fixed slot remains zero.
+        public const int RemovedChannelExpOffset = 0x4B;
         public const int ClientReadLengthWithNoVariableEntries = 83;
         public const int CompatibilityTailLength = 0;
         public const int BodyLength = ClientReadLengthWithNoVariableEntries;
@@ -35,8 +33,7 @@ namespace DfoServer.Network.Builders
             uint fatigueBurnBonusExp = 0,
             uint internetCafeBonusExp = 0,
             uint eliteMonsterKillBonusExp = 0,
-            uint growthCapsuleExp = 0,
-            uint channelBonusExp = 0)
+            uint growthCapsuleExp = 0)
         {
             // Keep the parameter for existing callers; A21 has no member
             // reward field between party EXP and the SP/TP block.
@@ -66,7 +63,7 @@ namespace DfoServer.Network.Builders
             w.WriteUInt32(honorLevel?.HonorExp ?? 0);   // +0x3F honor EXP
             w.WriteUInt32(0);                           // +0x43 speed-growth buff EXP
             w.WriteUInt32(0);                           // +0x47 unknown
-            w.WriteUInt32(channelBonusExp);             // +0x4B channel bonus EXP
+            w.WriteUInt32(0);                           // +0x4B removed channel EXP
             w.WriteUInt32(0);                           // +0x4F guild bonus EXP
             return w.ToArray();
         }

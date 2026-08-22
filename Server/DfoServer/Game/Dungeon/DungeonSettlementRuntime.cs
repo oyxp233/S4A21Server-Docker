@@ -32,7 +32,6 @@ namespace DfoServer.Game.Dungeon
         internal uint PartyClearBreakdownExp;
         internal uint AvatarBonusExp;
         internal uint CreatureBonusExp;
-        internal uint ChannelBonusExp;
         internal uint GrowthContractBonusExp;
         internal uint BlackDiamondBonusExp;
         internal uint AdventureGroupBonusExp;
@@ -67,7 +66,6 @@ namespace DfoServer.Game.Dungeon
         internal uint SuperChampionTotalExp;
         internal uint NamedMonsterTotalExp;
         internal uint MonsterGrowthContractBonusExp;
-        internal uint MonsterChannelBonusExp;
         internal IReadOnlyList<DungeonObjectExperienceEntry>
             ObjectExperienceEntries = Array.Empty<DungeonObjectExperienceEntry>();
         internal int ClearTimeMilliseconds;
