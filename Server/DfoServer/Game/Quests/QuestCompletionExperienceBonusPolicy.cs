@@ -66,10 +66,7 @@ namespace DfoServer.Game.Quests
             }
 
             var questId = (ushort)activeQuestId;
-            if (questSnapshot?.Contains(questId) != true
-                || !GameWorld.Dungeon.IsSuitableLevelDungeon(
-                    dungeonId,
-                    playerLevel))
+            if (questSnapshot?.Contains(questId) != true)
             {
                 return default;
             }

@@ -375,14 +375,26 @@ namespace DfoServer.Game.Quests
                 sessionId,
                 lease);
             var player = _sender.Player;
-            var completed = _service.HandleScenarioModeClearQuest(
+            var result = _service.HandleScenarioModeClearQuest(
                 owner,
                 command,
                 player.Level,
                 player.Job,
                 player.GrowType);
-            if (!completed)
+            if (result == null || !result.Success)
                 return;
+
+            if (result.InventoryChanges.HasChanges)
+            {
+                foreach (var group in result.InventoryChanges.Slots
+                    .GroupBy(change => change.ListType))
+                {
+                    await InventoryRefreshSender.SendOnlineUpdateItemList(
+                        _sender,
+                        group.Key,
+                        group.Select(change => change.SlotIndex));
+                }
+            }
 
             await TrySendQuestStatePartAsync(
                 "active",

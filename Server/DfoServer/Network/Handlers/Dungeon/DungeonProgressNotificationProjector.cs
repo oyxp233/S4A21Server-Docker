@@ -143,7 +143,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             ExperienceGrantResult grant,
             string logTag,
             uint growthContractBonusExp = 0,
-            uint channelBonusExp = 0,
+            uint eliteMonsterKillBonusExp = 0,
             bool reloadMissingAccountProgress = false)
         {
             if (grant == null
@@ -182,7 +182,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     skillPoints,
                     honor,
                     growthContractBonusExp: growthContractBonusExp,
-                    channelBonusExp: channelBonusExp,
+                    eliteMonsterKillBonusExp: eliteMonsterKillBonusExp,
                     growthCapsuleExp: GrowthCapsuleDataProvider.GetDisplayProgress(
                         session.Player.Level,
                         capsule))));

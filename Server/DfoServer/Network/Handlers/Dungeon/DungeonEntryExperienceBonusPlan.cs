@@ -1,8 +1,6 @@
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Party;
 using DfoServer.Game.Session;
-using DfoServer.GameWorld;
-using DfoServer.Infrastructure;
 using System;
 using System.Collections.Generic;
 
@@ -17,27 +15,22 @@ namespace DfoServer.Network.Handlers.Dungeon
         private DungeonEntryExperienceBonusPlan(
             int partyMemberCount,
             bool partyHasEquippedAvatar,
-            ChannelExperienceSelection channelExperience,
             Dictionary<int, CapturedParticipant> participants)
         {
             PartyMemberCount = Math.Max(1, Math.Min(4, partyMemberCount));
             PartyHasEquippedAvatar = partyHasEquippedAvatar;
-            ChannelExperience = channelExperience
-                ?? ChannelExperienceSelection.None;
             _participants = participants
                 ?? new Dictionary<int, CapturedParticipant>();
         }
 
         internal int PartyMemberCount { get; }
         internal bool PartyHasEquippedAvatar { get; }
-        internal ChannelExperienceSelection ChannelExperience { get; }
 
         internal static DungeonEntryExperienceBonusPlan Capture(
             EnhancedClientSession leader,
             Party party,
             ISessionDirectory sessions,
-            int partyMemberCount,
-            int dungeonId)
+            int partyMemberCount)
         {
             var participants = new Dictionary<int, CapturedParticipant>();
             CaptureParticipant(leader, expectedSessionId: null, participants);
@@ -65,31 +58,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                 }
             }
 
-            var channelExperience = ChannelExperienceSelection.None;
-            if (leader != null
-                && GameNetworkConfig.TryResolveGameChannel(
-                    leader.ListenerPort,
-                    out var channel))
-            {
-                channelExperience = ChannelExperienceDefinitionCatalog.Resolve(
-                    channel.ChannelId,
-                    dungeonId);
-                FileLogger.Log(
-                    $"[DungeonExperience] entry channel: "
-                    + $"listener={leader.ListenerPort} "
-                    + $"channel={channel.ChannelId} "
-                    + $"dungeon={dungeonId} "
-                    + $"classification={channelExperience.DungeonClassification} "
-                    + $"resolved={channelExperience.IsResolved} "
-                    + $"rate={channelExperience.BonusRate:R}");
-            }
-            else if (leader != null)
-            {
-                FileLogger.Log(
-                    $"[DungeonExperience] entry channel unresolved: "
-                    + $"listener={leader.ListenerPort} dungeon={dungeonId}");
-            }
-
             var partyHasEquippedAvatar = false;
             foreach (var participant in participants.Values)
             {
@@ -102,7 +70,6 @@ namespace DfoServer.Network.Handlers.Dungeon
             return new DungeonEntryExperienceBonusPlan(
                 partyMemberCount,
                 partyHasEquippedAvatar,
-                channelExperience,
                 participants);
         }
 
@@ -122,10 +89,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             return new DungeonParticipantExperienceBonusSnapshot(
                 PartyMemberCount,
                 PartyHasEquippedAvatar,
-                hasEquippedCreature,
-                ChannelExperience.ChannelId,
-                ChannelExperience.ChannelType,
-                ChannelExperience.BonusRate);
+                hasEquippedCreature);
         }
 
         private static void CaptureParticipant(

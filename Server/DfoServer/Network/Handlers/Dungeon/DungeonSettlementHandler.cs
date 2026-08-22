@@ -208,8 +208,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                                         settlement.MonsterGrowthContractBonusExp),
                                     adventureGroupExp: ToInt32Saturated(
                                         settlement.AdventureGroupBonusExp),
-                                    channelExp: ToInt32Saturated(
-                                        settlement.ChannelBonusExp),
                                     monsterExp: settlement.MonsterTotalExp,
                                     bossExp: ToInt32Saturated(
                                         settlement.BossTotalExp),
@@ -732,11 +730,9 @@ namespace DfoServer.Network.Handlers.Dungeon
                     CharacterExperienceService.AddSaturating(
                         CharacterExperienceService.AddSaturating(
                             CharacterExperienceService.AddSaturating(
-                                CharacterExperienceService.AddSaturating(
-                                    scoreBonus,
-                                    settlement.AvatarBonusExp),
-                                settlement.CreatureBonusExp),
-                            settlement.ChannelBonusExp),
+                                scoreBonus,
+                                settlement.AvatarBonusExp),
+                            settlement.CreatureBonusExp),
                         settlement.GrowthContractBonusExp),
                     settlement.BlackDiamondBonusExp),
                 settlement.AdventureGroupBonusExp);
@@ -901,7 +897,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                 PartyClearBreakdownExp = partyClearBreakdownExp,
                 AvatarBonusExp = clearExp.AvatarBonus,
                 CreatureBonusExp = clearExp.CreatureBonus,
-                ChannelBonusExp = clearExp.ChannelBonus,
                 GrowthContractBonusExp = clearExp.GrowthContractBonus,
                 BlackDiamondBonusExp = clearExp.BlackDiamondBonus,
                 AdventureGroupBonusExp = clearExp.AdventureGroupBonus,
@@ -929,8 +924,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                     monsterExperience.MonsterBaseExperience),
                 MonsterGrowthContractBonusExp =
                     monsterExperience.MonsterGrowthContractBonusExperience,
-                MonsterChannelBonusExp =
-                    monsterExperience.MonsterChannelBonusExperience,
                 ObjectExperienceEntries =
                     monsterExperience.ObjectExperienceEntries,
                 ClearTimeMilliseconds = clearTimeMilliseconds,
@@ -1334,6 +1327,14 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (clearBaseExp == 0)
                 return default;
 
+            var experienceBonusSnapshot = run.CaptureExperienceBonusSnapshot();
+            var storyBonus = DungeonExperienceCalculator.CalculateStoryExperienceBonus(
+                clearBaseExp,
+                experienceBonusSnapshot);
+            var storyAdjustedBaseExp = CharacterExperienceService.AddSaturating(
+                clearBaseExp,
+                storyBonus);
+
             var connStr = _svc.ConnectionString;
             // Account 缺失时传 0(查不到契约, 无加成), 不能回退到账号 1 借用其契约效果。
             var accountId = session.Account?.AccountId ?? 0;
@@ -1349,25 +1350,19 @@ namespace DfoServer.Network.Handlers.Dungeon
                 .CalculateClearParticipantBonuses(
                     definition,
                     clearBaseExp,
-                    run.CaptureExperienceBonusSnapshot());
-            var bonusSnapshot = run.CaptureExperienceBonusSnapshot();
-            var channelBonus = DungeonExperienceCalculator
-                .CalculateChannelClearBonus(clearBaseExp, bonusSnapshot);
-
+                    experienceBonusSnapshot);
             FileLogger.Log(
                 $"[{DungeonSharedServices.ProtocolLogName}] "
-                + $"CLEAR_EXP channel: dungeon={run.DungeonId} "
-                + $"channel={bonusSnapshot.ChannelId} "
-                + $"channelType={bonusSnapshot.ChannelType} "
-                + $"rate={bonusSnapshot.ChannelExperienceBonusRate:R} "
-                + $"base={clearBaseExp} bonus={channelBonus}");
+                + $"CLEAR_EXP: dungeon={run.DungeonId} "
+                + $"storyRate={experienceBonusSnapshot.StoryExperienceBonusRatePercent}% "
+                + $"storyBonus={storyBonus} base={clearBaseExp} "
+                + $"adjustedBase={storyAdjustedBaseExp}");
 
             return new ClearExpParts(
-                clearBaseExp,
+                storyAdjustedBaseExp,
                 scoreBonus,
                 participantBonuses.AvatarBonusExperience,
                 participantBonuses.CreatureBonusExperience,
-                channelBonus,
                 growthContractBonus,
                 blackDiamondBonus,
                 adventureGroupBonus);
@@ -1463,7 +1458,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                 uint scoreBonus,
                 uint avatarBonus,
                 uint creatureBonus,
-                uint channelBonus,
                 uint growthContractBonus,
                 uint blackDiamondBonus,
                 uint adventureGroupBonus)
@@ -1472,7 +1466,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                 ScoreBonus = scoreBonus;
                 AvatarBonus = avatarBonus;
                 CreatureBonus = creatureBonus;
-                ChannelBonus = channelBonus;
                 GrowthContractBonus = growthContractBonus;
                 BlackDiamondBonus = blackDiamondBonus;
                 AdventureGroupBonus = adventureGroupBonus;
@@ -1482,23 +1475,30 @@ namespace DfoServer.Network.Handlers.Dungeon
             internal uint ScoreBonus { get; }
             internal uint AvatarBonus { get; }
             internal uint CreatureBonus { get; }
-            internal uint ChannelBonus { get; }
             internal uint GrowthContractBonus { get; }
             internal uint BlackDiamondBonus { get; }
             internal uint AdventureGroupBonus { get; }
-            internal uint Bonus => CharacterExperienceService.AddSaturating(
-                CharacterExperienceService.AddSaturating(
-                    CharacterExperienceService.AddSaturating(
-                        CharacterExperienceService.AddSaturating(
-                            CharacterExperienceService.AddSaturating(
-                                CharacterExperienceService.AddSaturating(
-                                    ScoreBonus,
-                                    AvatarBonus),
-                                CreatureBonus),
-                            ChannelBonus),
-                        GrowthContractBonus),
-                    BlackDiamondBonus),
-                AdventureGroupBonus);
+            internal uint Bonus
+            {
+                get
+                {
+                    var value = CharacterExperienceService.AddSaturating(
+                        ScoreBonus,
+                        AvatarBonus);
+                    value = CharacterExperienceService.AddSaturating(
+                        value,
+                        CreatureBonus);
+                    value = CharacterExperienceService.AddSaturating(
+                        value,
+                        GrowthContractBonus);
+                    value = CharacterExperienceService.AddSaturating(
+                        value,
+                        BlackDiamondBonus);
+                    return CharacterExperienceService.AddSaturating(
+                        value,
+                        AdventureGroupBonus);
+                }
+            }
             internal uint Total => CharacterExperienceService.AddSaturating(Base, Bonus);
         }
 

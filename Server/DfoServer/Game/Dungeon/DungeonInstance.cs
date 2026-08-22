@@ -845,6 +845,12 @@ namespace DfoServer.Game.Dungeon
             if (sequenceId == 0 || actorType == 9)
                 return false;
 
+            // START_MAP uses 0..3 for monster kinds and 5..8 for APC/AI
+            // types. Normalize the shared statistics owner before counting so
+            // APC champions are not downgraded to normal kills.
+            actorType = (byte)DungeonExperienceCalculator
+                .ResolveMonsterKind(actorType);
+
             lock (_syncRoot)
             {
                 if (!_recordedKillActors.Add((
@@ -855,7 +861,7 @@ namespace DfoServer.Game.Dungeon
                     return false;
                 }
 
-                if (actorType == 3 || actorType == 8)
+                if (actorType == 3)
                     _bossKillCount++;
                 else if (actorType == 1)
                     _championKillCount++;

@@ -87,6 +87,17 @@ namespace DfoServer.Game.Dungeon
 
     internal static class DungeonExperienceCalculator
     {
+        internal static int ResolveMonsterKind(byte actorType)
+        {
+            return actorType switch
+            {
+                5 => 0, // APC normal
+                6 => 1, // APC champion
+                8 => 3, // APC boss
+                _ => actorType,
+            };
+        }
+
         internal static DungeonBaseExperienceResult CalculateStandardMonster(
             DungeonExperienceDefinition definition,
             DungeonMonsterExperienceContext context)
@@ -112,7 +123,11 @@ namespace DfoServer.Game.Dungeon
                 * namedRate);
             var participantBase = FloorToUInt32(
                 sharedBase
-                * GetLevelPenalty(context.CharacterLevel, context.MonsterLevel)
+                * GetLevelPenalty(
+                    context.CharacterLevel,
+                    definition.StandardLevel > 0
+                        ? definition.StandardLevel
+                        : context.MonsterLevel)
                 * context.MemberPenaltyRate
                 / context.PartyMemberCount);
             return new DungeonBaseExperienceResult(sharedBase, participantBase);
@@ -148,7 +163,11 @@ namespace DfoServer.Game.Dungeon
                 * namedRate);
             var participantBase = FloorToUInt32(
                 sharedBase
-                * GetLevelPenalty(context.CharacterLevel, context.MonsterLevel));
+                * GetLevelPenalty(
+                    context.CharacterLevel,
+                    definition.StandardLevel > 0
+                        ? definition.StandardLevel
+                        : context.MonsterLevel));
             return new DungeonBaseExperienceResult(sharedBase, participantBase);
         }
 
@@ -255,45 +274,35 @@ namespace DfoServer.Game.Dungeon
                 creatureBonus);
         }
 
-        // df_game_r CParty::getClearRewardBonusExp: parameter[8] is the
-        // channel rate and is calculated from the frozen clear base.
-        internal static uint CalculateChannelClearBonus(
-            uint clearBaseExperience,
+        internal static uint ApplyStoryExperienceBonus(
+            uint baseExperience,
             DungeonParticipantExperienceBonusSnapshot snapshot)
         {
-            if (clearBaseExperience == 0
+            if (baseExperience == 0
                 || !snapshot.IsCaptured
-                || snapshot.ChannelExperienceBonusRate <= 0.0
-                || snapshot.ChannelExperienceBonusRate > 1.0
-                || double.IsNaN(snapshot.ChannelExperienceBonusRate)
-                || double.IsInfinity(snapshot.ChannelExperienceBonusRate))
+                || snapshot.StoryExperienceBonusRatePercent <= 0)
             {
-                return 0;
+                return baseExperience;
             }
 
-            return FloorToUInt32(
-                clearBaseExperience * snapshot.ChannelExperienceBonusRate);
+            var multiplier = 100UL
+                + (ulong)snapshot.StoryExperienceBonusRatePercent;
+            var adjusted = (ulong)baseExperience * multiplier / 100UL;
+            return adjusted >= uint.MaxValue
+                ? uint.MaxValue
+                : (uint)adjusted;
         }
 
-        // Channel experience is an independent kill-side component. It is
-        // calculated from the frozen monster base and never compounds with
-        // growth-contract or other participant bonuses.
-        internal static uint CalculateChannelMonsterBonus(
-            uint monsterBaseExperience,
+        internal static uint CalculateStoryExperienceBonus(
+            uint baseExperience,
             DungeonParticipantExperienceBonusSnapshot snapshot)
         {
-            if (monsterBaseExperience == 0
-                || !snapshot.IsCaptured
-                || snapshot.ChannelExperienceBonusRate <= 0.0
-                || snapshot.ChannelExperienceBonusRate > 1.0
-                || double.IsNaN(snapshot.ChannelExperienceBonusRate)
-                || double.IsInfinity(snapshot.ChannelExperienceBonusRate))
-            {
-                return 0;
-            }
-
-            return FloorToUInt32(
-                monsterBaseExperience * snapshot.ChannelExperienceBonusRate);
+            var adjusted = ApplyStoryExperienceBonus(
+                baseExperience,
+                snapshot);
+            return adjusted > baseExperience
+                ? adjusted - baseExperience
+                : 0;
         }
 
         // df_game_r CDataManager::BaseExpPenalty @ 0x08360914.
@@ -301,21 +310,16 @@ namespace DfoServer.Game.Dungeon
             int characterLevel,
             int targetLevel)
         {
-            var difference = targetLevel - characterLevel;
-            if (difference <= -7)
-                return 0.05;
-            return difference switch
+            if (characterLevel <= targetLevel)
+                return 1.00;
+
+            var excessLevel = characterLevel - targetLevel;
+            return excessLevel switch
             {
-                -6 => 0.20,
-                -5 => 0.50,
-                -4 => 0.75,
-                -3 or -2 or -1 or 0 => 1.00,
-                1 or 2 or 3 => 1.12,
-                4 or 5 => 1.00,
-                6 => 0.75,
-                7 => 0.70,
-                8 => 0.60,
-                9 => 0.50,
+                <= 3 => 1.00,
+                4 => 0.75,
+                5 => 0.50,
+                6 => 0.20,
                 _ => 0.05,
             };
         }

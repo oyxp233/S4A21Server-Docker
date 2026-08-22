@@ -136,8 +136,9 @@ namespace DfoServer.Network
 
         private async Task HandleCS_GET_SCRIPT(EnhancedClientSession session, byte[] packet)
         {
-            // 频道脚本逐字节直发 channel_info.etc(该文件内容已与参照服抓包逐行核对一致)。
-            var data = EncryptTool.EncryptData(File.ReadAllBytes(EtcFilePath), AesEncryptionKey);
+            var data = EncryptTool.EncryptData(
+                File.ReadAllBytes(EtcFilePath),
+                AesEncryptionKey);
             await SendResponsePacket(session, PACKETS.SC_GET_SCRIPT, data);
         }
 
@@ -245,8 +246,7 @@ namespace DfoServer.Network
                 return result;
             }
 
-            // A21 频道集以 channel_info.etc 的 [server] 组 1 为真源(与脚本同源),
-            // 端口落到真实监听器; 文件缺失时兜底为真实监听器集合。
+            // 当前版本运行目录中的 channel_info.etc 是频道目录真源。
             var scriptText = File.Exists(ServerPaths.ChannelInfoFilePath)
                 ? File.ReadAllText(ServerPaths.ChannelInfoFilePath, Encoding.UTF8)
                 : null;

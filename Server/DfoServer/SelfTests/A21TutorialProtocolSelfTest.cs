@@ -14,6 +14,7 @@ using DfoServer.Network.Parsers.Dungeon;
 using DfoServer.Network.Parsers.Inventory;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DfoServer.SelfTests
 {
@@ -365,6 +366,15 @@ namespace DfoServer.SelfTests
                 hellPartyRoomY: 1,
                 dungeonMode: 2,
                 hellPartyEnabled: 1);
+            var hellInfoSeason = DungeonNotificationBuilder.BuildDungeonInfo(
+                104,
+                difficulty: 0,
+                mazeIndex: 0,
+                bossX: 3,
+                bossY: 1,
+                hellPartyRoomX: 1,
+                hellPartyRoomY: 0,
+                hellPartyEnabled: 1);
             var hellInfoExpected = new byte[]
             {
                 0x68, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x02,
@@ -373,10 +383,39 @@ namespace DfoServer.SelfTests
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             };
             Check(
-                "A21 DUNGEON_INFO uses official hell flags while START_MAP owns the variable mode",
+                "A21 DUNGEON_INFO projects the frozen Hell room coordinate",
                 hellInfoMode1.Length == 32
                 && hellInfoMode1.AsSpan().SequenceEqual(hellInfoExpected)
                 && hellInfoMode2.AsSpan().SequenceEqual(hellInfoExpected),
+                ref failures);
+            Check(
+                "A21 DUNGEON_INFO keeps a different Hell room coordinate independent of mode",
+                hellInfoSeason.Length == 32
+                && hellInfoSeason[8] == 1
+                && hellInfoSeason[9] == 0
+                && hellInfoSeason[12] == 1
+                && hellInfoSeason[13] == 0
+                && hellInfoSeason[14] == 0
+                && hellInfoSeason[15] == 0
+                && hellInfoSeason[17] == 0
+                && hellInfoSeason[18] == 0xFF
+                && hellInfoSeason[21] == 0xFF,
+                ref failures);
+
+            var trombeHellInfo = DungeonNotificationBuilder.BuildDungeonInfo(
+                103,
+                difficulty: 0,
+                mazeIndex: 0,
+                bossX: 2,
+                bossY: 2,
+                hellPartyRoomX: 3,
+                hellPartyRoomY: 0,
+                hellPartyEnabled: 1);
+            Check(
+                "A21 Trombe DUNGEON_INFO follows PVF Hell room (3,0)",
+                trombeHellInfo.Length == 32
+                && trombeHellInfo[8] == 3
+                && trombeHellInfo[9] == 0,
                 ref failures);
 
             var minimapInfo = DungeonNotificationBuilder.BuildDungeonInfo(
@@ -506,6 +545,11 @@ namespace DfoServer.SelfTests
                 && start[39] == 0
                 && start[61] == 0
                 && start[64] == 0xFF,
+                ref failures);
+            Check(
+                "A21 START_MAP keeps Hell/MAP overrides out of the layered-room branch",
+                DungeonMapHandler.ResolveStartMapLayeredFlag(-1) == 0
+                && DungeonMapHandler.ResolveStartMapLayeredFlag(0) == 1,
                 ref failures);
 
             var revisit = DungeonNotificationBuilder.BuildStartMapRevisit(
@@ -915,6 +959,26 @@ namespace DfoServer.SelfTests
                         monsterKind: 2,
                         isNamedMonster: false,
                         partyMemberCount: 1));
+            var championExperience = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    expDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 1,
+                        monsterLevel: 1,
+                        difficulty: 0,
+                        monsterKind: 1,
+                        isNamedMonster: false,
+                        partyMemberCount: 1));
+            var bossExperience = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    expDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 1,
+                        monsterLevel: 1,
+                        difficulty: 0,
+                        monsterKind: 3,
+                        isNamedMonster: false,
+                        partyMemberCount: 1));
             var namedNormalExperience = DungeonExperienceCalculator
                 .CalculateStandardMonster(
                     expDefinition,
@@ -926,12 +990,40 @@ namespace DfoServer.SelfTests
                         isNamedMonster: true,
                         partyMemberCount: 1));
             Check(
-                "super champion uses 3x actor-kind exp and named remains an independent 3x",
+                "champion/super/boss use 2x/3x/4x actor-kind exp and named remains independent",
                 normalMonsterExperience.SharedBaseExperience > 0
+                && championExperience.SharedBaseExperience
+                    == normalMonsterExperience.SharedBaseExperience * 2
                 && superChampionExperience.SharedBaseExperience
                     == normalMonsterExperience.SharedBaseExperience * 3
+                && bossExperience.SharedBaseExperience
+                    == normalMonsterExperience.SharedBaseExperience * 4
                 && namedNormalExperience.SharedBaseExperience
                     == normalMonsterExperience.SharedBaseExperience * 3,
+                ref failures);
+            Check(
+                "APC actor kinds share the monster experience normalization",
+                DungeonExperienceCalculator.ResolveMonsterKind(5) == 0
+                && DungeonExperienceCalculator.ResolveMonsterKind(6) == 1
+                && DungeonExperienceCalculator.ResolveMonsterKind(8) == 3,
+                ref failures);
+
+            var storyBonusSnapshot =
+                new DungeonParticipantExperienceBonusSnapshot(
+                    partyMemberCount: 1,
+                    partyHasEquippedAvatar: false,
+                    hasEquippedCreature: false,
+                    storyExperienceBonusRatePercent: 30);
+            var nonStoryBonusSnapshot =
+                DungeonParticipantExperienceBonusSnapshot.None;
+            Check(
+                "story dungeon rate is applied once to kill and clear base EXP",
+                DungeonExperienceCalculator.ApplyStoryExperienceBonus(
+                    1000,
+                    storyBonusSnapshot) == 1300
+                && DungeonExperienceCalculator.ApplyStoryExperienceBonus(
+                    1000,
+                    nonStoryBonusSnapshot) == 1000,
                 ref failures);
 
             var prisonMazeResolved = Dungeon.TrySelectActiveQuestMaze(
@@ -1040,12 +1132,22 @@ namespace DfoServer.SelfTests
                     mainlineBonusRun,
                     unsuitableLevel);
             Check(
-                "story-mode quest EXP bonus filters zero-rate, non-story, " +
-                "unfrozen and unsuitable-level runs",
+                "story-mode quest EXP bonus filters zero-rate, non-story and " +
+                "unfrozen runs without applying a recommendation-level gate",
                 !difficultyZeroBonus.IsEligible
                 && !nonStoryBonus.IsEligible
                 && !missingFrozenQuestBonus.IsEligible
-                && !unsuitableLevelBonus.IsEligible,
+                && unsuitableLevelBonus.IsEligible,
+                ref failures);
+
+            Check(
+                "dungeon EXP penalty starts only after the standard level is exceeded",
+                DungeonExperienceCalculator.GetLevelPenalty(10, 10) == 1.0
+                && DungeonExperienceCalculator.GetLevelPenalty(9, 10) == 1.0
+                && DungeonExperienceCalculator.GetLevelPenalty(13, 10) == 1.0
+                && DungeonExperienceCalculator.GetLevelPenalty(14, 10) == 0.75
+                && DungeonExperienceCalculator.GetLevelPenalty(16, 10) == 0.20
+                && DungeonExperienceCalculator.GetLevelPenalty(17, 10) == 0.05,
                 ref failures);
 
             var filteredReward = new QuestReward
@@ -1453,6 +1555,133 @@ namespace DfoServer.SelfTests
                 && level17Mainline.Contains(1796),
                 ref failures);
 
+            var xilanQuest = QuestData.GetQuestFile(2404);
+            var xilanMetadata = ItemMetadataResolver.Resolve(10100158);
+            var xilanPrerequisite = QuestPrerequisiteCatalog.Get(2404);
+            var xilanAvailable = QuestRelationIndex.ComputeAcceptableQuests(
+                characterLevel: 70,
+                characterJob: 0,
+                growType: 0,
+                clearedQuestIds: new HashSet<int> { 2403 },
+                clearedFlags: new Dictionary<int, int> { [2403] = 1 },
+                allowedCreatureKinds: new HashSet<int>());
+            var xilanEventItems = QuestData.GetEventItems(2404);
+            var xilanPreviousQuestRecovery = QuestGiveupItemRecoveryPolicy.Build(
+                new List<ActiveQuest>
+                {
+                    new ActiveQuest { QuestId = 2402 },
+                },
+                abandonedQuestId: 2402);
+            var xilanPreviousEventItemRecovery = xilanPreviousQuestRecovery
+                .FirstOrDefault(entry => entry.ItemId == 10100142);
+            var xilanRecoverySummary = string.Join(
+                ",",
+                xilanPreviousQuestRecovery.Select(
+                    entry => entry.ItemId + ":" + entry.RetainCount));
+            var existingXilanInventory = new InventoryService(1003, 1003);
+            existingXilanInventory.SetItem(
+                InventoryListType.Main,
+                65,
+                new ItemCore
+                {
+                    ItemKind = ItemCore.KindConsumable,
+                    ItemId = 10100158,
+                    Count = 1,
+                });
+            var existingXilanSlots = new List<ushort> { 0 };
+            var existingXilanPending =
+                QuestAcceptanceApplicationService.BuildMissingEventItemGrants(
+                    existingXilanInventory,
+                    new List<QuestRewardItem>
+                    {
+                        new QuestRewardItem
+                        {
+                            ItemId = 10100158,
+                            Count = 1,
+                        },
+                    },
+                    existingXilanSlots,
+                    out var existingXilanRequests,
+                    out _);
+            Check(
+                "PVF 西岚的箴言 answer prerequisite and event item remain available " +
+                "recovery=" + xilanRecoverySummary,
+                xilanQuest != null
+                && QuestData.NormalizeQuestTag(xilanQuest.Type) == "use item"
+                && xilanQuest.NpcIndex == 126
+                && xilanQuest.Level != null
+                && xilanQuest.Level.Length >= 2
+                && xilanQuest.Level[0] == 70
+                && xilanQuest.Level[1] == 99
+                && xilanPrerequisite != null
+                && xilanPrerequisite.IsValid
+                && xilanPrerequisite.RequiredAnswers.Count == 1
+                && xilanPrerequisite.RequiredAnswers[0].QuestId == 2403
+                && xilanPrerequisite.RequiredAnswers[0].AnswerIndex == 0
+                && xilanEventItems.Count == 1
+                && xilanEventItems[0].ItemId == 10100158
+                && xilanEventItems[0].Count == 1
+                && xilanAvailable.Contains(2404)
+                && xilanPreviousEventItemRecovery != null
+                && xilanPreviousEventItemRecovery.ItemId == 10100142
+                && xilanPreviousEventItemRecovery.RetainCount == 0
+                && existingXilanPending.Count == 0
+                && existingXilanRequests.Count == 0
+                && existingXilanSlots[0] == 65,
+                ref failures);
+
+            var xilanEventGrant =
+                InventoryRewardGrantRequest.CreateQuestEventItem(
+                    10100158,
+                    1,
+                    ItemCreateReason.QuestReward);
+            Check(
+                "quest depend-give items use the task inventory family without " +
+                "changing generic PVF item classification",
+                xilanEventGrant.ItemKindOverride == ItemCore.KindQuest
+                && xilanMetadata != null
+                && xilanMetadata.ItemKind == "stackable"
+                && xilanMetadata.StackableType != null
+                && xilanMetadata.StackableType.IndexOf(
+                    "upgradable legacy",
+                    StringComparison.OrdinalIgnoreCase) >= 0,
+                ref failures);
+
+            var fullConsumableInventory = new InventoryService(1004, 1004);
+            fullConsumableInventory.SetListParam16(
+                InventoryListType.Main,
+                ItemSlotBoundService.MainExpandStageFull);
+            for (short slot = 65; slot <= 120; slot++)
+            {
+                fullConsumableInventory.SetItem(
+                    InventoryListType.Main,
+                    slot,
+                    new ItemCore
+                    {
+                        ItemKind = ItemCore.KindConsumable,
+                        ItemId = 900000 + slot,
+                        Count = 1,
+                    });
+            }
+            var eventPlanCreated =
+                InventoryRewardGrantService.TryPlanBatch(
+                    fullConsumableInventory,
+                    new List<InventoryRewardGrantRequest>
+                    {
+                        xilanEventGrant,
+                    },
+                    out var eventPlan);
+            Check(
+                "quest event item planning ignores a full ordinary consumable range",
+                eventPlanCreated
+                && eventPlan != null
+                && eventPlan.Success
+                && eventPlan.Entries.Count == 1
+                && eventPlan.Entries[0].ListType == InventoryListType.Main
+                && eventPlan.Entries[0].SlotIndex >= 177
+                && eventPlan.Entries[0].SlotIndex <= 232,
+                ref failures);
+
             Check(
                 "dungeon minimum level gates entry without delaying quest acceptance",
                 level15Mainline.Contains(1790)
@@ -1634,7 +1863,23 @@ namespace DfoServer.SelfTests
                 "A21 EXP keeps rejected labelled trial slots zero",
                 exp.Length == ExpNotificationBuilder.BodyLength
                 && exp.Length == 83
-                && BitConverter.ToUInt32(exp, 0x4B) == 0,
+                && BitConverter.ToUInt32(
+                    exp,
+                    ExpNotificationBuilder.RemovedChannelExpOffset) == 0,
+                ref failures);
+
+            var eliteExp = ExpNotificationBuilder.Build(
+                level: 1,
+                totalExp: 100,
+                skillPoints: default,
+                honorLevel: new DfoServer.Game.Accounts.HonorLevelSummary(),
+                eliteMonsterKillBonusExp: 200);
+            Check(
+                "A21 EXP projects elite kill component and keeps removed channel component zero",
+                BitConverter.ToUInt32(eliteExp, 0x2F) == 200
+                && BitConverter.ToUInt32(
+                    eliteExp,
+                    ExpNotificationBuilder.RemovedChannelExpOffset) == 0,
                 ref failures);
 
             var playResult = DungeonNotificationBuilder.BuildPlayResult(
@@ -1676,7 +1921,6 @@ namespace DfoServer.SelfTests
                 bossExp: 135,
                 championExp: 340,
                 superChampionExp: 120,
-                channelExp: 59,
                 paidCardCost: 580,
                 objectExperienceEntries:
                     settlementExperienceSnapshot.ObjectExperienceEntries);
@@ -2590,6 +2834,109 @@ namespace DfoServer.SelfTests
                     && ContainsInt(
                         seekingPassiveMap.PassiveObjectCodes,
                         52853),
+                    ref failures);
+
+                var consciousnessDungeon = Dungeon.GetDungeonFile(77);
+                var consciousnessMaze = consciousnessDungeon?.Mazes != null
+                    && consciousnessDungeon.Mazes.Count > 0
+                    ? consciousnessDungeon.Mazes[0]
+                    : null;
+                var consciousnessSeasonRoom = consciousnessMaze != null
+                    ? Dungeon.FindHellMapRoom(
+                        77,
+                        consciousnessMaze,
+                        0,
+                        difficulty: 1)
+                    : null;
+                var consciousnessOrdinaryRoom = consciousnessMaze != null
+                    ? Dungeon.FindHellMapRoom(
+                        77,
+                        consciousnessMaze,
+                        0,
+                        difficulty: 2)
+                    : null;
+                Check(
+                    "PVF season hellparty switch selects mode 1 season and mode 2 ordinary rooms",
+                    HellPartyData.IsSeasonHellPartyEnabled()
+                    && consciousnessMaze != null
+                    && consciousnessMaze.SealDoorMapIndex == 60064
+                    && consciousnessMaze.SealDoorPos != null
+                    && consciousnessMaze.SealDoorPos.Length >= 2
+                    && consciousnessMaze.SealDoorPos[0] == 3
+                    && consciousnessMaze.SealDoorPos[1] == 1
+                    && consciousnessMaze.SeasonSealDoorMapIndex == 91020
+                    && consciousnessMaze.SeasonSealDoorPos != null
+                    && consciousnessMaze.SeasonSealDoorPos.Length >= 2
+                    && consciousnessMaze.SeasonSealDoorPos[0] == 1
+                    && consciousnessMaze.SeasonSealDoorPos[1] == 0
+                    && consciousnessSeasonRoom != null
+                    && consciousnessSeasonRoom.Found
+                    && consciousnessSeasonRoom.MapId == 91020
+                    && consciousnessSeasonRoom.NormalMapId > 0
+                    && consciousnessSeasonRoom.X == 1
+                    && consciousnessSeasonRoom.Y == 0
+                    && consciousnessOrdinaryRoom != null
+                    && consciousnessOrdinaryRoom.Found
+                    && consciousnessOrdinaryRoom.MapId == 60064
+                    && consciousnessOrdinaryRoom.NormalMapId > 0
+                    && consciousnessOrdinaryRoom.X == 3
+                    && consciousnessOrdinaryRoom.Y == 1,
+                    ref failures);
+
+                var trombeDungeon = Dungeon.GetDungeonFile(103);
+                var trombeMaze = trombeDungeon?.Mazes != null
+                    && trombeDungeon.Mazes.Count > 0
+                    ? trombeDungeon.Mazes[0]
+                    : null;
+                var trombeSeasonRoom = trombeMaze != null
+                    ? Dungeon.FindHellMapRoom(103, trombeMaze, 0, difficulty: 1)
+                    : null;
+                var grandineDungeon = Dungeon.GetDungeonFile(104);
+                var grandineHellMaze = grandineDungeon?.Mazes != null
+                    && grandineDungeon.Mazes.Count > 0
+                    ? grandineDungeon.Mazes[0]
+                    : null;
+                var grandineOrdinaryRoom = grandineHellMaze != null
+                    ? Dungeon.FindHellMapRoom(
+                        104,
+                        grandineHellMaze,
+                        0,
+                        difficulty: 2)
+                    : null;
+                Check(
+                    "PVF mode owner rule covers Trombe season and Grandine ordinary rooms",
+                    trombeSeasonRoom != null
+                    && trombeSeasonRoom.Found
+                    && trombeSeasonRoom.MapId == 91007
+                    && trombeSeasonRoom.X == 1
+                    && trombeSeasonRoom.Y == 0
+                    && grandineOrdinaryRoom != null
+                    && grandineOrdinaryRoom.Found
+                    && grandineOrdinaryRoom.MapId == 60070
+                    && grandineOrdinaryRoom.X == 2
+                    && grandineOrdinaryRoom.Y == 1,
+                ref failures);
+
+            Check(
+                "A21 manual hell entry defaults to ordinary mode without very-difficult toggle",
+                HellPartyData.ResolveManualHellPartyMode() == 2,
+                ref failures);
+
+            var banquetDungeon = Dungeon.GetDungeonFile(194);
+                var banquetMaze = banquetDungeon?.Mazes != null
+                    && banquetDungeon.Mazes.Count > 0
+                    ? banquetDungeon.Mazes[0]
+                    : null;
+                var banquetSeasonRoom = banquetMaze != null
+                    ? Dungeon.FindHellMapRoom(194, banquetMaze, 0, difficulty: 1)
+                    : null;
+                Check(
+                    "PVF mode owner rule is shared across the Castle of the Dead region",
+                    banquetSeasonRoom != null
+                    && banquetSeasonRoom.Found
+                    && banquetSeasonRoom.MapId == 91013
+                    && banquetSeasonRoom.X == 4
+                    && banquetSeasonRoom.Y == 2,
                     ref failures);
             }
 

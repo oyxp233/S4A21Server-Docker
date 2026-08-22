@@ -33,21 +33,8 @@ namespace DfoServer.Game.Quests
             var eventItems = GameWorld.QuestData.GetEventItems(questId);
             var seekItems = GameWorld.QuestData.GetSeekingConsumeItems(questId);
             var eventSlots = new List<ushort>(eventItems.Count);
-            var grantRequests = new List<InventoryRewardGrantRequest>();
-            var grantRequestIndexes = new List<int>();
             for (var index = 0; index < eventItems.Count; index++)
-            {
-                var item = eventItems[index];
                 eventSlots.Add(0);
-                if (item.ItemId <= 0 || item.Count <= 0)
-                    continue;
-
-                grantRequests.Add(InventoryRewardGrantRequest.Create(
-                    item.ItemId,
-                    item.Count,
-                    ItemCreateReason.QuestReward));
-                grantRequestIndexes.Add(index);
-            }
 
             var clientInitialTrigger = GameWorld.QuestData.GetInitTrigger(questId);
             var committedTrigger = clientInitialTrigger;
@@ -58,6 +45,12 @@ namespace DfoServer.Game.Quests
                     return QuestAcceptResult.Fail(0x17);
 
                 var inventory = lease.Inventory;
+                var pendingEventItems = BuildMissingEventItemGrants(
+                    inventory,
+                    eventItems,
+                    eventSlots,
+                    out var grantRequests,
+                    out var grantRequestIndexes);
                 InventoryRewardGrantBatchPlan grantPlan = null;
                 if (grantRequests.Count > 0
                     && (!InventoryRewardGrantService.TryPlanBatch(
@@ -67,6 +60,12 @@ namespace DfoServer.Game.Quests
                         || grantPlan == null
                         || !grantPlan.Success))
                 {
+                    LogEventItemInventoryDiagnostic(
+                        characterId,
+                        questId,
+                        inventory,
+                        eventItems,
+                        pendingEventItems);
                     return QuestAcceptResult.Fail(0x11);
                 }
 
@@ -139,7 +138,7 @@ namespace DfoServer.Game.Quests
                                     itemId => CountMainItemWithPendingRewards(
                                         inventory,
                                         itemId,
-                                        eventItems)).PackedValue;
+                                        pendingEventItems)).PackedValue;
                             }
 
                             if (grantPlan != null && grantPlan.Entries.Count > 0)
@@ -279,6 +278,133 @@ namespace DfoServer.Game.Quests
                 count = value > int.MaxValue ? int.MaxValue : (int)value;
             }
             return count;
+        }
+
+        internal static List<GameWorld.QuestRewardItem>
+            BuildMissingEventItemGrants(
+                InventoryService inventory,
+                IReadOnlyCollection<GameWorld.QuestRewardItem> eventItems,
+                IList<ushort> eventSlots,
+                out List<InventoryRewardGrantRequest> grantRequests,
+                out List<int> grantRequestIndexes)
+        {
+            grantRequests = new List<InventoryRewardGrantRequest>();
+            grantRequestIndexes = new List<int>();
+            var pending = new List<GameWorld.QuestRewardItem>();
+            if (inventory == null || eventItems == null)
+                return pending;
+
+            var index = 0;
+            foreach (var item in eventItems)
+            {
+                if (item.ItemId > 0 && item.Count > 0)
+                {
+                    var held = Math.Max(0, inventory.CountMainItem(item.ItemId));
+                    var existingSlot = FindMainItemSlot(inventory, item.ItemId);
+                    if (existingSlot >= 0 && eventSlots != null
+                        && index < eventSlots.Count)
+                    {
+                        eventSlots[index] = (ushort)existingSlot;
+                    }
+
+                    var missing = Math.Max(0, item.Count - held);
+                    if (missing > 0)
+                    {
+                        grantRequests.Add(InventoryRewardGrantRequest.CreateQuestEventItem(
+                            item.ItemId,
+                            missing,
+                            ItemCreateReason.QuestReward));
+                        grantRequestIndexes.Add(index);
+                        pending.Add(new GameWorld.QuestRewardItem
+                        {
+                            ItemId = item.ItemId,
+                            Count = missing,
+                        });
+                    }
+                }
+                index++;
+            }
+            return pending;
+        }
+
+        private static void LogEventItemInventoryDiagnostic(
+            int characterId,
+            ushort questId,
+            InventoryService inventory,
+            IReadOnlyCollection<GameWorld.QuestRewardItem> eventItems,
+            IReadOnlyCollection<GameWorld.QuestRewardItem> pendingItems)
+        {
+            try
+            {
+                foreach (var item in eventItems ?? Array.Empty<GameWorld.QuestRewardItem>())
+                {
+                    var metadata = ItemMetadataResolver.Resolve(item.ItemId);
+                    var held = inventory != null
+                        ? inventory.CountMainItem(item.ItemId)
+                        : 0;
+                    var existingSlot = FindMainItemSlot(inventory, item.ItemId);
+                    var range = "n/a";
+                    var metadataRange = "n/a";
+                    if (metadata != null)
+                    {
+                        metadata.GetSlotRange(out var metadataStart, out var metadataEnd);
+                        metadataRange = $"{metadataStart}-{metadataEnd}";
+                    }
+                    if (ItemSlotBoundService.TryGetSlotRange(
+                            ItemCore.KindQuest,
+                            inventory != null
+                                ? inventory.GetListParam16(InventoryListType.Main)
+                                : 0,
+                            out var listType,
+                            out var slotRange))
+                    {
+                        range = $"{listType}:{slotRange.Start}-{slotRange.End}";
+                    }
+
+                    FileLogger.Log(
+                        $"[QuestAcceptanceApplicationService] event-item diagnostic " +
+                        $"quest={questId} cid={characterId} item={item.ItemId} " +
+                        $"required={item.Count} held={held} existingSlot={existingSlot} " +
+                        $"pvfKind={metadata?.ItemKind} stackType={metadata?.StackableType} " +
+                        $"resolvedRange={metadataRange} " +
+                        $"eventRange={range}");
+                }
+
+                FileLogger.Log(
+                    $"[QuestAcceptanceApplicationService] event-item pending " +
+                    $"quest={questId} cid={characterId} " +
+                    $"items={pendingItems?.Count ?? 0}");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[QuestAcceptanceApplicationService] event-item diagnostic failed: {ex.Message}");
+            }
+        }
+
+        private static int FindMainItemSlot(
+            InventoryService inventory,
+            int itemId)
+        {
+            if (inventory == null || itemId <= 0)
+                return -1;
+
+            if (InventoryService.TryResolveMainVirtualSlotByItemId(
+                    itemId,
+                    out var virtualSlot,
+                    out _))
+            {
+                return inventory.GetMainVirtualCount(virtualSlot)?.Count > 0
+                    ? virtualSlot
+                    : -1;
+            }
+
+            foreach (var pair in inventory.GetItems(InventoryListType.Main))
+            {
+                if (pair.Value != null && pair.Value.ItemId == itemId)
+                    return pair.Key;
+            }
+            return -1;
         }
 
         private static int GetMainItemIdentityKey(int itemId)

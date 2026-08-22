@@ -40,6 +40,10 @@ namespace DfoServer.Game.Inventory
 
         public InventoryCreateOptions CreateOptions { get; set; }
 
+        // Quest [depend give item] entries are task-event items even when the
+        // PVF stackable type is a generic legacy container/consumable family.
+        public byte? ItemKindOverride { get; set; }
+
         public ItemCore Core { get; set; }
 
         public bool UseExistingCore { get; set; }
@@ -48,7 +52,8 @@ namespace DfoServer.Game.Inventory
             int itemTemplateId,
             int count,
             ItemCreateReason reason,
-            InventoryCreateOptions options = null)
+            InventoryCreateOptions options = null,
+            byte? itemKindOverride = null)
         {
             return new InventoryRewardGrantRequest
             {
@@ -56,8 +61,22 @@ namespace DfoServer.Game.Inventory
                 Count = count,
                 Reason = reason,
                 CreateOptions = options,
+                ItemKindOverride = itemKindOverride,
                 UseExistingCore = false,
             };
+        }
+
+        public static InventoryRewardGrantRequest CreateQuestEventItem(
+            int itemTemplateId,
+            int count,
+            ItemCreateReason reason)
+        {
+            return Create(
+                itemTemplateId,
+                count,
+                reason,
+                null,
+                ItemCore.KindQuest);
         }
 
         public static InventoryRewardGrantRequest Existing(
@@ -913,6 +932,16 @@ namespace DfoServer.Game.Inventory
             int count,
             InventoryRewardGrantRequest request)
         {
+            if (request != null && request.ItemKindOverride.HasValue)
+            {
+                return InventoryCreateService.CreateCore(
+                    request.ItemKindOverride.Value,
+                    itemTemplateId,
+                    request.Reason,
+                    count,
+                    request.CreateOptions);
+            }
+
             if (!ItemMetadataResolver.TryResolveItemKind(itemTemplateId, out var itemKind))
                 return null;
 
