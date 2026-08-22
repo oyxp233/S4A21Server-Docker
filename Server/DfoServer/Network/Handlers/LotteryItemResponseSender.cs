@@ -114,6 +114,16 @@ namespace DfoServer.Network.Handlers
             }
         }
 
+        internal Task SendSourceSlotRefresh(
+            EnhancedClientSession session,
+            short slotIndex)
+        {
+            return _refresh.SendUpdateItemList(
+                session,
+                InventoryListType.Main,
+                slotIndex);
+        }
+
         internal static Task SendProgress(
             EnhancedClientSession session,
             LotteryProgressSnapshot progress)

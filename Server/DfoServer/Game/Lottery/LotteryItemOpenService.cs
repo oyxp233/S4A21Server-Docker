@@ -235,7 +235,7 @@ namespace DfoServer.Game.Lottery
                 return false;
 
             result = committedResult;
-            return true;
+            return !committedResult.SourceExpiredDeleted;
         }
 
         internal bool TryOpen(
@@ -254,10 +254,32 @@ namespace DfoServer.Game.Lottery
                     inventory,
                     slotIndex,
                     out var source,
-                    out var definition))
+                    out var definition,
+                    allowExpired: true))
             {
                 return false;
             }
+
+            var lifecyclePlan = InventoryItemLifecycleService.PrepareUse(
+                inventory,
+                InventoryListType.Main,
+                source.SlotIndex,
+                source.Core.ItemId,
+                InventoryItemLifecycleService.UtcNowUnixSeconds());
+            if (lifecyclePlan.SourceExpiredDeleted)
+            {
+                result = new LotteryOpenResult
+                {
+                    SourceExpiredDeleted = true,
+                    SourceSlotIndex = source.SlotIndex,
+                    SourceItemTemplateId = source.Core.ItemId,
+                    SourceRemainingStackCount = 0,
+                };
+                return false;
+            }
+
+            if (!lifecyclePlan.Success)
+                return false;
 
             var currentGold = inventory.CountMainItem(0);
             if (currentGold < definition.GoldCost)
@@ -384,6 +406,7 @@ namespace DfoServer.Game.Lottery
                 AddMailboxGrantResults(regularRequests, openResult.Rewards);
             else
                 AddOnlineGrantResults(inventory, grantBatch, openResult.Rewards);
+            InventoryItemLifecycleService.ApplyUseSuccess(inventory, lifecyclePlan);
             ApplyGoldRewardSummary(inventory, openResult);
             if (definition.UsesIncreaseChanceProgress)
             {
@@ -412,7 +435,8 @@ namespace DfoServer.Game.Lottery
             InventoryService inventory,
             short slotIndex,
             out OnlineLotterySource source,
-            out LotteryItemDefinition definition)
+            out LotteryItemDefinition definition,
+            bool allowExpired = false)
         {
             source = null;
             definition = null;
@@ -423,7 +447,9 @@ namespace DfoServer.Game.Lottery
             if (core == null || core.ItemId <= 0 || core.Count <= 0)
                 return false;
 
-            if (core.ExpireTime > 0 && core.ExpireTime <= DateTimeOffset.Now.ToUnixTimeSeconds())
+            if (!allowExpired
+                && core.ExpireTime > 0
+                && core.ExpireTime <= DateTimeOffset.Now.ToUnixTimeSeconds())
                 return false;
 
             if (!_definitions.TryGet(core.ItemId, out definition))
@@ -451,11 +477,33 @@ namespace DfoServer.Game.Lottery
                     inventory,
                     reservation.SlotIndex,
                     out var source,
-                    out var definition)
+                    out var definition,
+                    allowExpired: true)
                 || source.Core.ItemId != reservation.SourceItemTemplateId)
             {
                 return false;
             }
+
+            var lifecyclePlan = InventoryItemLifecycleService.PrepareUse(
+                inventory,
+                InventoryListType.Main,
+                source.SlotIndex,
+                source.Core.ItemId,
+                InventoryItemLifecycleService.UtcNowUnixSeconds());
+            if (lifecyclePlan.SourceExpiredDeleted)
+            {
+                result = new LotteryOpenResult
+                {
+                    SourceExpiredDeleted = true,
+                    SourceSlotIndex = source.SlotIndex,
+                    SourceItemTemplateId = source.Core.ItemId,
+                    SourceRemainingStackCount = 0,
+                };
+                return true;
+            }
+
+            if (!lifecyclePlan.Success)
+                return false;
 
             var currentGold = inventory.CountMainItem(0);
             if (currentGold < definition.GoldCost
@@ -627,6 +675,7 @@ namespace DfoServer.Game.Lottery
                 AddMailboxGrantResults(rewardRequests, openResult.Rewards);
             else
                 AddOnlineGrantResults(inventory, grantBatch, openResult.Rewards);
+            InventoryItemLifecycleService.ApplyUseSuccess(inventory, lifecyclePlan);
             ApplyGoldRewardSummary(inventory, openResult);
 
             if (definition.UsesIncreaseChanceProgress)

@@ -409,13 +409,13 @@ CREATE TABLE IF NOT EXISTS character_init_flags (
     FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS character_item_values (
+CREATE TABLE IF NOT EXISTS character_item_states (
     character_id INTEGER NOT NULL,
-    list_kind TEXT NOT NULL,
-    sort_order INTEGER NOT NULL,
+    state_kind TEXT NOT NULL CHECK(state_kind IN ('cooltime', 'effect')),
     item_id INTEGER NOT NULL,
-    value INTEGER NOT NULL,
-    PRIMARY KEY (character_id, list_kind, sort_order),
+    expire_time INTEGER NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (character_id, state_kind, item_id),
     FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
 );
 

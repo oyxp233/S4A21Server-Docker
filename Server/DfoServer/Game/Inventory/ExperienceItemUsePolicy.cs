@@ -54,8 +54,6 @@ namespace DfoServer.Game.Inventory
     internal sealed class ExperienceItemUseContext
     {
         internal ExperienceItemDefinition Definition { get; set; }
-        internal int SourceExpireTime { get; set; }
-        internal uint NowUnixTime { get; set; }
         internal byte Job { get; set; }
         internal byte Level { get; set; }
         internal uint Exp { get; set; }
@@ -88,16 +86,6 @@ namespace DfoServer.Game.Inventory
             }
 
             var definition = context.Definition;
-            if ((context.SourceExpireTime > 0
-                 && (uint)context.SourceExpireTime <= context.NowUnixTime)
-                || !definition.IsTemplateAvailableAt(context.NowUnixTime))
-                return Reject(ExperienceItemUseStatus.Expired, "item has expired");
-
-            if (definition.UsablePeriodDays > 0 && context.SourceExpireTime <= 0)
-                return Reject(
-                    ExperienceItemUseStatus.Expired,
-                    "timed item has no instance expiration");
-
             if (!definition.IsUsableByJob(context.Job))
                 return Reject(
                     ExperienceItemUseStatus.JobRestricted,

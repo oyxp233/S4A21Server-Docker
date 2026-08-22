@@ -21,11 +21,33 @@ namespace DfoServer.Game.Inventory
                 "sort-item-space",
                 (connection, transaction) =>
                 {
+                    var expiredChanges = new InventoryMutationSet();
+                    if (InventorySortService.TryGetSortRange(
+                            lease.Inventory,
+                            listType,
+                            category,
+                            out var range))
+                    {
+                        InventoryItemLifecycleService.RemoveExpiredItemsInRange(
+                            lease.Inventory,
+                            listType,
+                            range,
+                            InventoryItemLifecycleService.UtcNowUnixSeconds(),
+                            expiredChanges);
+                    }
+
                     sortApplied = InventorySortService.TrySort(
                         lease.Inventory,
                         listType,
                         category,
                         out committedResult);
+                    if (committedResult != null && expiredChanges.HasChanges)
+                    {
+                        committedResult.Changes.AddRange(expiredChanges);
+                        committedResult.Mutated = committedResult.Changes.HasChanges;
+                        committedResult.AffectedSlotCount = committedResult.Changes.Slots.Count;
+                    }
+
                     return sortApplied;
                 });
 

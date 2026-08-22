@@ -153,6 +153,7 @@ namespace DfoServer.Game.Inventory
             SaveDirtyAchievements(connection, transaction, inventory);
             SaveDirtyCollectBox(connection, transaction, inventory);
             SaveDirtyEpicPieceBook(connection, transaction, inventory);
+            SaveDirtyItemStates(connection, transaction, inventory);
             SaveDirtyMainVirtualCounts(connection, transaction, inventory);
             SaveDirtyContainerStates(connection, transaction, inventory);
             SavePendingAccountCurrencyGrants(connection, transaction, inventory);
@@ -293,6 +294,8 @@ namespace DfoServer.Game.Inventory
             if (inventory.CollectBox.HasDirtySlots)
                 return true;
             if (inventory.EpicPieces.IsDirty)
+                return true;
+            if (inventory.ItemStates.IsDirty)
                 return true;
 
             foreach (var _ in inventory.DirtyListTypes)
@@ -526,6 +529,21 @@ namespace DfoServer.Game.Inventory
                 transaction,
                 inventory.AccountId,
                 inventory.EpicPieces.ToBlob());
+        }
+
+        private static void SaveDirtyItemStates(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            InventoryService inventory)
+        {
+            if (!inventory.ItemStates.IsDirty)
+                return;
+
+            CharacterItemStateRepository.SaveAll(
+                connection,
+                transaction,
+                inventory.CharacterId,
+                inventory.ItemStates);
         }
 
         private static void SaveDirtyMainVirtualCounts(

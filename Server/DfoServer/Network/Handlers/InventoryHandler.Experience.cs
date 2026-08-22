@@ -93,7 +93,8 @@ namespace DfoServer.Network.Handlers
             if (!result.Success)
             {
                 if (result.Status == ExperienceItemUseStatus.NotApplicable
-                    || result.Status == ExperienceItemUseStatus.ConsumeFailed)
+                    || result.Status == ExperienceItemUseStatus.ConsumeFailed
+                    || result.Status == ExperienceItemUseStatus.Expired)
                 {
                     await RefreshExperienceSourceSlotAsync(
                         session,
@@ -193,7 +194,8 @@ namespace DfoServer.Network.Handlers
                     session,
                     GetLevelUpTicketFailureErrorCode(result.Status));
                 if (result.Status == ExperienceItemUseStatus.NotApplicable
-                    || result.Status == ExperienceItemUseStatus.ConsumeFailed)
+                    || result.Status == ExperienceItemUseStatus.ConsumeFailed
+                    || result.Status == ExperienceItemUseStatus.Expired)
                 {
                     await RefreshLevelUpTicketSourceSlotAsync(
                         session,
@@ -338,6 +340,7 @@ namespace DfoServer.Network.Handlers
             switch (status)
             {
                 case ExperienceItemUseStatus.NotApplicable:
+                case ExperienceItemUseStatus.Expired:
                 case ExperienceItemUseStatus.ConsumeFailed:
                     return IncreaseStatusMissingSourceItemErrorCode;
                 default:
@@ -380,6 +383,7 @@ namespace DfoServer.Network.Handlers
             switch (status)
             {
                 case ExperienceItemUseStatus.NotApplicable:
+                case ExperienceItemUseStatus.Expired:
                 case ExperienceItemUseStatus.ConsumeFailed:
                     return LevelUpTicketMissingSourceItemErrorCode;
                 case ExperienceItemUseStatus.LevelRestricted:

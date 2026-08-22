@@ -1,4 +1,5 @@
 using DfoServer.Game.SelectCharacter;
+using DfoServer.Game.Inventory;
 using DfoServer.Infrastructure;
 using System;
 using System.Collections.Generic;
@@ -10,7 +11,7 @@ namespace DfoServer.Game.CharacterData
     {
         private readonly string _connectionString;
         private readonly CharacterAchievementRepository _achievement;
-        private readonly CharacterItemValueRepository _itemValue;
+        private readonly CharacterItemStateRepository _itemState;
         private readonly CharacterMiscStateRepository _miscState;
 
         public SqliteCharacterStateRepository(string databasePath, string schemaFilePath)
@@ -23,7 +24,7 @@ namespace DfoServer.Game.CharacterData
             _connectionString = (database ?? throw new ArgumentNullException(nameof(database)))
                 .ConnectionString;
             _achievement = new CharacterAchievementRepository(_connectionString);
-            _itemValue = new CharacterItemValueRepository(_connectionString);
+            _itemState = new CharacterItemStateRepository(_connectionString);
             _miscState = new CharacterMiscStateRepository(_connectionString);
         }
 
@@ -678,8 +679,8 @@ ON CONFLICT(character_id) DO UPDATE SET
             if (!HasFlags(characterId))
                 SaveFlags(characterId, snapshot);
 
-            _itemValue.SaveItemValueListIfEmpty(characterId, "cooltime", snapshot.CooltimeItems);
-            _itemValue.SaveItemValueListIfEmpty(characterId, "effect", snapshot.EffectItems);
+            _itemState.SaveItemStateListIfEmpty(characterId, ItemStateKinds.Cooltime, snapshot.CooltimeItemStates);
+            _itemState.SaveItemStateListIfEmpty(characterId, ItemStateKinds.Effect, snapshot.EffectItemStates);
 
             if (_achievement.LoadAchievementComplete(characterId).Entries.Count == 0 && snapshot.AchievementComplete.Entries.Count > 0)
                 _achievement.SaveAchievementComplete(characterId, snapshot.AchievementComplete);
@@ -704,13 +705,13 @@ ON CONFLICT(character_id) DO UPDATE SET
         {
             LoadFlags(characterId, snapshot);
 
-            var cooltime = _itemValue.LoadItemValueList(characterId, "cooltime");
-            snapshot.CooltimeItems.Clear();
-            snapshot.CooltimeItems.AddRange(cooltime);
+            var cooltime = _itemState.LoadItemStateList(characterId, ItemStateKinds.Cooltime);
+            snapshot.CooltimeItemStates.Clear();
+            snapshot.CooltimeItemStates.AddRange(cooltime);
 
-            var effect = _itemValue.LoadItemValueList(characterId, "effect");
-            snapshot.EffectItems.Clear();
-            snapshot.EffectItems.AddRange(effect);
+            var effect = _itemState.LoadItemStateList(characterId, ItemStateKinds.Effect);
+            snapshot.EffectItemStates.Clear();
+            snapshot.EffectItemStates.AddRange(effect);
 
             snapshot.AchievementComplete = _achievement.LoadAchievementComplete(characterId);
 

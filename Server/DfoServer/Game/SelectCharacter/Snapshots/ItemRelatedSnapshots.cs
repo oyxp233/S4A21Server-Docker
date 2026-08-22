@@ -46,6 +46,13 @@ namespace DfoServer.Game.SelectCharacter
         public int Value { get; set; }
     }
 
+    public sealed class ItemStateEntrySnapshot
+    {
+        public int ItemId { get; set; }
+
+        public int ExpireTime { get; set; }
+    }
+
     public sealed class ChampionBreakSystemSnapshot
     {
         public int KeyId { get; set; }

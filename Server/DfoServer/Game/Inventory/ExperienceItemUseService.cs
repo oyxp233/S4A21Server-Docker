@@ -19,32 +19,26 @@ namespace DfoServer.Game.Inventory
 
         private readonly string _connectionString;
         private readonly IRentalTimeProvider _timeProvider;
-        private readonly ExperienceItemCooldownTracker _cooldowns;
         private readonly SqliteCharacterProgressRepository _progressRepository;
 
         internal ExperienceItemUseService(
             string databasePath,
             string schemaFilePath,
-            IRentalTimeProvider timeProvider,
-            ExperienceItemCooldownTracker cooldowns)
+            IRentalTimeProvider timeProvider)
             : this(
                 new GameDatabase(databasePath, schemaFilePath),
-                timeProvider,
-                cooldowns)
+                timeProvider)
         {
         }
 
         internal ExperienceItemUseService(
             IGameDatabase database,
-            IRentalTimeProvider timeProvider,
-            ExperienceItemCooldownTracker cooldowns)
+            IRentalTimeProvider timeProvider)
         {
             _connectionString = (database ?? throw new ArgumentNullException(nameof(database)))
                 .ConnectionString;
             _timeProvider = timeProvider
                 ?? throw new ArgumentNullException(nameof(timeProvider));
-            _cooldowns = cooldowns
-                ?? throw new ArgumentNullException(nameof(cooldowns));
             _progressRepository = new SqliteCharacterProgressRepository(database);
         }
 
@@ -69,7 +63,7 @@ namespace DfoServer.Game.Inventory
             var sourceConsumed = false;
             ItemCore sourceSnapshot = null;
             InventoryService inventory = null;
-            ExperienceItemCooldownReservation cooldownReservation = null;
+            InventoryItemLifecycleUsePlan lifecyclePlan = null;
             try
             {
                 lock (lease.SyncRoot)
@@ -81,6 +75,17 @@ namespace DfoServer.Game.Inventory
 
                     sourceSnapshot = source.Copy();
                     resolvedItemId = sourceSnapshot.ItemId;
+                    if (InventoryItemLifecycleService.IsExpired(
+                            sourceSnapshot,
+                            _timeProvider.UtcNowUnixSeconds()))
+                    {
+                        return CommitExpiredSourceRemoval(
+                            lease,
+                            listType,
+                            slotIndex,
+                            resolvedItemId,
+                            "[ExperienceItem]");
+                    }
 
                     // 道具42(复活币礼盒): 消耗1个礼盒 → 复活币+1
                     if (resolvedItemId == ReviveCoinService.ConsumableItemId)
@@ -93,6 +98,18 @@ namespace DfoServer.Game.Inventory
                             (connection, transaction) =>
                             {
                                 var currentInventory = lease.Inventory;
+                                var lifecyclePlan = InventoryItemLifecycleService.PrepareUse(
+                                    currentInventory,
+                                    listType,
+                                    slotIndex,
+                                    resolvedItemId,
+                                    _timeProvider.UtcNowUnixSeconds());
+                                if (!lifecyclePlan.Success)
+                                {
+                                    consumeFailed = true;
+                                    return false;
+                                }
+
                                 if (!InventoryDeleteService.TryConsumeFromSlot(
                                         currentInventory,
                                         listType,
@@ -109,10 +126,18 @@ namespace DfoServer.Game.Inventory
 
                                 var current = currentInventory.CountMainItem(
                                     ReviveCoinService.ItemId);
-                                return currentInventory.SetMainVirtualCount(
+                                if (!currentInventory.SetMainVirtualCount(
                                     ReviveCoinService.WalletSlot,
                                     ReviveCoinService.ItemId,
-                                    current + 1);
+                                    current + 1))
+                                {
+                                    return false;
+                                }
+
+                                InventoryItemLifecycleService.ApplyUseSuccess(
+                                    currentInventory,
+                                    lifecyclePlan);
+                                return true;
                             });
                         if (!committed)
                         {
@@ -179,6 +204,44 @@ namespace DfoServer.Game.Inventory
                                     "source stack is empty");
                             }
 
+                            lifecyclePlan = InventoryItemLifecycleService.PrepareUse(
+                                inventory,
+                                listType,
+                                slotIndex,
+                                resolvedItemId,
+                                _timeProvider.UtcNowUnixSeconds());
+                            if (lifecyclePlan.SourceExpiredDeleted)
+                            {
+                                if (!InventoryPersistenceService.SaveDirtyInTransaction(
+                                        connection,
+                                        transaction,
+                                        lease))
+                                {
+                                    return Reject(
+                                        ExperienceItemUseStatus.PersistenceFailed,
+                                        resolvedItemId,
+                                        "expired source persistence failed");
+                                }
+
+                                transaction.Commit();
+                                inventory.ClearDirtyState();
+                                return new ExperienceItemUseResult
+                                {
+                                    Status = ExperienceItemUseStatus.Expired,
+                                    ItemTemplateId = resolvedItemId,
+                                    ConsumedItem = lifecyclePlan.SourceMutation,
+                                    Detail = "source item has expired",
+                                };
+                            }
+
+                            if (!lifecyclePlan.Success)
+                            {
+                                return Reject(
+                                    MapLifecycleStatus(lifecyclePlan.Status),
+                                    resolvedItemId,
+                                    lifecyclePlan.Detail);
+                            }
+
                             var character = _progressRepository.LoadProgressSnapshot(
                                 connection,
                                 transaction,
@@ -197,8 +260,6 @@ namespace DfoServer.Game.Inventory
                                 new ExperienceItemUseContext
                                 {
                                     Definition = definition,
-                                    SourceExpireTime = currentSource.ExpireTime,
-                                    NowUnixTime = _timeProvider.UtcNowUnixSeconds(),
                                     Job = character.Job,
                                     Level = character.Level,
                                     Exp = character.Exp,
@@ -225,18 +286,6 @@ namespace DfoServer.Game.Inventory
                                     ExperienceItemUseStatus.PersistenceFailed,
                                     resolvedItemId,
                                     "usable count transaction failed");
-                            }
-
-                            if (!_cooldowns.TryReserve(
-                                    characterId,
-                                    definition,
-                                    out cooldownReservation,
-                                    out var remainingCooldown))
-                            {
-                                return Reject(
-                                    ExperienceItemUseStatus.CooldownActive,
-                                    resolvedItemId,
-                                    $"cooldown remaining={remainingCooldown}ms");
                             }
 
                             if (!InventoryDeleteService.TryConsumeFromSlot(
@@ -303,19 +352,6 @@ namespace DfoServer.Game.Inventory
                                     "skill-point synchronization failed");
                             }
 
-                            if (!InventoryPersistenceService.SaveDirtyInTransaction(
-                                    connection,
-                                    transaction,
-                                    lease))
-                            {
-                                RestoreConsumedSource(inventory, listType, slotIndex, sourceSnapshot);
-                                sourceConsumed = false;
-                                return Reject(
-                                    ExperienceItemUseStatus.PersistenceFailed,
-                                    resolvedItemId,
-                                    "inventory persistence failed");
-                            }
-
                             var totalGrowthCapsuleExp = grant.TotalGrowthCapsuleExp;
                             if (grant.HonorExpGain == 0 && grant.NewLevel >= ExpTableProvider.MaxLevel)
                             {
@@ -323,6 +359,26 @@ namespace DfoServer.Game.Inventory
                                     connection,
                                     transaction,
                                     accountId);
+                            }
+
+                            InventoryItemLifecycleService.ApplyUseSuccess(
+                                inventory,
+                                lifecyclePlan);
+
+                            if (!InventoryPersistenceService.SaveDirtyInTransaction(
+                                    connection,
+                                    transaction,
+                                    lease))
+                            {
+                                InventoryItemLifecycleService.RollbackUseSuccess(
+                                    inventory,
+                                    lifecyclePlan);
+                                RestoreConsumedSource(inventory, listType, slotIndex, sourceSnapshot);
+                                sourceConsumed = false;
+                                return Reject(
+                                    ExperienceItemUseStatus.PersistenceFailed,
+                                    resolvedItemId,
+                                    "inventory persistence failed");
                             }
 
                             var result = new ExperienceItemUseResult
@@ -350,16 +406,6 @@ namespace DfoServer.Game.Inventory
                             inventory.ClearDirtyState();
                             sourceConsumed = false;
 
-                            try
-                            {
-                                cooldownReservation?.Commit();
-                            }
-                            catch (Exception ex)
-                            {
-                                FileLogger.Log(
-                                    $"[ExperienceItem] cooldown commit failed after database commit: item={resolvedItemId} cid={characterId} error={ex.Message}");
-                            }
-
                             return result;
                         }
                     }
@@ -367,6 +413,10 @@ namespace DfoServer.Game.Inventory
             }
             catch (SqliteException ex)
             {
+                if (sourceConsumed && lifecyclePlan != null)
+                    InventoryItemLifecycleService.RollbackUseSuccess(
+                        inventory,
+                        lifecyclePlan);
                 if (sourceConsumed)
                     RestoreConsumedSource(inventory, listType, slotIndex, sourceSnapshot);
 
@@ -379,6 +429,10 @@ namespace DfoServer.Game.Inventory
             }
             catch (Exception ex) when (sourceConsumed)
             {
+                if (lifecyclePlan != null)
+                    InventoryItemLifecycleService.RollbackUseSuccess(
+                        inventory,
+                        lifecyclePlan);
                 RestoreConsumedSource(inventory, listType, slotIndex, sourceSnapshot);
                 FileLogger.Log(
                     $"[ExperienceItem] inventory mutation rollback item={resolvedItemId} cid={characterId} slot={slotIndex}: {ex.Message}");
@@ -386,10 +440,6 @@ namespace DfoServer.Game.Inventory
                     ExperienceItemUseStatus.PersistenceFailed,
                     resolvedItemId,
                     "inventory transaction failed");
-            }
-            finally
-            {
-                cooldownReservation?.Dispose();
             }
         }
 
@@ -413,6 +463,7 @@ namespace DfoServer.Game.Inventory
             var sourceConsumed = false;
             ItemCore sourceSnapshot = null;
             InventoryService inventory = null;
+            InventoryItemLifecycleUsePlan lifecyclePlan = null;
             try
             {
                 lock (lease.SyncRoot)
@@ -424,6 +475,18 @@ namespace DfoServer.Game.Inventory
 
                     sourceSnapshot = source.Copy();
                     resolvedItemId = sourceSnapshot.ItemId;
+                    if (InventoryItemLifecycleService.IsExpired(
+                            sourceSnapshot,
+                            _timeProvider.UtcNowUnixSeconds()))
+                    {
+                        return CommitExpiredSourceRemoval(
+                            lease,
+                            InventoryListType.Main,
+                            slotIndex,
+                            resolvedItemId,
+                            "[LevelUpTicket]");
+                    }
+
                     var stackable = StackableItemProvider.Load(resolvedItemId);
                     if (!IsLevelUpTicket(stackable))
                     {
@@ -458,14 +521,42 @@ namespace DfoServer.Game.Inventory
                                     "source stack is empty");
                             }
 
-                            if (currentSource.ExpireTime > 0
-                                && (uint)currentSource.ExpireTime
-                                    <= _timeProvider.UtcNowUnixSeconds())
+                            lifecyclePlan = InventoryItemLifecycleService.PrepareUse(
+                                inventory,
+                                InventoryListType.Main,
+                                slotIndex,
+                                resolvedItemId,
+                                _timeProvider.UtcNowUnixSeconds());
+                            if (lifecyclePlan.SourceExpiredDeleted)
+                            {
+                                if (!InventoryPersistenceService.SaveDirtyInTransaction(
+                                        connection,
+                                        transaction,
+                                        lease))
+                                {
+                                    return Reject(
+                                        ExperienceItemUseStatus.PersistenceFailed,
+                                        resolvedItemId,
+                                        "expired source persistence failed");
+                                }
+
+                                transaction.Commit();
+                                inventory.ClearDirtyState();
+                                return new ExperienceItemUseResult
+                                {
+                                    Status = ExperienceItemUseStatus.Expired,
+                                    ItemTemplateId = resolvedItemId,
+                                    ConsumedItem = lifecyclePlan.SourceMutation,
+                                    Detail = "source item has expired",
+                                };
+                            }
+
+                            if (!lifecyclePlan.Success)
                             {
                                 return Reject(
-                                    ExperienceItemUseStatus.Expired,
+                                    MapLifecycleStatus(lifecyclePlan.Status),
                                     resolvedItemId,
-                                    "source item has expired");
+                                    lifecyclePlan.Detail);
                             }
 
                             var character = _progressRepository.LoadProgressSnapshot(
@@ -584,11 +675,26 @@ namespace DfoServer.Game.Inventory
                                     "skill-point synchronization failed");
                             }
 
+                            var totalGrowthCapsuleExp =
+                                targetLevel >= ExpTableProvider.MaxLevel
+                                    ? GrowthCapsuleProgressRepository.LoadTotalExp(
+                                        connection,
+                                        transaction,
+                                        accountId)
+                                    : 0;
+
+                            InventoryItemLifecycleService.ApplyUseSuccess(
+                                inventory,
+                                lifecyclePlan);
+
                             if (!InventoryPersistenceService.SaveDirtyInTransaction(
                                     connection,
                                     transaction,
                                     lease))
                             {
+                                InventoryItemLifecycleService.RollbackUseSuccess(
+                                    inventory,
+                                    lifecyclePlan);
                                 RestoreConsumedSource(
                                     inventory,
                                     InventoryListType.Main,
@@ -601,13 +707,6 @@ namespace DfoServer.Game.Inventory
                                     "inventory persistence failed");
                             }
 
-                            var totalGrowthCapsuleExp =
-                                targetLevel >= ExpTableProvider.MaxLevel
-                                    ? GrowthCapsuleProgressRepository.LoadTotalExp(
-                                        connection,
-                                        transaction,
-                                        accountId)
-                                    : 0;
                             var grantedExp = targetExp > character.Exp
                                 ? targetExp - character.Exp
                                 : 0;
@@ -640,6 +739,10 @@ namespace DfoServer.Game.Inventory
             }
             catch (SqliteException ex)
             {
+                if (sourceConsumed && lifecyclePlan != null)
+                    InventoryItemLifecycleService.RollbackUseSuccess(
+                        inventory,
+                        lifecyclePlan);
                 if (sourceConsumed)
                     RestoreConsumedSource(
                         inventory,
@@ -656,6 +759,10 @@ namespace DfoServer.Game.Inventory
             }
             catch (Exception ex) when (sourceConsumed)
             {
+                if (lifecyclePlan != null)
+                    InventoryItemLifecycleService.RollbackUseSuccess(
+                        inventory,
+                        lifecyclePlan);
                 RestoreConsumedSource(
                     inventory,
                     InventoryListType.Main,
@@ -667,6 +774,67 @@ namespace DfoServer.Game.Inventory
                     ExperienceItemUseStatus.PersistenceFailed,
                     resolvedItemId,
                     "inventory transaction failed");
+            }
+        }
+
+        private ExperienceItemUseResult CommitExpiredSourceRemoval(
+            InventoryLease lease,
+            InventoryListType listType,
+            short slotIndex,
+            int resolvedItemId,
+            string logPrefix)
+        {
+            InventoryMutationResult mutation = null;
+            var committed = OnlineInventoryMutationCommitCoordinator.TryCommit(
+                lease,
+                "experience-expired-source",
+                (connection, transaction) =>
+                    InventoryItemLifecycleService.TryRemoveExpiredSource(
+                        lease.Inventory,
+                        listType,
+                        slotIndex,
+                        resolvedItemId,
+                        _timeProvider.UtcNowUnixSeconds(),
+                        out mutation));
+            if (!committed || mutation == null)
+            {
+                FileLogger.Log(
+                    $"{logPrefix} expired source removal failed " +
+                    $"item={resolvedItemId} cid={lease?.CharacterId ?? 0} slot={slotIndex}");
+                return Reject(
+                    ExperienceItemUseStatus.PersistenceFailed,
+                    resolvedItemId,
+                    "expired source removal failed");
+            }
+
+            return new ExperienceItemUseResult
+            {
+                Status = ExperienceItemUseStatus.Expired,
+                ItemTemplateId = resolvedItemId,
+                ConsumedItem = mutation,
+                Detail = "source item has expired",
+            };
+        }
+
+        private static ExperienceItemUseStatus MapLifecycleStatus(
+            InventoryItemLifecycleStatus status)
+        {
+            switch (status)
+            {
+                case InventoryItemLifecycleStatus.SourceExpired:
+                    return ExperienceItemUseStatus.Expired;
+                case InventoryItemLifecycleStatus.CooltimeActive:
+                case InventoryItemLifecycleStatus.EffectActive:
+                    return ExperienceItemUseStatus.CooldownActive;
+                case InventoryItemLifecycleStatus.InvalidDefinition:
+                    return ExperienceItemUseStatus.UnsupportedDefinition;
+                case InventoryItemLifecycleStatus.SourceMissing:
+                case InventoryItemLifecycleStatus.SourceChanged:
+                    return ExperienceItemUseStatus.NotApplicable;
+                case InventoryItemLifecycleStatus.SourceEmpty:
+                    return ExperienceItemUseStatus.ConsumeFailed;
+                default:
+                    return ExperienceItemUseStatus.ConsumeFailed;
             }
         }
 

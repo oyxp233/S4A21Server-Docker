@@ -35,8 +35,8 @@ namespace DfoServer.Network.Builders
             Register(new ExpertJobInfoBodyBuilder());          
             Register(new ItemLockListBodyBuilder());           
             Register(new EmptyPartyInfoBodyBuilder());
-            Register(new ItemValueListBodyBuilder(0x00AC));    
-            Register(new ItemValueListBodyBuilder(0x00AE));    
+            Register(new ItemStateListBodyBuilder(0x00AC));
+            Register(new ItemStateListBodyBuilder(0x00AE));
             Register(new AchievementListBodyBuilder());    
             Register(new TitleBookListBodyBuilder());   
             Register(new ChampionBreakSystemBodyBuilder());    

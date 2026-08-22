@@ -193,6 +193,10 @@ namespace PvfLib
         public int LotteryUseNeedItemCount { get; set; }
         public int CoolTime { get; set; } = -1;
         public string CooltimeGroup { get; set; }
+        public bool HasCooltimeMaintenance { get; set; }
+        public bool HasEffectMaintenance { get; set; }
+        public int StatChangeDurationMilliseconds { get; set; } = -1;
+        public string StatChangeDurationTarget { get; set; }
 
         #endregion
 
@@ -355,6 +359,9 @@ namespace PvfLib
                     }
                     case "cool time": stk.CoolTime = ParseInt(data); break;
                     case "cooltime group": stk.CooltimeGroup = data; break;
+                    case "cooltime maintenance": stk.HasCooltimeMaintenance = true; break;
+                    case "effect maintenance": stk.HasEffectMaintenance = true; break;
+                    case "stat change duration": ParseStatChangeDuration(data, stk); break;
 
                     
                     case "icon": stk.Icon = data; break;
@@ -454,6 +461,25 @@ namespace PvfLib
             stk.RandomBoxRemovalItems = ParseRandomBoxRemovalItems(randomBox != null ? randomBox.GetChild("sealing removal item") : null, content);
 
             return stk;
+        }
+
+        private static void ParseStatChangeDuration(string data, StackableItemFile stackable)
+        {
+            if (stackable == null || string.IsNullOrWhiteSpace(data))
+                return;
+
+            var parts = data.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return;
+
+            int duration;
+            if (!int.TryParse(parts[0], out duration))
+                return;
+
+            stackable.StatChangeDurationMilliseconds = duration;
+            stackable.StatChangeDurationTarget = parts.Length > 1
+                ? StripBacktick(parts[1])
+                : string.Empty;
         }
 
         private static List<StackableStatusIncreaseEntry> ParseStatusIncreases(

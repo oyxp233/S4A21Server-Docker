@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DfoServer.Game.CharacterData;
 using DfoServer.Game.Currency;
 using DfoServer.Game.ItemUpgrade;
 using DfoServer.Game.ReviveCoin;
@@ -119,6 +120,8 @@ namespace DfoServer.Game.Inventory
 
         public EpicPieceBookModel EpicPieces { get; } = new EpicPieceBookModel();
 
+        public InventoryItemStateBook ItemStates { get; } = new InventoryItemStateBook();
+
         public IReadOnlyCollection<InventoryListType> DirtyListTypes => _dirtySlots.Keys;
 
         public IReadOnlyCollection<short> DirtyMainVirtualCountSlots => _dirtyMainVirtualSlots;
@@ -163,6 +166,7 @@ namespace DfoServer.Game.Inventory
             inventory.Achievements.LoadForCharacter(connection, characterId);
             CollectBoxProgressRepository.LoadModel(connection, null, characterId, inventory.CollectBox);
             inventory.LoadAuraSkinFlag(connection);
+            CharacterItemStateRepository.LoadInto(connection, characterId, inventory.ItemStates);
 
             foreach (var item in InventoryItemRepository.LoadCharacterItems(connection, characterId))
                 inventory.AttachItem(item);
@@ -571,6 +575,7 @@ namespace DfoServer.Game.Inventory
             Achievements.ClearDirtyState();
             CollectBox.ClearDirtyState();
             EpicPieces.ClearDirtyState();
+            ItemStates.ClearDirtyState();
         }
 
         public static bool IsVirtualMainSlot(short slotIndex)
