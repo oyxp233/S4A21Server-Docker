@@ -216,6 +216,36 @@ namespace DfoServer.Network.Handlers
             }
         }
 
+        private void ApplyLoginItemExpirationMaintenance(InventoryLease lease)
+        {
+            if (lease?.Inventory == null)
+                return;
+
+            int removedItems;
+            lock (lease.SyncRoot)
+            {
+                removedItems = InventoryItemLifecycleService.RemoveExpiredItems(
+                    lease.Inventory,
+                    InventoryItemLifecycleService.UtcNowUnixSeconds(),
+                    null);
+            }
+
+            if (removedItems <= 0)
+                return;
+
+            if (!InventoryPersistenceService.SaveDirty(lease))
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] expired item cleanup persistence failed " +
+                    $"cid={lease.CharacterId} removed={removedItems}");
+                return;
+            }
+
+            FileLogger.Log(
+                $"[{ProtocolName}] expired item cleanup applied " +
+                $"cid={lease.CharacterId} removed={removedItems}");
+        }
+
         private bool TryApplyAccountDailyReset(int accountId)
         {
             if (accountId <= 0)
@@ -325,7 +355,8 @@ namespace DfoServer.Network.Handlers
                     session.Player.HydrateFrom(
                         record,
                         selectedSpawn);
-                    TryRegisterInventoryLease(session, record, inventory);
+                    var registeredLease = TryRegisterInventoryLease(session, record, inventory);
+                    ApplyLoginItemExpirationMaintenance(registeredLease);
 
                     try
                     {

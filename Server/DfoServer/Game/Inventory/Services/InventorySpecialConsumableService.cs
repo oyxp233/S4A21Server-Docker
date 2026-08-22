@@ -78,6 +78,27 @@ namespace DfoServer.Game.Inventory
             if (!ValidateSourceCount(source.Core, requestedCount))
                 return false;
 
+            var lifecyclePlan = InventoryItemLifecycleService.PrepareUse(
+                inventory,
+                InventoryListType.Main,
+                source.SlotIndex,
+                sourceItemTemplateId,
+                InventoryItemLifecycleService.UtcNowUnixSeconds(),
+                requestedCount);
+            if (lifecyclePlan.SourceExpiredDeleted)
+            {
+                result.ErrorCode = BoosterUseResult.ErrorInvalidRequest;
+                result.SourceExpiredDeleted = true;
+                result.SourceSlotIndex = source.SlotIndex;
+                result.SourceItemTemplateId = sourceItemTemplateId;
+                result.SourceRemainingStackCount = 0;
+                result.SourceInstanceValue = sourceInstanceValue;
+                return true;
+            }
+
+            if (!lifecyclePlan.Success)
+                return false;
+
             var stackable = StackableItemProvider.Load(sourceItemTemplateId);
             if (stackable == null)
                 return false;
@@ -184,6 +205,10 @@ namespace DfoServer.Game.Inventory
                     result,
                     out var applied))
                 return false;
+
+            InventoryItemLifecycleService.ApplyUseSuccess(
+                inventory,
+                lifecyclePlan);
 
             result.ErrorCode = 0;
             result.SourceSlotIndex = source.SlotIndex;
@@ -929,9 +954,9 @@ namespace DfoServer.Game.Inventory
         {
             source = null;
             if (slotIndex.HasValue)
-                TryGetMainSource(inventory, slotIndex.Value, out source);
+                TryGetMainSource(inventory, slotIndex.Value, out source, allowExpired: true);
             else
-                source = FindFirstPackageItem(inventory);
+                source = FindFirstPackageItem(inventory, allowExpired: true);
 
             if (source != null && (expectedItemTemplateId <= 0 || source.Core.ItemId == expectedItemTemplateId))
                 return true;
@@ -939,7 +964,11 @@ namespace DfoServer.Game.Inventory
             if (expectedItemTemplateId <= 0)
                 return source != null;
 
-            if (!TryFindMainItemByTemplateIdInMetadataRange(inventory, expectedItemTemplateId, out var fallback))
+            if (!TryFindMainItemByTemplateIdInMetadataRange(
+                    inventory,
+                    expectedItemTemplateId,
+                    out var fallback,
+                    allowExpired: true))
                 return false;
 
             if (slotIndex.HasValue && fallback.SlotIndex != slotIndex.Value)
@@ -954,7 +983,8 @@ namespace DfoServer.Game.Inventory
         private static bool TryGetMainSource(
             InventoryService inventory,
             short slotIndex,
-            out SourceContext source)
+            out SourceContext source,
+            bool allowExpired = false)
         {
             source = null;
             if (inventory == null)
@@ -964,7 +994,9 @@ namespace DfoServer.Game.Inventory
             if (core == null || core.ItemId <= 0 || core.Count <= 0)
                 return false;
 
-            if (core.ExpireTime > 0 && core.ExpireTime <= DateTimeOffset.Now.ToUnixTimeSeconds())
+            if (!allowExpired
+                && core.ExpireTime > 0
+                && core.ExpireTime <= DateTimeOffset.Now.ToUnixTimeSeconds())
                 return false;
 
             source = new SourceContext
@@ -1045,7 +1077,8 @@ namespace DfoServer.Game.Inventory
         private static bool TryFindMainItemByTemplateIdInMetadataRange(
             InventoryService inventory,
             int itemTemplateId,
-            out SourceContext source)
+            out SourceContext source,
+            bool allowExpired = false)
         {
             source = null;
             if (inventory == null || itemTemplateId <= 0)
@@ -1058,6 +1091,12 @@ namespace DfoServer.Game.Inventory
                 var core = inventory.GetItem(InventoryListType.Main, (short)slot);
                 if (core == null || core.ItemId != itemTemplateId)
                     continue;
+                if (!allowExpired
+                    && core.ExpireTime > 0
+                    && core.ExpireTime <= DateTimeOffset.Now.ToUnixTimeSeconds())
+                {
+                    continue;
+                }
 
                 source = new SourceContext
                 {
@@ -1070,7 +1109,9 @@ namespace DfoServer.Game.Inventory
             return false;
         }
 
-        private static SourceContext FindFirstPackageItem(InventoryService inventory)
+        private static SourceContext FindFirstPackageItem(
+            InventoryService inventory,
+            bool allowExpired = false)
         {
             if (inventory == null)
                 return null;
@@ -1080,6 +1121,12 @@ namespace DfoServer.Game.Inventory
                 var core = pair.Value;
                 if (core == null || core.ItemId <= 0 || core.Count <= 0)
                     continue;
+                if (!allowExpired
+                    && core.ExpireTime > 0
+                    && core.ExpireTime <= DateTimeOffset.Now.ToUnixTimeSeconds())
+                {
+                    continue;
+                }
 
                 var stackable = StackableItemProvider.Load(core.ItemId);
                 if (stackable == null)

@@ -243,6 +243,7 @@ namespace DfoServer.Game.SelectCharacter
 
             _dailyChallengeService.EnsureInitialized(characterId);
             _initFlagsRepository.LoadAll(characterId, initSnapshot);
+            ApplyOnlineItemStates(characterId, initSnapshot);
             var loginPermissions = _dungeonDifficultyPermissions
                 .BuildLoginPermissions(
                     accountId,
@@ -480,6 +481,39 @@ namespace DfoServer.Game.SelectCharacter
                     });
                 }
             }
+        }
+
+        private static void ApplyOnlineItemStates(int characterId, SelectCharacterInitializationSnapshot initSnapshot)
+        {
+            ApplyOnlineItemStates(
+                characterId,
+                initSnapshot,
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        }
+
+        internal static void ApplyOnlineItemStates(
+            int characterId,
+            SelectCharacterInitializationSnapshot initSnapshot,
+            long now)
+        {
+            if (initSnapshot == null
+                || !InventoryContext.TryGetLease(characterId, out var lease))
+                return;
+
+            var removedExpired = false;
+            lock (lease.SyncRoot)
+            {
+                removedExpired = lease.Inventory.ItemStates.RemoveExpired(now) > 0;
+                initSnapshot.CooltimeItemStates.Clear();
+                initSnapshot.CooltimeItemStates.AddRange(
+                    lease.Inventory.ItemStates.BuildActiveSnapshots(ItemStateKinds.Cooltime, now));
+                initSnapshot.EffectItemStates.Clear();
+                initSnapshot.EffectItemStates.AddRange(
+                    lease.Inventory.ItemStates.BuildActiveSnapshots(ItemStateKinds.Effect, now));
+            }
+
+            if (removedExpired)
+                InventoryPersistenceService.SaveDirty(lease);
         }
 
         private static void ApplyWallet(SelectCharacterInitializationSnapshot initSnapshot, WalletSnapshot wallet)

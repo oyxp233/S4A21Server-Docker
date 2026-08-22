@@ -41,6 +41,8 @@ namespace DfoServer.Game.Lottery
 
         public int SourceRemainingStackCount { get; set; }
 
+        public bool SourceExpiredDeleted { get; set; }
+
         public int ConsumedGold { get; set; }
 
         public int UpdatedGold { get; set; }

@@ -1,8 +1,9 @@
 # GM工具新背包数据结构说明
 
-> 文档版本：1.1
+> 文档版本：1.1.2
 > 数据库基线：`86jp-database-v1` / schema v1
-> 更新日期：2026-08-13
+> 更新日期：2026-08-22
+> 本版登记：新增 `character_item_states` 冷却与持续效果状态账本说明；`R-DOC-ITEMCORE-001` 的 A21 `ItemCore` 99B 修正继续有效。
 
 本文面向 GM 工具重写。当前背包已经从旧 `character_items + extra_json`、`character_equipped_entries.raw_entry`、旧 DTO/InvenItem 过渡到在线 `InventoryService + ItemCore + Detail` 模型。GM 工具不要再直接构造旧 DTO，也不要再依赖 `extra_json` 字节段名称。
 
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS character_inventory_items (
     character_id INTEGER NOT NULL,
     list_type INTEGER NOT NULL,
     slot_index INTEGER NOT NULL,
-    item_core BLOB NOT NULL CHECK(length(item_core) = 82),
+    item_core BLOB NOT NULL CHECK(length(item_core) = 99),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(character_id, list_type, slot_index),
@@ -65,7 +66,7 @@ CREATE TABLE IF NOT EXISTS account_inventory_items (
     item_uid INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
     slot_index INTEGER NOT NULL,
-    item_core BLOB NOT NULL CHECK(length(item_core) = 82),
+    item_core BLOB NOT NULL CHECK(length(item_core) = 99),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(account_id, slot_index),
@@ -250,6 +251,24 @@ CREATE TABLE IF NOT EXISTS character_name_tag_state (
 
 同一个角色只能有一条名称装饰卡记录。新增时覆盖旧记录。`expire_time` 是到期 Unix 时间戳，不是剩余秒数；协议当前也发送到期时间戳。
 
+### character_item_states
+
+道具冷却和持续效果状态账本。它不是背包物品行，不存 `ItemCore`；在线真源是 `InventoryService.ItemStates`。
+
+```sql
+CREATE TABLE IF NOT EXISTS character_item_states (
+    character_id INTEGER NOT NULL,
+    state_kind TEXT NOT NULL CHECK(state_kind IN ('cooltime', 'effect')),
+    item_id INTEGER NOT NULL,
+    expire_time INTEGER NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (character_id, state_kind, item_id),
+    FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
+);
+```
+
+`expire_time` 是到期 Unix 秒时间戳，不是剩余秒数。在线角色应通过服务端接口修改 `InventoryService.ItemStates` 并保存；离线 GM 修改时也必须保持 `(character_id, state_kind, item_id)` 唯一。
+
 ### character_item_locks
 
 物品锁表。它是快速构造锁列表包的索引表，不是物品真源。
@@ -288,7 +307,7 @@ CREATE TABLE IF NOT EXISTS character_titlebook_items (
     character_id INTEGER NOT NULL,
     category INTEGER NOT NULL,
     slot_index INTEGER NOT NULL,
-    item_core BLOB NOT NULL CHECK(length(item_core) = 82),
+    item_core BLOB NOT NULL CHECK(length(item_core) = 99),
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (character_id, category, slot_index),
     FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE

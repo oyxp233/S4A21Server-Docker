@@ -52,7 +52,9 @@ namespace DfoServer.Game.Inventory
             result = committedResult;
             persistenceFailed = !committed
                 && (!applyCompleted || applied || databaseAccessFailed || mailboxDeliveryFailed);
-            return applied && committed;
+            return applied
+                && committed
+                && (committedResult == null || !committedResult.SourceExpiredDeleted);
         }
 
         internal static bool TryCommitPackage0207(

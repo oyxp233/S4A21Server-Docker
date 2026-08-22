@@ -61,6 +61,12 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            if (await TryRejectExpiredSourceAsync(session, request.SlotIndex))
+            {
+                await SendError(session);
+                return;
+            }
+
             if (request.Phase == 0)
             {
                 if (!TryInspect(session, request.SlotIndex, out var source))
@@ -250,6 +256,8 @@ namespace DfoServer.Network.Handlers
                 || result == null)
             {
                 _sessions.ReleaseOpen(session.SessionId, reservation);
+                if (result?.SourceExpiredDeleted == true)
+                    await _responses.SendSourceSlotRefresh(session, result.SourceSlotIndex);
                 return false;
             }
 
@@ -266,6 +274,58 @@ namespace DfoServer.Network.Handlers
                 ? string.Empty
                 : $" progress={result.Progress.NewRewardIndex} claimed={result.Progress.ClaimedRewardIndexes.Count} autoReset={result.Progress.AutoReset}";
             FileLogger.Log($"[{ProtocolName}] USE_LOTTERY_ITEM: source=0x{result.SourceItemTemplateId:X8} slot={result.SourceSlotIndex} remaining={result.SourceRemainingStackCount} gold={result.ConsumedGold}->{result.UpdatedGold} mode={openPlan.Mode} double={result.UsedDoubleReward} mailbox={result.DeliveredToMailbox} rewards={string.Join(",", result.Rewards.Select(reward => $"{reward.ListType}:0x{reward.ItemTemplateId:X8}x{reward.GrantedCount}@{reward.SlotIndex}"))}{progressText}");
+            return true;
+        }
+
+        private async Task<bool> TryRejectExpiredSourceAsync(
+            EnhancedClientSession session,
+            short slotIndex)
+        {
+            var (characterId, _) = SessionOwnerResolver.Resolve(session);
+            if (!TryGetOwnedInventoryLease(session, characterId, out var lease))
+                return false;
+
+            int itemTemplateId;
+            lock (lease.SyncRoot)
+            {
+                if (!InventoryContext.IsCurrentLease(
+                        lease,
+                        session.SessionId,
+                        characterId))
+                {
+                    return false;
+                }
+
+                var source = lease.Inventory.GetItem(InventoryListType.Main, slotIndex);
+                if (!InventoryItemLifecycleService.IsExpired(
+                        source,
+                        InventoryItemLifecycleService.UtcNowUnixSeconds()))
+                {
+                    return false;
+                }
+
+                itemTemplateId = source.ItemId;
+            }
+
+            InventoryMutationResult mutation = null;
+            var committed = OnlineInventoryMutationCommitCoordinator.TryCommit(
+                lease,
+                "lottery-expired-source",
+                (connection, transaction) =>
+                    InventoryItemLifecycleService.TryRemoveExpiredSource(
+                        lease.Inventory,
+                        InventoryListType.Main,
+                        slotIndex,
+                        itemTemplateId,
+                        InventoryItemLifecycleService.UtcNowUnixSeconds(),
+                        out mutation));
+            if (!committed || mutation == null)
+                return false;
+
+            await _responses.SendSourceSlotRefresh(session, slotIndex);
+            FileLogger.Log(
+                $"[{ProtocolName}] USE_LOTTERY_ITEM: expired source removed " +
+                $"cid={characterId} item=0x{itemTemplateId:X8} slot={slotIndex}");
             return true;
         }
 

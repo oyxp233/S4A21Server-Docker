@@ -147,8 +147,7 @@ namespace DfoServer.Infrastructure
                 rentalTimeProvider);
             var experienceItemUseService = new ExperienceItemUseService(
                 Database,
-                rentalTimeProvider,
-                new ExperienceItemCooldownTracker());
+                rentalTimeProvider);
             var selectCharacterDataSource = new SqliteSelectCharacterDataSource(
                 Database,
                 characterRepository,

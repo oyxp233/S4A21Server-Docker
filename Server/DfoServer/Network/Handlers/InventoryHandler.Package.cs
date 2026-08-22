@@ -136,6 +136,18 @@ namespace DfoServer.Network.Handlers
 
             var (cid, aid) = ResolveOwner(session);
 
+            if (await TryRejectExpiredStackableSourceAsync(
+                    session,
+                    header,
+                    cid,
+                    listType,
+                    slotIndex,
+                    instanceValue,
+                    itemCode))
+            {
+                return;
+            }
+
             if (await TryRejectChannelRestrictedTeleportConsumableAsync(
                     session,
                     header,
@@ -276,25 +288,33 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
-            var consumed = false;
             InventoryMutationResult result = null;
+            InventoryStackableUseCommitResult stackableUseResult = null;
             if (TryGetOwnedInventoryLease(session, cid, out lease))
             {
-                consumed = InventoryDeleteCommitService.TryCommitStackableUse(
+                stackableUseResult = InventoryDeleteCommitService.TryCommitStackableUseDetailed(
                     lease,
                     listType,
                     slotIndex,
-                    itemCode,
-                    out result);
+                    itemCode);
+                result = stackableUseResult?.Mutation;
             }
 
+            var consumed = stackableUseResult != null && stackableUseResult.Consumed;
             var responsePlan = BuildUseStackableResponsePlan(consumed, result, listType, slotIndex, instanceValue, itemCode);
             if (!consumed)
             {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, responsePlan.AckBody));
+                if (stackableUseResult?.SourceExpiredDeleted == true)
+                {
+                    await _refresh.SendUpdateItemList(session, listType, slotIndex);
+                    FileLogger.Log($"[{ProtocolName}] USE_STACKABLE: expired source removed item 0x{stackableUseResult.ItemTemplateId:X8} at listType={listType} slot={slotIndex}");
+                    return;
+                }
+
                 FileLogger.Log(responsePlan.StalePetConsumable
                     ? $"[{ProtocolName}] USE_STACKABLE: stale pet consumable use acknowledged item 0x{itemCode:X8} at listType={listType} slot={slotIndex}"
                     : $"[{ProtocolName}] USE_STACKABLE: failed to consume item 0x{itemCode:X8} at listType={listType} slot={slotIndex}");
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, responsePlan.AckBody));
                 return;
             }
 
@@ -310,6 +330,72 @@ namespace DfoServer.Network.Handlers
                 ? $" petSatiety key={result.PetCreatureKey} {result.PetSatietyBefore}->{result.PetSatietyAfter}"
                 : string.Empty;
             FileLogger.Log($"[{ProtocolName}] USE_STACKABLE: consumed 1x item 0x{itemCode:X8} from slot {slotIndex}, remaining={result.RemainingStackCount}{petSatietyLog}");
+        }
+
+        private async Task<bool> TryRejectExpiredStackableSourceAsync(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            int characterId,
+            InventoryListType listType,
+            short slotIndex,
+            int instanceValue,
+            int expectedItemTemplateId)
+        {
+            if (!TryGetOwnedInventoryLease(session, characterId, out var lease))
+                return false;
+
+            int responseItemTemplateId;
+            lock (lease.SyncRoot)
+            {
+                if (!InventoryContext.IsCurrentLease(
+                        lease,
+                        session.SessionId,
+                        characterId))
+                {
+                    return false;
+                }
+
+                var source = lease.Inventory.GetItem(listType, slotIndex);
+                if (!InventoryItemLifecycleService.IsExpired(
+                        source,
+                        InventoryItemLifecycleService.UtcNowUnixSeconds())
+                    || (expectedItemTemplateId > 0
+                        && source.ItemId != expectedItemTemplateId))
+                {
+                    return false;
+                }
+
+                responseItemTemplateId = source.ItemId;
+            }
+
+            InventoryMutationResult mutation = null;
+            var committed = OnlineInventoryMutationCommitCoordinator.TryCommit(
+                lease,
+                "use-stackable-expired-source",
+                (connection, transaction) =>
+                    InventoryItemLifecycleService.TryRemoveExpiredSource(
+                        lease.Inventory,
+                        listType,
+                        slotIndex,
+                        responseItemTemplateId,
+                        InventoryItemLifecycleService.UtcNowUnixSeconds(),
+                        out mutation));
+            if (!committed || mutation == null)
+                return false;
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                header.type,
+                UseStackableAckBuilder.BuildError(
+                    (byte)listType,
+                    instanceValue,
+                    responseItemTemplateId)));
+            await _refresh.SendUpdateItemList(session, listType, slotIndex);
+            FileLogger.Log(
+                $"[{ProtocolName}] USE_STACKABLE: expired source removed " +
+                $"cid={characterId} item=0x{responseItemTemplateId:X8} " +
+                $"listType={listType} slot={slotIndex}");
+            return true;
         }
 
         private async Task<bool>
@@ -952,6 +1038,7 @@ namespace DfoServer.Network.Handlers
                     header.type,
                     BuildMagicBoxFailureAckBody(header.type, result)));
                 await SendBoosterMaterialNotice(session, result);
+                await RefreshExpiredBoosterSourceAsync(session, result);
                 return;
             }
 
@@ -1003,6 +1090,7 @@ namespace DfoServer.Network.Handlers
                     header.type,
                     BuildMagicBoxFailureAckBody(header.type, result)));
                 await SendBoosterMaterialNotice(session, result);
+                await RefreshExpiredBoosterSourceAsync(session, result);
                 return;
             }
 
@@ -1060,6 +1148,7 @@ namespace DfoServer.Network.Handlers
                         header.type,
                         BuildBoosterFailureAckBody(result)));
                     await SendBoosterMaterialNotice(session, result);
+                    await RefreshExpiredBoosterSourceAsync(session, result);
                     FileLogger.Log($"[{ProtocolName}] USE_BOOSTER: rejected cid={cid} aid={aid} slot={(slotIndex.HasValue ? slotIndex.Value.ToString() : "auto")} error=0x{result.ErrorCode:X2} elapsed={elapsed.ElapsedMilliseconds}ms");
                     return true;
                 }
@@ -1458,6 +1547,22 @@ namespace DfoServer.Network.Handlers
             }
 
             return wallet;
+        }
+
+        private async Task RefreshExpiredBoosterSourceAsync(
+            EnhancedClientSession session,
+            BoosterUseResult result)
+        {
+            if (result == null || !result.SourceExpiredDeleted)
+                return;
+
+            await _refresh.SendUpdateItemList(
+                session,
+                InventoryListType.Main,
+                result.SourceSlotIndex);
+            FileLogger.Log(
+                $"[{ProtocolName}] USE_BOOSTER: expired source removed " +
+                $"item=0x{result.SourceItemTemplateId:X8} slot={result.SourceSlotIndex}");
         }
 
         private static async Task SendBoosterMaterialNotice(EnhancedClientSession session, BoosterUseResult result)

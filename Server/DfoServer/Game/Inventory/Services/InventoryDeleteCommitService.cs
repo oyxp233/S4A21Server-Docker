@@ -50,9 +50,23 @@ namespace DfoServer.Game.Inventory
             int expectedItemId,
             out InventoryMutationResult mutation)
         {
-            mutation = null;
+            var result = TryCommitStackableUseDetailed(
+                lease,
+                listType,
+                slotIndex,
+                expectedItemId);
+            mutation = result?.Mutation;
+            return result != null && result.Consumed;
+        }
+
+        internal static InventoryStackableUseCommitResult TryCommitStackableUseDetailed(
+            InventoryLease lease,
+            InventoryListType listType,
+            short slotIndex,
+            int expectedItemId)
+        {
             if (lease?.Inventory == null)
-                return false;
+                return null;
 
             var resolvedItemId = 0;
             lock (lease.SyncRoot)
@@ -64,16 +78,35 @@ namespace DfoServer.Game.Inventory
                         expectedItemId,
                         out resolvedItemId))
                 {
-                    return false;
+                    return null;
                 }
             }
 
             InventoryMutationResult committedMutation = null;
+            InventoryItemLifecycleUsePlan lifecyclePlan = null;
+            var consumed = false;
+            var expiredDeleted = false;
             var committed = OnlineInventoryMutationCommitCoordinator.TryCommit(
                 lease,
                 "use-stackable",
                 (connection, transaction) =>
                 {
+                    lifecyclePlan = InventoryItemLifecycleService.PrepareUse(
+                        lease.Inventory,
+                        listType,
+                        slotIndex,
+                        resolvedItemId,
+                        InventoryItemLifecycleService.UtcNowUnixSeconds());
+                    if (lifecyclePlan.SourceExpiredDeleted)
+                    {
+                        committedMutation = lifecyclePlan.SourceMutation;
+                        expiredDeleted = true;
+                        return true;
+                    }
+
+                    if (!lifecyclePlan.Success)
+                        return false;
+
                     if (!UsableCountLimitService.TryRecordUseIfLimited(
                             connection,
                             transaction,
@@ -95,15 +128,48 @@ namespace DfoServer.Game.Inventory
                         return false;
                     }
 
+                    InventoryItemLifecycleService.ApplyUseSuccess(
+                        lease.Inventory,
+                        lifecyclePlan);
+
                     if (committedMutation != null)
                         committedMutation.UsableCountState = usableCountState;
+                    consumed = true;
                     return true;
                 });
-            if (!committed || committedMutation == null)
-                return false;
 
-            mutation = committedMutation;
-            return true;
+            if (!committed || committedMutation == null)
+                return null;
+
+            return new InventoryStackableUseCommitResult
+            {
+                Committed = true,
+                Consumed = consumed,
+                SourceExpiredDeleted = expiredDeleted,
+                Mutation = committedMutation,
+                LifecycleStatus = lifecyclePlan != null
+                    ? lifecyclePlan.Status
+                    : InventoryItemLifecycleStatus.Success,
+                Detail = lifecyclePlan?.Detail,
+                ItemTemplateId = resolvedItemId,
+            };
         }
+    }
+
+    internal sealed class InventoryStackableUseCommitResult
+    {
+        public bool Committed { get; set; }
+
+        public bool Consumed { get; set; }
+
+        public bool SourceExpiredDeleted { get; set; }
+
+        public InventoryMutationResult Mutation { get; set; }
+
+        public InventoryItemLifecycleStatus LifecycleStatus { get; set; }
+
+        public string Detail { get; set; }
+
+        public int ItemTemplateId { get; set; }
     }
 }

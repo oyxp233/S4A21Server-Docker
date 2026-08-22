@@ -71,9 +71,9 @@ namespace DfoServer.Game.SelectCharacter
         public List<uint> RacingDungeonTailIds { get; } = new List<uint>();
 
 
-        public List<ItemValueEntrySnapshot> CooltimeItems { get; } = new List<ItemValueEntrySnapshot>();
+        public List<ItemStateEntrySnapshot> CooltimeItemStates { get; } = new List<ItemStateEntrySnapshot>();
 
-        public List<ItemValueEntrySnapshot> EffectItems { get; } = new List<ItemValueEntrySnapshot>();
+        public List<ItemStateEntrySnapshot> EffectItemStates { get; } = new List<ItemStateEntrySnapshot>();
 
         public List<ItemValueEntrySnapshot> UsableCountItems { get; } = new List<ItemValueEntrySnapshot>();
 

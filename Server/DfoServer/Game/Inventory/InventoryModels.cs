@@ -381,6 +381,8 @@ namespace DfoServer.Game.Inventory
 
         public int ConsumedSourceCount { get; set; }
 
+        public bool SourceExpiredDeleted { get; set; }
+
         public int ConsumedMaterialItemTemplateId { get; set; }
 
         public int ConsumedMaterialCount { get; set; }

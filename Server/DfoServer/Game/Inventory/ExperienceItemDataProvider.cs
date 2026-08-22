@@ -105,6 +105,7 @@ namespace DfoServer.Game.Inventory
                 "stackable type", "sub type", "item group name", "item category", "stack limit",
                 "total usable count",
                 "price", "value", "weight", "cool time", "cooltime group",
+                "cooltime maintenance", "effect maintenance", "stat change duration",
                 "impossible contents", "expiration date", "usable period", "trade limit max",
                 "daily delete item", "daily purchase limit", "use wav", "impossible jobs",
                 "action usable place", "increase status type", "npc gift disallowance",
@@ -253,6 +254,13 @@ namespace DfoServer.Game.Inventory
             out string error)
         {
             error = null;
+            if (!stackable.HasCooltimeMaintenance)
+            {
+                result.CooldownMilliseconds = 0;
+                result.CooldownGroup = string.Empty;
+                return true;
+            }
+
             if (!StackablePvfValueReader.TryReadOptionalNonNegativeInt(
                     stackable,
                     "cool time",
@@ -272,7 +280,13 @@ namespace DfoServer.Game.Inventory
                 return false;
             }
 
-            result.CooldownMilliseconds = hasCooldown ? cooldownMilliseconds : 0;
+            if (!hasCooldown || cooldownMilliseconds <= 0)
+            {
+                error = "missing [cool time] definition";
+                return false;
+            }
+
+            result.CooldownMilliseconds = cooldownMilliseconds;
             result.CooldownGroup = hasCooldownGroup ? cooldownGroup : string.Empty;
             return true;
         }

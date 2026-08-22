@@ -631,8 +631,8 @@ PRAGMA user_version=5;";
                 }
                 SqliteMigrations.Apply(connection);
                 Check(
-                    "schema v5 migrates continuously to v6 daily challenge ledgers",
-                    SqliteMigrations.ReadVersion(connection) == 6
+                    "schema v5 migrates continuously to current schema with daily challenge ledgers",
+                    SqliteMigrations.ReadVersion(connection) == SqliteMigrations.CurrentVersion
                     && TableExists(connection, "character_daily_challenge_entry_claims")
                     && TableExists(connection, "character_daily_challenge_progress_events"),
                     ref failures);
