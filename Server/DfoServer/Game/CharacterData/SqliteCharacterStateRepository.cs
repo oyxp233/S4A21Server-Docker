@@ -679,8 +679,7 @@ ON CONFLICT(character_id) DO UPDATE SET
             if (!HasFlags(characterId))
                 SaveFlags(characterId, snapshot);
 
-            _itemState.SaveItemStateListIfEmpty(characterId, ItemStateKinds.Cooltime, snapshot.CooltimeItemStates);
-            _itemState.SaveItemStateListIfEmpty(characterId, ItemStateKinds.Effect, snapshot.EffectItemStates);
+            // 0x00AC/0x00AE 快照值是剩余秒，缺少抓包时刻不能还原持久化 deadline。
 
             if (_achievement.LoadAchievementComplete(characterId).Entries.Count == 0 && snapshot.AchievementComplete.Entries.Count > 0)
                 _achievement.SaveAchievementComplete(characterId, snapshot.AchievementComplete);

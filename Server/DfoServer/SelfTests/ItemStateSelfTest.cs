@@ -3,6 +3,7 @@ using System.IO;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Infrastructure;
+using DfoServer.Network.Builders;
 using DfoServer.Sqlite;
 using Microsoft.Data.Sqlite;
 
@@ -131,10 +132,46 @@ PRAGMA user_version = 6;";
                         "login projection sends only active item states",
                         snapshot.CooltimeItemStates.Count == 1
                         && snapshot.CooltimeItemStates[0].ItemId == 2001
-                        && snapshot.CooltimeItemStates[0].ExpireTime == (int)now + 30
+                        && snapshot.CooltimeItemStates[0].ExpireTime == 30
                         && snapshot.EffectItemStates.Count == 1
                         && snapshot.EffectItemStates[0].ItemId == 2003
-                        && snapshot.EffectItemStates[0].ExpireTime == (int)now + 60,
+                        && snapshot.EffectItemStates[0].ExpireTime == 60,
+                        ref failures);
+
+                    var cooltimeBuilder = new ItemStateListBodyBuilder(0x00AC);
+                    cooltimeBuilder.TryBuild(
+                        new SelectCharacterDataSnapshot { InitializationSnapshot = snapshot },
+                        0,
+                        out var cooltimeBody);
+                    Check(
+                        "login projection packet body sends remaining seconds",
+                        cooltimeBody.Length == 9
+                        && cooltimeBody[0] == 1
+                        && BitConverter.ToInt32(cooltimeBody, 1) == 2001
+                        && BitConverter.ToInt32(cooltimeBody, 5) == 30,
+                        ref failures);
+
+                    var fallbackSnapshot = new SelectCharacterInitializationSnapshot();
+                    fallbackSnapshot.CooltimeItemStates.Add(new ItemStateEntrySnapshot
+                    {
+                        ItemId = 3001,
+                        ExpireTime = (int)now + 15,
+                    });
+                    fallbackSnapshot.EffectItemStates.Add(new ItemStateEntrySnapshot
+                    {
+                        ItemId = 3002,
+                        ExpireTime = (int)now - 1,
+                    });
+                    SqliteSelectCharacterDataSource.ApplyOnlineItemStates(
+                        90000001,
+                        fallbackSnapshot,
+                        now);
+                    Check(
+                        "loaded item state snapshot fallback sends remaining seconds",
+                        fallbackSnapshot.CooltimeItemStates.Count == 1
+                        && fallbackSnapshot.CooltimeItemStates[0].ItemId == 3001
+                        && fallbackSnapshot.CooltimeItemStates[0].ExpireTime == 15
+                        && fallbackSnapshot.EffectItemStates.Count == 0,
                         ref failures);
 
                     using (var connection = database.OpenConnection())

@@ -107,19 +107,31 @@ namespace DfoServer.Game.Inventory
 
             foreach (var entry in _entries.Values)
             {
+                var remainingSeconds = entry.ExpireTime - nowUnixSeconds;
                 if (!string.Equals(entry.StateKind, stateKind, StringComparison.Ordinal)
-                    || entry.ExpireTime <= nowUnixSeconds)
+                    || remainingSeconds <= 0)
                     continue;
 
                 result.Add(new ItemStateEntrySnapshot
                 {
                     ItemId = entry.ItemId,
-                    ExpireTime = entry.ExpireTime,
+                    ExpireTime = ClampProtocolRemainingSeconds(remainingSeconds),
                 });
             }
 
             result.Sort((left, right) => left.ItemId.CompareTo(right.ItemId));
             return result;
+        }
+
+        private static int ClampProtocolRemainingSeconds(long remainingSeconds)
+        {
+            if (remainingSeconds <= 0)
+                return 0;
+
+            if (remainingSeconds > int.MaxValue)
+                return int.MaxValue;
+
+            return (int)remainingSeconds;
         }
 
         public List<ItemStateEntry> GetEntries()
