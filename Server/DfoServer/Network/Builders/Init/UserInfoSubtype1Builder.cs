@@ -115,7 +115,7 @@ namespace DfoServer.Network.Builders
 
         private static readonly byte[] A21AfterDimensionPrefix =
         {
-            0x02, 0x00, 0x05, 0x00, 0x6F, 0x00, 0x00, 0x00, 0x00,
+            0x02, 0x00, 0x05, 0x00, 0x6F,
         };
 
         private static readonly byte[] A21AfterDimensionRest =
@@ -152,7 +152,13 @@ namespace DfoServer.Network.Builders
                 writer.WriteByte(value2);
             }
 
+            // A21 consumes the values after 0x6F as completed quest ids and
+            // resolves each QST [special reward status] locally. The repository
+            // already filters this snapshot to completed special-reward quests.
             writer.WriteBytes(A21AfterDimensionPrefix);
+            writer.WriteUInt32((uint)addition.SpecialRewardQuestIds.Count);
+            foreach (var questId in addition.SpecialRewardQuestIds)
+                writer.WriteUInt32(questId);
             writer.WriteByte(addition.ManageLevel);
             writer.WriteUInt32(unchecked((uint)addition.ManagePoint));
             writer.WriteBytes(A21AfterDimensionRest);

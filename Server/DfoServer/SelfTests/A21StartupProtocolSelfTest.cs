@@ -281,7 +281,31 @@ namespace DfoServer.SelfTests
             Check(
                 "A21 USERINFO1 uses the 88-byte stat block and fixed dimension tail",
                 userInfo1.Length == 301
-                && BitConverter.ToInt32(userInfo1, 4) == 88,
+                && BitConverter.ToInt32(userInfo1, 4) == 88
+                && userInfo1[275] == 0x6F
+                && BitConverter.ToUInt32(userInfo1, 276) == 0
+                && userInfo1[280] == 0,
+                ref failures);
+
+            var specialRewardAddition = new UserInfoAdditionSnapshot
+            {
+                ManageLevel = 4,
+                ManagePoint = 120,
+            };
+            specialRewardAddition.SpecialRewardQuestIds.Add(0x34BE);
+            specialRewardAddition.SpecialRewardQuestIds.Add(0x34C0);
+            var specialRewardUserInfo1 = UserInfoSubtype1Builder.BuildFromSnapshot(
+                specialRewardAddition,
+                null);
+            Check(
+                "A21 USERINFO1 restores completed special-reward quest effects",
+                specialRewardUserInfo1.Length == 309
+                && specialRewardUserInfo1[275] == 0x6F
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 276) == 2
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 280) == 0x34BE
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 284) == 0x34C0
+                && specialRewardUserInfo1[288] == 4
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 289) == 120,
                 ref failures);
 
             var auraLockedPrefix = BuildUserInfo1PrefixForSelfTest(123, 7, 0);
