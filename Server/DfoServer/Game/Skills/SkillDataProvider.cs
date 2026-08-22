@@ -28,9 +28,9 @@ namespace DfoServer.Game.Skills
         public int[] TpCostPerLevel;
         // 逐 growType 等级上限(6槽, 按 growType 0-5 索引); 上限 0 = 该方向不可学
         public int[] GrowtypeMaxLevels;
-        // [skill fitness growtype] 是职业方向从属门禁。15 级体验转职技能
-        // 可能由 PVF 在未转职槽保留可学习上限，IsTrialTransferSkill 会保留
-        // 这类资源明确允许的学习路径。
+        // [skill fitness growtype] 是 PVF 的技能分组/适配元数据，不能直接
+        // 当作 growType 数组下标做职业门禁。实际可学习方向由下面的
+        // [growtype maximum level] / [second growtype maximum level] 决定。
         public int[] SkillFitnessGrowtypes;
         // 逐 觉醒段 等级上限(12槽 = growType*2 + (觉醒段-1)); 0 = 不可学
         public int[] SecondGrowtypeMaxLevels;
@@ -87,14 +87,6 @@ namespace DfoServer.Game.Skills
             if (configuredMaximum <= 0)
                 return 0;
 
-            if (SkillFitnessGrowtypes != null
-                && SkillFitnessGrowtypes.Length > 0
-                && Array.IndexOf(SkillFitnessGrowtypes, growType) < 0
-                && !IsTrialTransferSkill(growType, secondGrowType))
-            {
-                return 0;
-            }
-
             return configuredMaximum;
         }
 
@@ -123,8 +115,8 @@ namespace DfoServer.Game.Skills
         }
 
         // A21 当前 PVF 将少量 15 级转职技能标记为“体验转职”：技能归属仍
-        // 指向某个转职方向，但未转职槽明确保留了可学习上限。只放开这个
-        // PVF 可表达的组合，不按技能 ID、名称或职业增加例外。
+        // 指向某个转职方向，但未转职槽明确保留了可学习上限。该方法保留
+        // 作为诊断信息；可学习门禁始终直接使用 PVF 的最高等级表。
         public bool IsTrialTransferSkill(int growType, int secondGrowType)
         {
             if (growType != 0 || secondGrowType != 0 || RequiredLevel != 15)
@@ -142,8 +134,7 @@ namespace DfoServer.Game.Skills
             return Array.IndexOf(SkillFitnessGrowtypes, 0) < 0;
         }
 
-        // PVF 的 fitness/maximum-level 共同决定该技能是否属于当前职业方向；
-        // 15 级体验转职技能由 PVF 的未转职上限组合额外放行。
+        // PVF 的 maximum-level 表决定该技能是否属于当前职业方向。
         // 该判断同时用于购买门禁和已保存技能的输出清理，避免两条链路出现漂移。
         public bool IsAvailableFor(int growType, int secondGrowType)
             => GetMaxLevelFor(growType, secondGrowType) > 0;
@@ -170,10 +161,10 @@ namespace DfoServer.Game.Skills
                 1 + (effectiveLevel - RequiredLevel) / interval);
         }
 
-        // 注: [skill fitness growtype]/[skill fitness second growtype] 是技能从属标记
-        // (记录该技能属于哪些方向/觉醒段), 不是 SP 折扣——"fitness=百分比折扣"的旧解读
-        // 已被实测推翻(斩铁式+1 真机成本 45 整)。门禁走 GetMaxLevelFor, 成本走费用表原值;
-        // fitness 数组同时用于职业方向门禁和 NumGrowtypes(数组长度)槽位分组。
+        // 注: [skill fitness growtype]/[skill fitness second growtype] 是 PVF 技能
+        // 分组/适配元数据，不是 SP 折扣，也不是可直接与 growType 比较的职业索引。
+        // "fitness=百分比折扣"的旧解读已被实测推翻(斩铁式+1 真机成本 45 整)。
+        // 门禁走 maximum-level 表，成本走费用表原值；NumGrowtypes 仍取 fitness 数组长度。
     }
 
     public static class SkillDataProvider

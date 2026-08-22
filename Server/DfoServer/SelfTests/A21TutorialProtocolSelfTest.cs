@@ -1555,6 +1555,60 @@ namespace DfoServer.SelfTests
                 && level17Mainline.Contains(1796),
                 ref failures);
 
+            var demonicLancerChoice = QuestRelationIndex.ComputeAcceptableQuests(
+                characterLevel: 15,
+                characterJob: 13,
+                growType: 0,
+                clearedQuestIds: new HashSet<int>(),
+                clearedFlags: new Dictionary<int, int>(),
+                allowedCreatureKinds: new HashSet<int>());
+            var demonicLancerTransfers = QuestRelationIndex
+                .ComputeAcceptableQuests(
+                    characterLevel: 15,
+                    characterJob: 13,
+                    growType: 0,
+                    clearedQuestIds: new HashSet<int> { 13099 },
+                    clearedFlags: new Dictionary<int, int> { [13099] = 1 },
+                    allowedCreatureKinds: new HashSet<int>());
+            var darkKnightChoice = QuestRelationIndex.ComputeAcceptableQuests(
+                characterLevel: 15,
+                characterJob: 9,
+                growType: 0,
+                clearedQuestIds: new HashSet<int>(),
+                clearedFlags: new Dictionary<int, int>(),
+                allowedCreatureKinds: new HashSet<int>());
+            var creatorChoice = QuestRelationIndex.ComputeAcceptableQuests(
+                characterLevel: 15,
+                characterJob: 10,
+                growType: 0,
+                clearedQuestIds: new HashSet<int>(),
+                clearedFlags: new Dictionary<int, int>(),
+                allowedCreatureKinds: new HashSet<int>());
+            Check(
+                "PVF job identity exposes demonic-lancer choice and transfer quests " +
+                "while external classes stay outside the ordinary transfer chain",
+                demonicLancerChoice.Contains(13099)
+                && demonicLancerTransfers.Contains(2633)
+                && demonicLancerTransfers.Contains(2634)
+                && !darkKnightChoice.Contains(13099)
+                && !creatorChoice.Contains(13099)
+                && QuestRelationIndex.MeetsCharacterRestrictions(
+                    2633,
+                    characterLevel: 15,
+                    characterJob: 13,
+                    growType: 0)
+                && !QuestRelationIndex.MeetsCharacterRestrictions(
+                    7803,
+                    characterLevel: 15,
+                    characterJob: 9,
+                    growType: 0)
+                && !QuestRelationIndex.MeetsCharacterRestrictions(
+                    4065,
+                    characterLevel: 15,
+                    characterJob: 10,
+                    growType: 0),
+                ref failures);
+
             var xilanQuest = QuestData.GetQuestFile(2404);
             var xilanMetadata = ItemMetadataResolver.Resolve(10100158);
             var xilanPrerequisite = QuestPrerequisiteCatalog.Get(2404);
@@ -2527,6 +2581,38 @@ namespace DfoServer.SelfTests
                 && callDaimus.IsTrialTransferSkill(0, 0)
                 && callDaimus.GetMaxLearnableLevel(15, 0, 0) == 1
                 && callDaimus.GetMaxLearnableLevel(15, 3, 0) == 1,
+                ref failures);
+
+            var atGunnerNitroMotor = SkillDataProvider.GetSkill(5, 16);
+            var atGunnerTransferSnapshot = CharacterSkillProfile.BuildSnapshot(
+                job: 5,
+                growType: 4,
+                secondGrowType: 0,
+                charLevel: 15);
+            var atGunnerNitroMotorGranted = atGunnerTransferSnapshot.Pages.Exists(
+                page => page.Entries.Exists(entry => entry.SkillId == 16 && entry.Level >= 1));
+            var atGunnerRemoved = SkillStateService.RemoveUnavailableSkills(
+                atGunnerTransferSnapshot,
+                job: 5,
+                growType: 4,
+                secondGrowType: 0);
+            Check(
+                "PVF ATGunner transfer skill uses maximum-level growType owner",
+                atGunnerNitroMotor != null
+                && atGunnerNitroMotor.GetMaxLevelFor(4, 0) == 1
+                && atGunnerNitroMotor.GetMaxLevelFor(3, 0) == 0
+                && atGunnerNitroMotor.GetMaxLearnableLevel(15, 4, 0) == 1
+                && atGunnerNitroMotorGranted
+                && atGunnerRemoved == 0,
+                ref failures);
+
+            var berserkerRejection = SkillDataProvider.GetSkill(0, 248);
+            Check(
+                "PVF Berserker transfer skill ignores non-indexed fitness metadata",
+                berserkerRejection != null
+                && berserkerRejection.GetMaxLevelFor(3, 0) == 1
+                && berserkerRejection.GetMaxLearnableLevel(15, 3, 0) == 1
+                && berserkerRejection.GetMaxLevelFor(1, 0) == 0,
                 ref failures);
 
             var unavailableCareerSkill = new SkillInfoSnapshot();

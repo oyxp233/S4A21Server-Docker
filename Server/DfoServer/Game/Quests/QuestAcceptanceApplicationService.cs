@@ -96,6 +96,26 @@ namespace DfoServer.Game.Quests
                             {
                                 return QuestAcceptResult.Fail(18);
                             }
+                            if (!TryLoadCharacterRestrictions(
+                                    connection,
+                                    transaction,
+                                    characterId,
+                                    out var characterLevel,
+                                    out var characterJob,
+                                    out var growType)
+                                || !GameWorld.QuestRelationIndex
+                                    .MeetsCharacterRestrictions(
+                                        questId,
+                                        characterLevel,
+                                        characterJob,
+                                        growType))
+                            {
+                                FileLogger.Log(
+                                    $"[QuestAcceptanceApplicationService] ACCEPT " +
+                                    $"blocked by character restrictions: " +
+                                    $"quest={questId} cid={characterId}");
+                                return QuestAcceptResult.Fail(21);
+                            }
                             if (!_prerequisites.IsSatisfied(
                                     connection,
                                     transaction,
@@ -253,6 +273,38 @@ namespace DfoServer.Game.Quests
                 $"committedTrigger={committedTrigger} " +
                 $"eventItems={eventItems.Count}");
             return result;
+        }
+
+        private static bool TryLoadCharacterRestrictions(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            out int level,
+            out int job,
+            out int growType)
+        {
+            level = 0;
+            job = -1;
+            growType = -1;
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = @"
+SELECT level, job, grow_type
+FROM characters
+WHERE character_id = @cid";
+                command.Parameters.AddWithValue("@cid", characterId);
+                using (var reader = command.ExecuteReader())
+                {
+                    if (!reader.Read())
+                        return false;
+
+                    level = reader.GetInt32(0);
+                    job = reader.GetInt32(1);
+                    growType = reader.GetInt32(2);
+                    return true;
+                }
+            }
         }
 
         private static int CountMainItemWithPendingRewards(
