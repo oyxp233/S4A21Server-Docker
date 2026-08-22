@@ -1,0 +1,119 @@
+name: Sync and Build .NET 10
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout GitHub Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync from GitGud (Merge Mode)
+        id: sync_step
+        shell: pwsh
+        env:
+          SOURCE_REPO: https://gitgud.io/rewio/ServerS4A21.git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git remote add upstream $env:SOURCE_REPO 2>$null
+          git fetch upstream
+          
+          $upstreamInfo = git remote show upstream
+          $upstreamBranch = "master"
+          foreach ($line in $upstreamInfo) {
+              if ($line -match "HEAD branch:\s*(\S+)") {
+                  $upstreamBranch = $matches[1]
+                  break
+              }
+          }
+          
+          git checkout $upstreamBranch 2>$null
+          if ($LASTEXITCODE -ne 0) { git checkout -b $upstreamBranch }
+          
+          $beforeHash = git rev-parse HEAD
+          
+          # 使用 Merge 模式同步，保留本地独有的 .github 文件夹
+          # -X theirs 表示如果代码有冲突，优先使用上游代码
+          git merge "upstream/$upstreamBranch" -m "chore: sync from GitGud" --allow-unrelated-histories -X theirs
+          
+          if ($LASTEXITCODE -ne 0) {
+              echo "Merge failed. Aborting."
+              git merge --abort
+              exit 1
+          }
+          
+          $afterHash = git rev-parse HEAD
+          
+          # 【核心修复】无论是否有新提交，都先输出 commit_hash，防止 Release 步骤缺少参数导致报错
+          echo "commit_hash=$($afterHash.Substring(0,7))" >> $env:GITHUB_OUTPUT
+          
+          # 对比 Merge 前后的 Hash，判断上游是否有实际更新
+          $hasUpdates = $beforeHash -ne $afterHash
+          
+          # 新增优化1：如果是手动触发，强制标记为有更新以执行后续编译
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+              echo "Manual trigger detected. Forcing build and release."
+              $hasUpdates = $true
+          }
+
+          if ($hasUpdates) {
+              echo "has_new_commits=true" >> $env:GITHUB_OUTPUT
+              
+              # Merge 模式使用正常推送，不需要 --force
+              git push origin $upstreamBranch
+              git push origin --tags
+          } else {
+              echo "has_new_commits=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Setup .NET 10
+        if: steps.sync_step.outputs.has_new_commits == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          # 移除了废弃的 include-prerelease，如果需要预览版可改为 dotnet-quality: 'preview'
+
+      - name: Build with Native dotnet CLI
+        if: steps.sync_step.outputs.has_new_commits == 'true'
+        shell: cmd
+        run: |
+          dotnet publish Server\DfoServer\DfoServer.csproj ^
+            -c Release ^
+            -r win-x64 ^
+            --self-contained false ^
+            -p:UseSystemResourceKeys=true ^
+            -p:InvariantGlobalization=true ^
+            -p:StripSymbols=true ^
+            -p:DebugType=none ^
+            -o dist\win-x64
+
+      - name: Zip Build Output
+        if: steps.sync_step.outputs.has_new_commits == 'true'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist\win-x64\* -DestinationPath DfoServer-win-x64.zip -Force
+
+      - name: Create Release
+        if: steps.sync_step.outputs.has_new_commits == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ steps.sync_step.outputs.commit_hash }}
+          name: Auto Build ${{ steps.sync_step.outputs.commit_hash }}
+          draft: false
+          prerelease: false
+          files: |
+            DfoServer-win-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
