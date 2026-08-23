@@ -25,6 +25,7 @@ namespace DfoServer
             ("--selftest-a21-mailbox-protocol", SelfTests.A21MailboxProtocolSelfTest.Run),
             ("--selftest-premium-contract-protocol", SelfTests.PremiumContractProtocolSelfTest.Run),
             ("--selftest-a21-guild-medal-guardian-gem", SelfTests.A21GuildMedalGuardianGemSelfTest.Run),
+            ("--selftest-a21-equipment-durability", SelfTests.A21EquipmentDurabilitySelfTest.Run),
             ("--selftest-daily-reset-account", SelfTests.DailyResetAccountSelfTest.Run),
             ("--selftest-a21-daily-challenge", SelfTests.A21DailyChallengeSelfTest.Run),
             ("--selftest-a21-death-tower-protocol", SelfTests.A21DeathTowerProtocolSelfTest.Run),

@@ -1029,18 +1029,16 @@ namespace DfoServer.SelfTests
                     partyHasEquippedAvatar: false,
                     hasEquippedCreature: false,
                     storyExperienceBonusRatePercent: 30,
-                    storyExperienceDifficulty: 2);
+                    storyExperienceDifficulty: 0);
             var nonStoryBonusSnapshot =
                 DungeonParticipantExperienceBonusSnapshot.None;
             Check(
-                "story dungeon rate is applied once to kill and clear base EXP",
-                DungeonExperienceCalculator.ApplyStoryExperienceBonus(
-                    1000,
-                    storyBonusSnapshot) == 1300
-                && DungeonExperienceCalculator.ApplyStoryExperienceBonus(
-                    1000,
-                    nonStoryBonusSnapshot) == 1000
-                && storyBonusSnapshot.ResolveExperienceDifficulty(0) == 2
+                "story dungeon rate joins kill and clear weight without shifting difficulty",
+                DungeonExperienceCalculator.ResolveStoryExperienceWeightMultiplier(
+                    storyBonusSnapshot) == 1.3
+                && DungeonExperienceCalculator.ResolveStoryExperienceWeightMultiplier(
+                    nonStoryBonusSnapshot) == 1.0
+                && storyBonusSnapshot.ResolveExperienceDifficulty(0) == 0
                 && nonStoryBonusSnapshot.ResolveExperienceDifficulty(0) == 0,
                 ref failures);
 
@@ -1086,9 +1084,8 @@ namespace DfoServer.SelfTests
                 difficulty: 1,
                 activeQuestMazeQuestId: 2280,
                 snapshotQuestId: 2280);
-            var mainlineBonus = QuestCompletionExperienceBonusPolicy.Capture(
-                mainlineBonusRun,
-                ardenSuitableMinLevel);
+            var mainlineBonus = DungeonStoryExperienceProfilePolicy.Capture(
+                mainlineBonusRun);
             var mainlineReward = new QuestReward
             {
                 Exp = 1000,
@@ -1106,21 +1103,12 @@ namespace DfoServer.SelfTests
                     new QuestRewardItem { ItemId = 5678, Count = 1 },
                 },
             };
-            var mainlineApplied = QuestCompletionExperienceBonusPolicy.TryApply(
-                ref mainlineReward,
-                completedQuestId: 2280,
-                questGrade: "epic",
-                rewardKind: QuestRewardKind.Item,
-                snapshot: mainlineBonus,
-                out var mainlineBonusError);
             Check(
-                "story-mode rate only increases the matching mainline quest EXP",
-                mainlineApplied
-                && string.IsNullOrEmpty(mainlineBonusError)
-                && mainlineBonus.IsEligible
+                "story-mode rate does not modify quest completion EXP",
+                mainlineBonus.IsEligible
                 && mainlineBonus.RatePercent == 30
-                && mainlineBonus.ExperienceDifficulty == 2
-                && mainlineReward.Exp == 1300
+                && mainlineBonus.ExperienceDifficulty == 1
+                && mainlineReward.Exp == 1000
                 && mainlineReward.Gold == 77
                 && mainlineReward.ChainType == 2
                 && mainlineReward.GrowNumber == 3
@@ -1133,35 +1121,23 @@ namespace DfoServer.SelfTests
                 && mainlineReward.ConsumeItems[0].ItemId == 5678,
                 ref failures);
 
-            var difficultyZeroBonus = QuestCompletionExperienceBonusPolicy.Capture(
-                CreateQuestRun(93, 0, 2280, 2280),
-                ardenSuitableMinLevel);
-            var nonStoryBonus = QuestCompletionExperienceBonusPolicy.Capture(
-                CreateQuestRun(93, 1, 1790, 1790),
-                ardenSuitableMinLevel);
+            var difficultyZeroBonus = DungeonStoryExperienceProfilePolicy.Capture(
+                CreateQuestRun(93, 0, 2280, 2280));
+            var nonStoryBonus = DungeonStoryExperienceProfilePolicy.Capture(
+                CreateQuestRun(93, 1, 1790, 1790));
             var missingFrozenQuestBonus =
-                QuestCompletionExperienceBonusPolicy.Capture(
-                    CreateQuestRun(93, 1, 2280, 2292),
-                    ardenSuitableMinLevel);
-            var unsuitableLevel = ardenSuitableMaxLevel < int.MaxValue
-                ? ardenSuitableMaxLevel + 1
-                : ardenSuitableMinLevel - 1;
-            var unsuitableLevelBonus =
-                QuestCompletionExperienceBonusPolicy.Capture(
-                    mainlineBonusRun,
-                    unsuitableLevel);
+                DungeonStoryExperienceProfilePolicy.Capture(
+                    CreateQuestRun(93, 1, 2280, 2292));
             Check(
-                "story-mode quest EXP bonus filters zero-rate, non-story and " +
-                "unfrozen runs without applying a recommendation-level gate",
+                "story profile filters zero-rate, non-story and unfrozen runs",
                 !difficultyZeroBonus.IsEligible
                 && difficultyZeroBonus.IsStoryRun
                 && difficultyZeroBonus.RatePercent == 0
-                && difficultyZeroBonus.ExperienceDifficulty == 1
+                && difficultyZeroBonus.ExperienceDifficulty == 0
                 && !nonStoryBonus.IsEligible
                 && !nonStoryBonus.IsStoryRun
                 && !missingFrozenQuestBonus.IsEligible
-                && !missingFrozenQuestBonus.IsStoryRun
-                && unsuitableLevelBonus.IsEligible,
+                && !missingFrozenQuestBonus.IsStoryRun,
                 ref failures);
 
             var chessStoryRun = CreateQuestRun(
@@ -1169,9 +1145,8 @@ namespace DfoServer.SelfTests
                 difficulty: 0,
                 activeQuestMazeQuestId: 1842,
                 snapshotQuestId: 1842);
-            var chessStoryProfile = QuestCompletionExperienceBonusPolicy.Capture(
-                chessStoryRun,
-                playerLevel: 26);
+            var chessStoryProfile = DungeonStoryExperienceProfilePolicy.Capture(
+                chessStoryRun);
             var chessProfileFrozen = chessStoryRun
                     .TryFreezeExperienceBonusSnapshot(
                         DungeonParticipantExperienceBonusSnapshot.None)
@@ -1181,6 +1156,8 @@ namespace DfoServer.SelfTests
             var chessBonusSnapshot = chessStoryRun
                 .CaptureExperienceBonusSnapshot();
             var chessDefinition = chessStoryRun.ExperienceDefinition;
+            var chessStoryWeight = DungeonExperienceCalculator
+                .ResolveStoryExperienceWeightMultiplier(chessBonusSnapshot);
             var chessWireNormal = DungeonExperienceCalculator
                 .CalculateStandardMonster(
                     chessDefinition,
@@ -1190,7 +1167,8 @@ namespace DfoServer.SelfTests
                         difficulty: 0,
                         monsterKind: 0,
                         isNamedMonster: false,
-                        partyMemberCount: 1));
+                        partyMemberCount: 1,
+                        experienceWeightMultiplier: chessStoryWeight));
             var chessExperienceNormal = DungeonExperienceCalculator
                 .CalculateStandardMonster(
                     chessDefinition,
@@ -1208,7 +1186,8 @@ namespace DfoServer.SelfTests
                 difficulty: chessBonusSnapshot.ResolveExperienceDifficulty(0),
                 monsterKind: 1,
                 isNamedMonster: false,
-                partyMemberCount: 1);
+                partyMemberCount: 1,
+                experienceWeightMultiplier: chessStoryWeight);
             var chessChampion = DungeonExperienceCalculator
                 .CalculateStandardMonster(
                     chessDefinition,
@@ -1223,14 +1202,16 @@ namespace DfoServer.SelfTests
                             .ResolveExperienceDifficulty(0),
                         monsterKind: 2,
                         isNamedMonster: false,
-                        partyMemberCount: 1));
+                        partyMemberCount: 1,
+                        experienceWeightMultiplier: chessStoryWeight));
             var chessNamedContext = new DungeonMonsterExperienceContext(
                 characterLevel: 26,
                 monsterLevel: 28,
                 difficulty: chessBonusSnapshot.ResolveExperienceDifficulty(0),
                 monsterKind: 1,
                 isNamedMonster: true,
-                partyMemberCount: 1);
+                partyMemberCount: 1,
+                experienceWeightMultiplier: chessStoryWeight);
             var chessNamed = DungeonExperienceCalculator
                 .CalculateStandardMonster(
                     chessDefinition,
@@ -1262,16 +1243,74 @@ namespace DfoServer.SelfTests
                 isSuperChampion: false,
                 isNamedMonster: true);
             var chessNamedLedgerSnapshot = chessNamedLedger.Capture();
+            var chessClearShort = DungeonExperienceCalculator
+                .CalculateStandardClear(
+                    chessDefinition,
+                    new DungeonClearExperienceContext(
+                        characterLevel: 26,
+                        difficulty: chessBonusSnapshot
+                            .ResolveExperienceDifficulty(0),
+                        totalKilledMonsterCount: 1,
+                        partyMemberCount: 1,
+                        partyEventBonusRate: 0.0,
+                        memberPenaltyRate: 1.0,
+                        experienceWeightMultiplier: chessStoryWeight));
+            var chessClearLong = DungeonExperienceCalculator
+                .CalculateStandardClear(
+                    chessDefinition,
+                    new DungeonClearExperienceContext(
+                        characterLevel: 90,
+                        difficulty: chessBonusSnapshot
+                            .ResolveExperienceDifficulty(0),
+                        totalKilledMonsterCount: 99,
+                        partyMemberCount: 4,
+                        partyEventBonusRate: 0.5,
+                        memberPenaltyRate: 0.05,
+                        experienceWeightMultiplier: chessStoryWeight));
+            var chessHardStorySnapshot =
+                new DungeonParticipantExperienceBonusSnapshot(
+                    partyMemberCount: 1,
+                    partyHasEquippedAvatar: false,
+                    hasEquippedCreature: false,
+                    storyExperienceBonusRatePercent: 30,
+                    storyExperienceDifficulty: 1);
+            var chessHardStoryWeight = DungeonExperienceCalculator
+                .ResolveStoryExperienceWeightMultiplier(
+                    chessHardStorySnapshot);
+            var chessHardStoryMonster = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    chessDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 26,
+                        monsterLevel: 28,
+                        difficulty: chessHardStorySnapshot
+                            .ResolveExperienceDifficulty(0),
+                        monsterKind: 0,
+                        isNamedMonster: false,
+                        partyMemberCount: 1,
+                        experienceWeightMultiplier: chessHardStoryWeight));
+            var chessHardStoryClear = DungeonExperienceCalculator
+                .CalculateStandardClear(
+                    chessDefinition,
+                    new DungeonClearExperienceContext(
+                        characterLevel: 26,
+                        difficulty: chessHardStorySnapshot
+                            .ResolveExperienceDifficulty(0),
+                        totalKilledMonsterCount: 1,
+                        partyMemberCount: 1,
+                        partyEventBonusRate: 0.0,
+                        memberPenaltyRate: 1.0,
+                        experienceWeightMultiplier: chessHardStoryWeight));
             Check(
-                "story relative difficulty and monster category awards share one frozen EXP owner",
+                "90-version kill, clear and story formulas share one frozen EXP owner",
                 chessStoryProfile.IsStoryRun
                 && chessStoryProfile.RatePercent == 0
-                && chessStoryProfile.ExperienceDifficulty == 1
+                && chessStoryProfile.ExperienceDifficulty == 0
                 && chessProfileFrozen
-                && chessBonusSnapshot.ResolveExperienceDifficulty(0) == 1
-                && chessWireNormal.ParticipantBaseExperience == 420
-                && chessExperienceNormal.ParticipantBaseExperience == 646
-                && chessChampion.ParticipantBaseExperience == 1292
+                && chessBonusSnapshot.ResolveExperienceDifficulty(0) == 0
+                && chessWireNormal.ParticipantBaseExperience == 840
+                && chessExperienceNormal.ParticipantBaseExperience == 840
+                && chessChampion.ParticipantBaseExperience == 1680
                 && chessNamed.ParticipantBaseExperience
                     == chessSuperChampion.ParticipantBaseExperience
                 && chessNamedDisplayBonus
@@ -1283,6 +1322,11 @@ namespace DfoServer.SelfTests
                     >= chessExperienceNormal.ParticipantBaseExperience * 3
                 && chessSuperChampion.ParticipantBaseExperience
                     <= chessExperienceNormal.ParticipantBaseExperience * 3 + 1
+                && chessClearShort.ParticipantBaseExperience == 66690
+                && chessClearLong.ParticipantBaseExperience
+                    == chessClearShort.ParticipantBaseExperience
+                && chessHardStoryMonster.ParticipantBaseExperience == 1680
+                && chessHardStoryClear.ParticipantBaseExperience == 133380
                 && chessLedgerSnapshot.MonsterBaseExperience
                     == chessChampionAwardBase
                 && chessLedgerSnapshot.ChampionBaseExperience
@@ -1311,55 +1355,17 @@ namespace DfoServer.SelfTests
                 Items = new List<QuestRewardItem>(),
                 ConsumeItems = new List<QuestRewardItem>(),
             };
-            var nonMainlineApplied = QuestCompletionExperienceBonusPolicy.TryApply(
-                ref filteredReward,
-                completedQuestId: 2280,
-                questGrade: "side",
-                rewardKind: QuestRewardKind.Item,
-                snapshot: mainlineBonus,
-                out _);
-            var circleApplied = QuestCompletionExperienceBonusPolicy.TryApply(
-                ref filteredReward,
-                completedQuestId: 2280,
-                questGrade: "epic",
-                rewardKind: QuestRewardKind.CircleDungeon,
-                snapshot: mainlineBonus,
-                out _);
-            var mismatchedQuestApplied =
-                QuestCompletionExperienceBonusPolicy.TryApply(
-                    ref filteredReward,
-                    completedQuestId: 2292,
-                    questGrade: "epic",
-                    rewardKind: QuestRewardKind.Item,
-                    snapshot: mainlineBonus,
-                    out _);
-            Check(
-                "non-mainline, circle and mismatched quest rewards are not boosted",
-                nonMainlineApplied
-                && circleApplied
-                && mismatchedQuestApplied
-                && filteredReward.Exp == 1000
-                && filteredReward.Gold == 88
-                && filteredReward.ChainType == 1,
-                ref failures);
-
             var overflowingReward = new QuestReward
             {
                 Exp = uint.MaxValue,
                 Items = new List<QuestRewardItem>(),
                 ConsumeItems = new List<QuestRewardItem>(),
             };
-            var overflowAccepted = QuestCompletionExperienceBonusPolicy.TryApply(
-                ref overflowingReward,
-                completedQuestId: 2280,
-                questGrade: "epic",
-                rewardKind: QuestRewardKind.Item,
-                snapshot: mainlineBonus,
-                out var overflowError);
             Check(
-                "mainline quest EXP overflow is rejected without truncation",
-                !overflowAccepted
-                && !string.IsNullOrWhiteSpace(overflowError)
+                "dungeon story profile does not modify quest completion rewards",
+                filteredReward.Exp == 1000
+                && filteredReward.Gold == 88
+                && filteredReward.ChainType == 1
                 && overflowingReward.Exp == uint.MaxValue,
                 ref failures);
 

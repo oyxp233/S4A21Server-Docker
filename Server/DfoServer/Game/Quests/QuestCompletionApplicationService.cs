@@ -150,32 +150,6 @@ namespace DfoServer.Game.Quests
             var reward = ApplyCompletionRewardPolicy(
                 resolvedReward,
                 rewardKind);
-            var baseExperienceReward = reward.Exp;
-            if (!QuestCompletionExperienceBonusPolicy.TryApply(
-                    ref reward,
-                    questId,
-                    completionDefinition.Grade,
-                    rewardKind,
-                    owner.ExperienceBonus,
-                    out var experienceBonusError))
-            {
-                FileLogger.Log(
-                    $"[QuestCompletionApplicationService] FINISH rejected " +
-                    $"mainline EXP bonus: quest={questId} cid={characterId} " +
-                    $"error={experienceBonusError}");
-                return QuestFinishResult.Fail(22);
-            }
-            if (reward.Exp != baseExperienceReward)
-            {
-                FileLogger.Log(
-                    $"[QuestCompletionApplicationService] mainline EXP bonus: " +
-                    $"quest={questId} dungeon={owner.ExperienceBonus.DungeonId} " +
-                    $"difficulty={owner.ExperienceBonus.Difficulty} " +
-                    $"run={owner.ExperienceBonus.RunId}/" +
-                    $"{owner.ExperienceBonus.RunGeneration} " +
-                    $"rate={owner.ExperienceBonus.RatePercent} " +
-                    $"exp={baseExperienceReward}->{reward.Exp}");
-            }
             if (rewardKind == GameWorld.QuestRewardKind.CircleDungeon)
             {
                 FileLogger.Log(

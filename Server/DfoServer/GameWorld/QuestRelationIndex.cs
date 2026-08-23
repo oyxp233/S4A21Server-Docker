@@ -430,7 +430,53 @@ namespace DfoServer.GameWorld
             if (characterJob < 0 || characterJob >= CharacterJobTags.Length)
                 return false;
 
-            return configuredTags.Contains(CharacterJobTags[characterJob]);
+            var expectedTag = CanonicalizeCharacterTag(
+                CharacterJobTags[characterJob]);
+            if (expectedTag.Length == 0)
+                return false;
+
+            var value = configuredTags ?? string.Empty;
+            var foundToken = false;
+            for (var index = 0; index < value.Length; index++)
+            {
+                if (value[index] != '[')
+                    continue;
+
+                var tokenEnd = value.IndexOf(']', index + 1);
+                if (tokenEnd < 0)
+                    break;
+
+                foundToken = true;
+                var token = CanonicalizeCharacterTag(
+                    value.Substring(index, tokenEnd - index + 1));
+                if (token == expectedTag)
+                    return true;
+
+                index = tokenEnd;
+            }
+
+            // QuestFile normally preserves bracketed PVF tokens. Keep a
+            // strict fallback for hand-built tests or legacy definitions
+            // that expose one unbracketed tag.
+            return !foundToken
+                && CanonicalizeCharacterTag(value) == expectedTag;
+        }
+
+        private static string CanonicalizeCharacterTag(string value)
+        {
+            var normalized = QuestData.NormalizeQuestTag(value);
+            if (normalized.Length == 0)
+                return string.Empty;
+
+            var buffer = new char[normalized.Length];
+            var length = 0;
+            foreach (var character in normalized)
+            {
+                if (!char.IsLetterOrDigit(character))
+                    continue;
+                buffer[length++] = char.ToLowerInvariant(character);
+            }
+            return new string(buffer, 0, length);
         }
 
         private static bool ContainsItem(
