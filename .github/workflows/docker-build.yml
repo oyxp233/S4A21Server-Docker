@@ -2,9 +2,10 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]   # 改成你的默认分支
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ]
+  workflow_dispatch:       # 添加这一行，允许手动触发
 
 jobs:
   build-and-push:
