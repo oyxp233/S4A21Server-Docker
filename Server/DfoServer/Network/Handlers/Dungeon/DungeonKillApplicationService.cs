@@ -758,13 +758,17 @@ namespace DfoServer.Network.Handlers.Dungeon
             var experienceBonusSnapshot = run.CaptureExperienceBonusSnapshot();
             var experienceDifficulty = experienceBonusSnapshot
                 .ResolveExperienceDifficulty(run.Difficulty);
+            var storyWeightMultiplier = DungeonExperienceCalculator
+                .ResolveStoryExperienceWeightMultiplier(
+                    experienceBonusSnapshot);
             var experienceContext = new DungeonMonsterExperienceContext(
                 session.Player.Level,
                 monster.Level,
                 experienceDifficulty,
                 rewardMonsterType,
                 isNamed,
-                partyMemberCount);
+                partyMemberCount,
+                experienceWeightMultiplier: storyWeightMultiplier);
             var baseExperience = allowsExperience
                 ? run.ExperienceDefinition?.UsesStandardFormula == true
                     ? DungeonExperienceCalculator.CalculateStandardMonster(
@@ -776,24 +780,41 @@ namespace DfoServer.Network.Handlers.Dungeon
                             experienceContext)
                 : default;
             var baseExp = baseExperience.ParticipantBaseExperience;
-            var storyBonus = DungeonExperienceCalculator.CalculateStoryExperienceBonus(
-                baseExp,
-                experienceBonusSnapshot);
-            var storyAdjustedBaseExp = CharacterExperienceService.AddSaturating(
-                baseExp,
-                storyBonus);
+            var storyBonus = 0u;
+            if (allowsExperience && storyWeightMultiplier > 1.0)
+            {
+                var nonStoryContext = new DungeonMonsterExperienceContext(
+                    session.Player.Level,
+                    monster.Level,
+                    experienceDifficulty,
+                    rewardMonsterType,
+                    isNamed,
+                    partyMemberCount);
+                var nonStoryExperience = run.ExperienceDefinition
+                        ?.UsesStandardFormula == true
+                    ? DungeonExperienceCalculator.CalculateStandardMonster(
+                        run.ExperienceDefinition,
+                        nonStoryContext)
+                    : DungeonExperienceCalculator
+                        .CalculateNonStandardCompatibilityMonster(
+                            run.ExperienceDefinition,
+                            nonStoryContext);
+                storyBonus = baseExp > nonStoryExperience.ParticipantBaseExperience
+                    ? baseExp - nonStoryExperience.ParticipantBaseExperience
+                    : 0;
+            }
             var eliteMonsterKillBonusExp = CalculateNamedMonsterDisplayBonus(
                 run,
                 experienceContext,
                 baseExp,
-                storyAdjustedBaseExp,
+                baseExp,
                 allowsExperience,
                 isNamed);
             // The named/elite component is a presentation breakdown field in
             // A21 EXP. The calculator already includes the PVF 3x named rate;
             // adding this display delta here would turn purple 2x champions
             // into an incorrect 3x award and double-pay green elites.
-            var monsterAwardBaseExp = storyAdjustedBaseExp;
+            var monsterAwardBaseExp = baseExp;
             var growthContractBonus = allowsExperience
                 ? CalculateGrowthContractMonsterBonus(
                     session,
@@ -914,6 +935,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     $"sharedBaseExp={baseExperience.SharedBaseExperience} " +
                     $"participantBaseExp={baseExperience.ParticipantBaseExperience} " +
                     $"storyRate={experienceBonusSnapshot.StoryExperienceBonusRatePercent}% " +
+                    $"storyWeight={storyWeightMultiplier:R} " +
                     $"storyBonus={storyBonus} " +
                     $"eliteDisplayBonus={eliteMonsterKillBonusExp} " +
                     $"awardBase={monsterAwardBaseExp} " +
@@ -1427,7 +1449,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 isNamedMonster: false,
                 context.PartyMemberCount,
                 context.PartyEventBonusRate,
-                context.MemberPenaltyRate);
+                context.MemberPenaltyRate,
+                context.ExperienceWeightMultiplier);
             var commonBase = run.ExperienceDefinition.UsesStandardFormula
                 ? DungeonExperienceCalculator.CalculateStandardMonster(
                     run.ExperienceDefinition,
@@ -1436,12 +1459,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     .CalculateNonStandardCompatibilityMonster(
                         run.ExperienceDefinition,
                         commonContext);
-            var commonAdjustedBase = DungeonExperienceCalculator
-                .ApplyStoryExperienceBonus(
-                    commonBase.ParticipantBaseExperience,
-                    run.CaptureExperienceBonusSnapshot());
-            return adjustedBaseExperience > commonAdjustedBase
-                ? adjustedBaseExperience - commonAdjustedBase
+            return adjustedBaseExperience > commonBase.ParticipantBaseExperience
+                ? adjustedBaseExperience - commonBase.ParticipantBaseExperience
                 : 0;
         }
 

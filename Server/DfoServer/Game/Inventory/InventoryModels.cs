@@ -270,6 +270,25 @@ namespace DfoServer.Game.Inventory
         public int Cost { get; set; }
     }
 
+    internal sealed class EquipmentDurabilityDecreaseResult
+    {
+        public short SlotIndex { get; set; }
+        public int ItemTemplateId { get; set; }
+        public ushort PreviousDurability { get; set; }
+        public ushort CurrentDurability { get; set; }
+        public bool Changed { get; set; }
+        public string Reason { get; set; }
+
+        internal static EquipmentDurabilityDecreaseResult Noop(short slotIndex, string reason)
+        {
+            return new EquipmentDurabilityDecreaseResult
+            {
+                SlotIndex = slotIndex,
+                Reason = reason,
+            };
+        }
+    }
+
     public sealed class BoosterRewardResult
     {
         public InventoryListType ListType { get; set; } = InventoryListType.Main;

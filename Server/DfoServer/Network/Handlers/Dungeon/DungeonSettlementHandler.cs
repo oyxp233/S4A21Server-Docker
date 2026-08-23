@@ -1298,7 +1298,11 @@ namespace DfoServer.Network.Handlers.Dungeon
             var experienceBonusSnapshot = run.CaptureExperienceBonusSnapshot();
             var experienceDifficulty = experienceBonusSnapshot
                 .ResolveExperienceDifficulty(run.Difficulty);
+            var storyWeightMultiplier = DungeonExperienceCalculator
+                .ResolveStoryExperienceWeightMultiplier(
+                    experienceBonusSnapshot);
             uint clearBaseExp;
+            uint storyBonus = 0;
             if (definition.UsesStandardFormula
                 && presentationKind == DungeonClearPresentationKind.Standard
                 && run.Tower == null)
@@ -1309,8 +1313,25 @@ namespace DfoServer.Network.Handlers.Dungeon
                         session.Player.Level,
                         experienceDifficulty,
                         killStatistics.TotalKillCount,
-                        partyMemberCount));
+                        partyMemberCount,
+                        partyEventBonusRate: 0.0,
+                        memberPenaltyRate: 1.0,
+                        experienceWeightMultiplier: storyWeightMultiplier));
                 clearBaseExp = calculated.ParticipantBaseExperience;
+                if (storyWeightMultiplier > 1.0)
+                {
+                    var nonStory = DungeonExperienceCalculator
+                        .CalculateStandardClear(
+                            definition,
+                            new DungeonClearExperienceContext(
+                                session.Player.Level,
+                                experienceDifficulty,
+                                killStatistics.TotalKillCount,
+                                partyMemberCount));
+                    storyBonus = clearBaseExp > nonStory.ParticipantBaseExperience
+                        ? clearBaseExp - nonStory.ParticipantBaseExperience
+                        : 0;
+                }
                 FileLogger.Log(
                     $"[DungeonExperience] clear model=Standard " +
                     $"dungeon={run.DungeonId} level={session.Player.Level} " +
@@ -1330,12 +1351,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (clearBaseExp == 0)
                 return default;
 
-            var storyBonus = DungeonExperienceCalculator.CalculateStoryExperienceBonus(
-                clearBaseExp,
-                experienceBonusSnapshot);
-            var storyAdjustedBaseExp = CharacterExperienceService.AddSaturating(
-                clearBaseExp,
-                storyBonus);
+            var storyAdjustedBaseExp = clearBaseExp;
 
             var connStr = _svc.ConnectionString;
             // Account 缺失时传 0(查不到契约, 无加成), 不能回退到账号 1 借用其契约效果。
@@ -1365,6 +1381,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 + $"difficulty={run.Difficulty} "
                 + $"experienceDifficulty={experienceDifficulty} "
                 + $"storyRate={experienceBonusSnapshot.StoryExperienceBonusRatePercent}% "
+                + $"storyWeight={storyWeightMultiplier:R} "
                 + $"storyBonus={storyBonus} base={clearBaseExp} "
                 + $"adjustedBase={storyAdjustedBaseExp}");
 
@@ -1383,7 +1400,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             int difficulty,
             int dungeonLevel)
         {
-            var baseExp = ExpTableProvider.GetLegacyQuestRewardBase(dungeonLevel);
+            var baseExp = ExpTableProvider.GetQuestRewardBase(dungeonLevel);
             if (baseExp <= 0)
                 return 0;
 

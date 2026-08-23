@@ -31,9 +31,8 @@ namespace DfoServer.Game.Dungeon
             return _levelThresholds[level - 1];
         }
 
-        // Only non-standard compatibility settlement may consume this task
-        // reward table. Standard dungeon EXP uses monster_reward_ref semantics.
-        public static int GetLegacyQuestRewardBase(int level)
+        // Dungeon clear base EXP is indexed by the DGN basis level.
+        public static int GetQuestRewardBase(int level)
         {
             EnsureLoaded();
             if (level < 1 || level > _questRewardExp.Length) return 0;

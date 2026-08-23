@@ -13,7 +13,8 @@ namespace DfoServer.Game.Dungeon
             bool isNamedMonster,
             int partyMemberCount,
             double partyEventBonusRate = 0.0,
-            double memberPenaltyRate = 1.0)
+            double memberPenaltyRate = 1.0,
+            double experienceWeightMultiplier = 1.0)
         {
             CharacterLevel = characterLevel;
             MonsterLevel = monsterLevel;
@@ -23,6 +24,8 @@ namespace DfoServer.Game.Dungeon
             PartyMemberCount = Math.Max(1, partyMemberCount);
             PartyEventBonusRate = NormalizeNonnegative(partyEventBonusRate);
             MemberPenaltyRate = NormalizeNonnegative(memberPenaltyRate);
+            ExperienceWeightMultiplier = NormalizePositive(
+                experienceWeightMultiplier);
         }
 
         internal int CharacterLevel { get; }
@@ -33,11 +36,17 @@ namespace DfoServer.Game.Dungeon
         internal int PartyMemberCount { get; }
         internal double PartyEventBonusRate { get; }
         internal double MemberPenaltyRate { get; }
+        internal double ExperienceWeightMultiplier { get; }
 
         private static double NormalizeNonnegative(double value)
             => value > 0.0 && !double.IsNaN(value) && !double.IsInfinity(value)
                 ? value
                 : 0.0;
+
+        private static double NormalizePositive(double value)
+            => value > 0.0 && !double.IsNaN(value) && !double.IsInfinity(value)
+                ? value
+                : 1.0;
     }
 
     internal readonly struct DungeonClearExperienceContext
@@ -56,6 +65,31 @@ namespace DfoServer.Game.Dungeon
             PartyMemberCount = Math.Max(1, partyMemberCount);
             PartyEventBonusRate = NormalizeNonnegative(partyEventBonusRate);
             MemberPenaltyRate = NormalizeNonnegative(memberPenaltyRate);
+            ExperienceWeightMultiplier = 1.0;
+        }
+
+        internal DungeonClearExperienceContext(
+            int characterLevel,
+            int difficulty,
+            int totalKilledMonsterCount,
+            int partyMemberCount,
+            double partyEventBonusRate,
+            double memberPenaltyRate,
+            double experienceWeightMultiplier)
+            : this(
+                characterLevel,
+                difficulty,
+                totalKilledMonsterCount,
+                partyMemberCount,
+                partyEventBonusRate,
+                memberPenaltyRate)
+        {
+            ExperienceWeightMultiplier =
+                experienceWeightMultiplier > 0.0
+                && !double.IsNaN(experienceWeightMultiplier)
+                && !double.IsInfinity(experienceWeightMultiplier)
+                    ? experienceWeightMultiplier
+                    : 1.0;
         }
 
         internal int CharacterLevel { get; }
@@ -64,6 +98,7 @@ namespace DfoServer.Game.Dungeon
         internal int PartyMemberCount { get; }
         internal double PartyEventBonusRate { get; }
         internal double MemberPenaltyRate { get; }
+        internal double ExperienceWeightMultiplier { get; }
 
         private static double NormalizeNonnegative(double value)
             => value > 0.0 && !double.IsNaN(value) && !double.IsInfinity(value)
@@ -92,13 +127,9 @@ namespace DfoServer.Game.Dungeon
             DungeonExperienceDefinition definition)
         {
             var fallback = Math.Max(0, storyModeDifficulty);
-            if (definition == null)
-                return fallback;
-
-            var candidate = fallback + 1;
-            return definition.SupportsDifficulty(candidate)
-                ? candidate
-                : fallback;
+            return definition == null || definition.SupportsDifficulty(fallback)
+                ? fallback
+                : 0;
         }
 
         internal static int ResolveMonsterKind(byte actorType)
@@ -135,10 +166,10 @@ namespace DfoServer.Game.Dungeon
             var namedRate = context.IsNamedMonster ? 3.0 : 1.0;
             var sharedBase = FloorToUInt32(
                 mobReward
-                / 2.0
                 * partyRate
                 * definition.GetDifficultyRate(context.Difficulty)
                 * definition.ExperienceWeight
+                * context.ExperienceWeightMultiplier
                 * monsterKindRate
                 * namedRate);
             var participantBase = FloorToUInt32(
@@ -175,7 +206,9 @@ namespace DfoServer.Game.Dungeon
 
             var namedRate = context.IsNamedMonster ? 3.0 : 1.0;
             var weightedMobReward = FloorToUInt32(
-                mobReward * definition.ExperienceWeight);
+                mobReward
+                * definition.ExperienceWeight
+                * context.ExperienceWeightMultiplier);
             var sharedBase = FloorToUInt32(
                 weightedMobReward
                 * definition.GetDifficultyRate(context.Difficulty)
@@ -196,70 +229,47 @@ namespace DfoServer.Game.Dungeon
             DungeonClearExperienceContext context)
         {
             if (definition == null
-                || !definition.UsesStandardFormula
-                || context.TotalKilledMonsterCount <= 0)
+                || !definition.UsesStandardFormula)
             {
                 return default;
             }
 
-            var mobReward = MonsterRewardTable.GetMobReward(context.CharacterLevel);
-            if (mobReward <= 0)
+            var clearReward = ExpTableProvider.GetQuestRewardBase(
+                definition.StandardLevel);
+            if (clearReward <= 0)
                 return default;
 
-            var partyRate = definition.GetPartyMemberRate(
-                    context.PartyMemberCount)
-                + context.PartyEventBonusRate;
             var sharedBase = FloorToUInt32(
-                mobReward
-                * (double)context.TotalKilledMonsterCount
-                / 2.0
-                * partyRate
+                clearReward
                 * definition.GetDifficultyRate(context.Difficulty)
-                * definition.ExperienceWeight);
-            var participantBase = FloorToUInt32(
-                sharedBase
-                * GetLevelPenalty(
-                    context.CharacterLevel,
-                    definition.StandardLevel)
-                * context.MemberPenaltyRate
-                / context.PartyMemberCount);
-            return new DungeonBaseExperienceResult(sharedBase, participantBase);
+                * definition.ExperienceWeight
+                * context.ExperienceWeightMultiplier);
+            return new DungeonBaseExperienceResult(sharedBase, sharedBase);
         }
 
-        // The A14 clear-result packet presents part of the already-granted
-        // participant base as a party contribution. It is a display breakdown,
-        // not an additional experience grant.
+        // The 90-version clear base has no party multiplier. Keep this A21
+        // presentation slot at zero instead of inventing a contribution that
+        // is absent from the authoritative grant.
         internal static uint CalculatePartyClearBreakdown(
             DungeonExperienceDefinition definition,
             uint participantBaseExperience,
             int partyMemberCount,
             double partyEventBonusRate = 0.0)
         {
-            if (definition == null
-                || !definition.UsesStandardFormula
-                || participantBaseExperience == 0
-                || partyMemberCount <= 1
-                || partyEventBonusRate < 0.0
-                || double.IsNaN(partyEventBonusRate)
-                || double.IsInfinity(partyEventBonusRate))
+            return 0;
+        }
+
+        internal static double ResolveStoryExperienceWeightMultiplier(
+            DungeonParticipantExperienceBonusSnapshot snapshot)
+        {
+            if (!snapshot.IsCaptured
+                || !snapshot.HasStoryExperienceProfile
+                || snapshot.StoryExperienceBonusRatePercent <= 0)
             {
-                return 0;
+                return 1.0;
             }
 
-            var partyRate = definition.GetPartyMemberRate(partyMemberCount)
-                + partyEventBonusRate;
-            if (partyRate <= 1.0
-                || double.IsNaN(partyRate)
-                || double.IsInfinity(partyRate))
-            {
-                return 0;
-            }
-
-            var nonPartyShare = FloorToUInt32(
-                participantBaseExperience / partyRate);
-            return nonPartyShare >= participantBaseExperience
-                ? 0
-                : participantBaseExperience - nonPartyShare;
+            return (100.0 + snapshot.StoryExperienceBonusRatePercent) / 100.0;
         }
 
         internal static DungeonClearParticipantBonusResult
@@ -292,37 +302,6 @@ namespace DfoServer.Game.Dungeon
             return new DungeonClearParticipantBonusResult(
                 avatarBonus,
                 creatureBonus);
-        }
-
-        internal static uint ApplyStoryExperienceBonus(
-            uint baseExperience,
-            DungeonParticipantExperienceBonusSnapshot snapshot)
-        {
-            if (baseExperience == 0
-                || !snapshot.IsCaptured
-                || snapshot.StoryExperienceBonusRatePercent <= 0)
-            {
-                return baseExperience;
-            }
-
-            var multiplier = 100UL
-                + (ulong)snapshot.StoryExperienceBonusRatePercent;
-            var adjusted = (ulong)baseExperience * multiplier / 100UL;
-            return adjusted >= uint.MaxValue
-                ? uint.MaxValue
-                : (uint)adjusted;
-        }
-
-        internal static uint CalculateStoryExperienceBonus(
-            uint baseExperience,
-            DungeonParticipantExperienceBonusSnapshot snapshot)
-        {
-            var adjusted = ApplyStoryExperienceBonus(
-                baseExperience,
-                snapshot);
-            return adjusted > baseExperience
-                ? adjusted - baseExperience
-                : 0;
         }
 
         // df_game_r CDataManager::BaseExpPenalty @ 0x08360914.
