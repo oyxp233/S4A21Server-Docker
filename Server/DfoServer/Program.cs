@@ -28,6 +28,7 @@ namespace DfoServer
             ("--selftest-daily-reset-account", SelfTests.DailyResetAccountSelfTest.Run),
             ("--selftest-a21-daily-challenge", SelfTests.A21DailyChallengeSelfTest.Run),
             ("--selftest-item-state", SelfTests.ItemStateSelfTest.Run),
+            ("--selftest-growup-change", SelfTests.GrowupChangeSelfTest.Run),
             ("--selftest-cargo-transport-stone", SelfTests.CargoTransportStoneSelfTest.Run),
             ("--selftest-item-purchase-limit", SelfTests.ItemPurchaseLimitSelfTest.Run),
             ("--selftest-lottery-item", SelfTests.LotteryItemSelfTest.Run),

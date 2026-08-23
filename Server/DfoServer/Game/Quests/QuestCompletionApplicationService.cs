@@ -1686,6 +1686,91 @@ namespace DfoServer.Game.Quests
             return skills;
         }
 
+        internal static SelectCharacter.SkillInfoSnapshot UpdateGrowTypeExact(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            int firstGrow,
+            int secondGrow)
+        {
+            byte currentGrowType = 0;
+            byte job;
+            byte characterLevel;
+            uint characterExp;
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = @"
+SELECT job, level, exp, grow_type
+FROM characters
+WHERE character_id = @cid";
+                command.Parameters.AddWithValue("@cid", characterId);
+                using (var reader = command.ExecuteReader())
+                {
+                    if (!reader.Read())
+                    {
+                        throw new InvalidOperationException(
+                            $"character not found: cid={characterId}");
+                    }
+
+                    job = (byte)reader.GetInt32(0);
+                    characterLevel = (byte)Math.Max(1, Math.Min(255, reader.GetInt32(1)));
+                    var expValue = reader.GetInt64(2);
+                    characterExp = (uint)Math.Max(
+                        0L,
+                        Math.Min(uint.MaxValue, expValue));
+                    currentGrowType = (byte)Math.Max(
+                        0,
+                        Math.Min(255, reader.GetInt32(3)));
+                }
+            }
+
+            firstGrow = Math.Max(0, Math.Min(0x0F, firstGrow));
+            secondGrow = Math.Max(0, Math.Min(0x0F, secondGrow));
+            var newGrowType = (byte)((secondGrow << 4) | (firstGrow & 0x0F));
+
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText =
+                    "UPDATE characters SET grow_type = @grow WHERE character_id = @cid";
+                command.Parameters.AddWithValue("@grow", (int)newGrowType);
+                command.Parameters.AddWithValue("@cid", characterId);
+                command.ExecuteNonQuery();
+            }
+            FileLogger.Log(
+                $"[QuestCompletionApplicationService] UpdateGrowTypeExact: cid={characterId} " +
+                $"first={firstGrow} second={secondGrow} " +
+                $"old=0x{currentGrowType:X2} new=0x{newGrowType:X2}");
+
+            var progressRepository = CharacterData.SqliteCharacterProgressRepository
+                .FromConnectionString(connection.ConnectionString);
+            var skills = Skills.CharacterSkillProfile.BuildSnapshot(
+                job,
+                firstGrow,
+                secondGrow,
+                characterLevel);
+            progressRepository.SaveSkillProgress(
+                connection,
+                transaction,
+                characterId,
+                skills);
+
+            if (!Progression.CharacterProgressService.PersistLevelAndExp(
+                    connection,
+                    transaction,
+                    characterId,
+                    characterLevel,
+                    characterExp))
+            {
+                throw new InvalidOperationException(
+                    $"combat stat refresh failed after exact grow type update: " +
+                    $"cid={characterId}");
+            }
+
+            return skills;
+        }
+
         internal static SelectCharacter.SkillInfoSnapshot UpdateExpertJob(
             SqliteConnection connection,
             SqliteTransaction transaction,

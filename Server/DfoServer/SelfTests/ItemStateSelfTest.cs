@@ -74,7 +74,7 @@ PRAGMA user_version = 6;";
 
                     SqliteMigrations.Apply(connection);
                     Check(
-                        "v6 character_item_values migrates to v7 character_item_states",
+                        "v6 character_item_values migrates to current character_item_states",
                         SqliteMigrations.ReadVersion(connection) == SqliteMigrations.CurrentVersion
                         && TableExists(connection, "character_item_states")
                         && !TableExists(connection, "character_item_values")
