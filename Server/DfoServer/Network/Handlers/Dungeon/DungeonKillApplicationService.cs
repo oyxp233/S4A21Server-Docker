@@ -744,18 +744,24 @@ namespace DfoServer.Network.Handlers.Dungeon
             var rewardMonsterType = DungeonExperienceCalculator
                 .ResolveMonsterKind(monster.Type);
             var isBoss = rewardMonsterType == 3;
-            var isChampion = rewardMonsterType == 1;
             var isNamed = !isBoss
                 && DungeonData.IsNamedMonster(run.DungeonId, monster.Code);
+            // PVF named monsters are green-name elites, not runtime champion
+            // actors. Keep the ledger categories mutually exclusive even if
+            // a client reports an actor kind together with a named code.
+            var isChampion = rewardMonsterType == 1 && !isNamed;
             var isSuperChampion = rewardMonsterType == 2 && !isNamed;
             var partyMemberCount = Math.Max(
                 1,
                 run.Instance?.Selection?.PartyMemberCount
                     ?? run.EntryPartyMemberCount);
+            var experienceBonusSnapshot = run.CaptureExperienceBonusSnapshot();
+            var experienceDifficulty = experienceBonusSnapshot
+                .ResolveExperienceDifficulty(run.Difficulty);
             var experienceContext = new DungeonMonsterExperienceContext(
                 session.Player.Level,
                 monster.Level,
-                run.Difficulty,
+                experienceDifficulty,
                 rewardMonsterType,
                 isNamed,
                 partyMemberCount);
@@ -769,7 +775,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                             run.ExperienceDefinition,
                             experienceContext)
                 : default;
-            var experienceBonusSnapshot = run.CaptureExperienceBonusSnapshot();
             var baseExp = baseExperience.ParticipantBaseExperience;
             var storyBonus = DungeonExperienceCalculator.CalculateStoryExperienceBonus(
                 baseExp,
@@ -777,18 +782,25 @@ namespace DfoServer.Network.Handlers.Dungeon
             var storyAdjustedBaseExp = CharacterExperienceService.AddSaturating(
                 baseExp,
                 storyBonus);
-            var eliteMonsterKillBonusExp = CalculateEliteMonsterKillBonus(
+            var eliteMonsterKillBonusExp = CalculateNamedMonsterDisplayBonus(
                 run,
                 experienceContext,
                 baseExp,
                 storyAdjustedBaseExp,
                 allowsExperience,
-                isChampion || isSuperChampion);
+                isNamed);
+            // The named/elite component is a presentation breakdown field in
+            // A21 EXP. The calculator already includes the PVF 3x named rate;
+            // adding this display delta here would turn purple 2x champions
+            // into an incorrect 3x award and double-pay green elites.
+            var monsterAwardBaseExp = storyAdjustedBaseExp;
             var growthContractBonus = allowsExperience
-                ? CalculateGrowthContractMonsterBonus(session, baseExp)
+                ? CalculateGrowthContractMonsterBonus(
+                    session,
+                    monsterAwardBaseExp)
                 : 0;
             var awardedExp = CharacterExperienceService.AddSaturating(
-                storyAdjustedBaseExp,
+                monsterAwardBaseExp,
                 growthContractBonus);
 
             var dungeonBasisLevel = (int)monster.Level;
@@ -876,7 +888,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             lock (run.SyncRoot)
             {
                 run.Combat.Experience.RecordMonster(
-                    storyAdjustedBaseExp,
+                    monsterAwardBaseExp,
                     growthContractBonus,
                     isBoss,
                     isChampion,
@@ -891,16 +903,20 @@ namespace DfoServer.Network.Handlers.Dungeon
                 var definition = run.ExperienceDefinition;
                 FileLogger.Log(
                     $"[DungeonExperience] kill result dungeon={run.DungeonId} " +
-                    $"difficulty={run.Difficulty} actorType={monster.Type} " +
+                    $"difficulty={run.Difficulty} " +
+                    $"experienceDifficulty={experienceDifficulty} " +
+                    $"actorType={monster.Type} " +
                     $"rewardKind={rewardMonsterType} code={monster.Code} " +
                     $"level={monster.Level} named={isNamed} " +
                     $"kindRate={definition?.GetMonsterKindRate(rewardMonsterType):R} " +
-                    $"difficultyRate={definition?.GetDifficultyRate(run.Difficulty):R} " +
+                    $"difficultyRate=" +
+                    $"{definition?.GetDifficultyRate(experienceDifficulty):R} " +
                     $"sharedBaseExp={baseExperience.SharedBaseExperience} " +
                     $"participantBaseExp={baseExperience.ParticipantBaseExperience} " +
                     $"storyRate={experienceBonusSnapshot.StoryExperienceBonusRatePercent}% " +
                     $"storyBonus={storyBonus} " +
-                    $"eliteBonus={eliteMonsterKillBonusExp} " +
+                    $"eliteDisplayBonus={eliteMonsterKillBonusExp} " +
+                    $"awardBase={monsterAwardBaseExp} " +
                     $"growthContract={growthContractBonus} " +
                     $"awarded={awardedExp}");
             }
@@ -1387,16 +1403,16 @@ namespace DfoServer.Network.Handlers.Dungeon
         private static bool IsBossActorType(byte monsterType) =>
             monsterType == 3 || monsterType == 8;
 
-        private static uint CalculateEliteMonsterKillBonus(
+        internal static uint CalculateNamedMonsterDisplayBonus(
             DungeonRun run,
             DungeonMonsterExperienceContext context,
             uint baseExperience,
             uint adjustedBaseExperience,
             bool allowsExperience,
-            bool isEliteMonster)
+            bool isNamedMonster)
         {
             if (!allowsExperience
-                || !isEliteMonster
+                || !isNamedMonster
                 || run?.ExperienceDefinition == null
                 || baseExperience == 0)
             {
@@ -1408,7 +1424,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 context.MonsterLevel,
                 context.Difficulty,
                 monsterKind: 0,
-                context.IsNamedMonster,
+                isNamedMonster: false,
                 context.PartyMemberCount,
                 context.PartyEventBonusRate,
                 context.MemberPenaltyRate);

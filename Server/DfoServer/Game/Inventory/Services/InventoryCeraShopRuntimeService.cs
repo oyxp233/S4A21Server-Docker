@@ -67,10 +67,10 @@ namespace DfoServer.Game.Inventory
             { 3, new Dictionary<int, int> { { 3, 2681594 } } },
         };
 
-        private static readonly int[] AccountCargoCapacityTiers = { 1, 8, 16, 24, 32, 40, 48, 56, 64 };
+        private static readonly int[] AccountCargoCapacityTiers = { 1, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120 };
         private static readonly ushort[] PersonalCargoCapacityTiers =
         {
-            24, 40, 56, 72, 88, 104, 120, 136, 152
+            24, 40, 56, 72, 88, 104, 120, 136, 152, 168, 184, 200
         };
 
         internal static bool TryBuyCeraShopItem(

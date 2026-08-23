@@ -10,6 +10,7 @@ namespace DfoServer.Game.Characters
         public byte[] Name { get; set; }
         public byte Job { get; set; }
         public byte GrowType { get; set; }
+        public int GrowupChangeCount { get; set; }
         public byte Level { get; set; }
         public byte PvpGrade { get; set; }
         public byte PvpRatingGrade { get; set; }

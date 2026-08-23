@@ -1295,6 +1295,9 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (definition == null || !definition.IsAvailable)
                 return default;
 
+            var experienceBonusSnapshot = run.CaptureExperienceBonusSnapshot();
+            var experienceDifficulty = experienceBonusSnapshot
+                .ResolveExperienceDifficulty(run.Difficulty);
             uint clearBaseExp;
             if (definition.UsesStandardFormula
                 && presentationKind == DungeonClearPresentationKind.Standard
@@ -1304,7 +1307,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     definition,
                     new DungeonClearExperienceContext(
                         session.Player.Level,
-                        run.Difficulty,
+                        experienceDifficulty,
                         killStatistics.TotalKillCount,
                         partyMemberCount));
                 clearBaseExp = calculated.ParticipantBaseExperience;
@@ -1320,14 +1323,13 @@ namespace DfoServer.Network.Handlers.Dungeon
             {
                 clearBaseExp = CalculateNonStandardCompatibilityClearBase(
                     definition,
-                    run.Difficulty,
+                    experienceDifficulty,
                     dungeonLevel);
             }
 
             if (clearBaseExp == 0)
                 return default;
 
-            var experienceBonusSnapshot = run.CaptureExperienceBonusSnapshot();
             var storyBonus = DungeonExperienceCalculator.CalculateStoryExperienceBonus(
                 clearBaseExp,
                 experienceBonusSnapshot);
@@ -1339,21 +1341,29 @@ namespace DfoServer.Network.Handlers.Dungeon
             // Account 缺失时传 0(查不到契约, 无加成), 不能回退到账号 1 借用其契约效果。
             var accountId = session.Account?.AccountId ?? 0;
             var scoreBonusRate = MonsterRewardTable.GetClearRankExpBonusRate(rankBonusIndex);
-            var scoreBonus = ToUInt32Floor(clearBaseExp * scoreBonusRate);
+            var scoreBonus = ToUInt32Floor(
+                storyAdjustedBaseExp * scoreBonusRate);
             var premiumEffects = Game.Premium.PremiumEffectProvider.GetCombinedEffects(connStr, accountId);
-            var growthContractBonus = premiumEffects.ComputeBonusExp(clearBaseExp);
+            var growthContractBonus = premiumEffects.ComputeBonusExp(
+                storyAdjustedBaseExp);
             var blackDiamondBonus = PremiumService.HasActivePremium(connStr, accountId, BlackDiamondPremiumTypes)
-                ? ToUInt32Floor(clearBaseExp * BlackDiamondBonusRate)
+                ? ToUInt32Floor(
+                    storyAdjustedBaseExp * BlackDiamondBonusRate)
                 : 0;
-            var adventureGroupBonus = CalculateAdventureGroupClearExpBonus(session, accountId, clearBaseExp);
+            var adventureGroupBonus = CalculateAdventureGroupClearExpBonus(
+                session,
+                accountId,
+                storyAdjustedBaseExp);
             var participantBonuses = DungeonExperienceCalculator
                 .CalculateClearParticipantBonuses(
                     definition,
-                    clearBaseExp,
+                    storyAdjustedBaseExp,
                     experienceBonusSnapshot);
             FileLogger.Log(
                 $"[{DungeonSharedServices.ProtocolLogName}] "
                 + $"CLEAR_EXP: dungeon={run.DungeonId} "
+                + $"difficulty={run.Difficulty} "
+                + $"experienceDifficulty={experienceDifficulty} "
                 + $"storyRate={experienceBonusSnapshot.StoryExperienceBonusRatePercent}% "
                 + $"storyBonus={storyBonus} base={clearBaseExp} "
                 + $"adjustedBase={storyAdjustedBaseExp}");

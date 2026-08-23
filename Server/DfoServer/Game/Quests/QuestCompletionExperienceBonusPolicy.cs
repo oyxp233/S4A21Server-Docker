@@ -8,6 +8,7 @@ namespace DfoServer.Game.Quests
         internal QuestCompletionExperienceBonusSnapshot(
             ushort questId,
             int ratePercent,
+            int experienceDifficulty,
             short dungeonId,
             byte difficulty,
             long runId,
@@ -15,6 +16,7 @@ namespace DfoServer.Game.Quests
         {
             QuestId = questId;
             RatePercent = ratePercent;
+            ExperienceDifficulty = experienceDifficulty;
             DungeonId = dungeonId;
             Difficulty = difficulty;
             RunId = runId;
@@ -23,11 +25,14 @@ namespace DfoServer.Game.Quests
 
         internal ushort QuestId { get; }
         internal int RatePercent { get; }
+        internal int ExperienceDifficulty { get; }
         internal short DungeonId { get; }
         internal byte Difficulty { get; }
         internal long RunId { get; }
         internal long RunGeneration { get; }
-        internal bool IsEligible => QuestId > 0 && RatePercent > 0;
+        internal bool IsStoryRun => QuestId > 0
+            && ExperienceDifficulty >= 0;
+        internal bool IsEligible => IsStoryRun && RatePercent > 0;
 
         internal bool Matches(ushort questId) =>
             IsEligible && QuestId == questId;
@@ -47,6 +52,7 @@ namespace DfoServer.Game.Quests
             int activeQuestId;
             long runId;
             long runGeneration;
+            GameWorld.DungeonExperienceDefinition experienceDefinition;
             QuestRunSnapshot questSnapshot;
             lock (run.SyncRoot)
             {
@@ -55,6 +61,7 @@ namespace DfoServer.Game.Quests
                 activeQuestId = run.ActiveQuestMazeQuestId;
                 runId = run.RunId;
                 runGeneration = run.RunGeneration;
+                experienceDefinition = run.ExperienceDefinition;
                 questSnapshot = run.QuestSnapshot;
             }
 
@@ -103,10 +110,15 @@ namespace DfoServer.Game.Quests
 
                 var ratePercent = storyMode
                     .IncreaseExperienceRates[difficultyIndex];
-                return ratePercent > 0
+                var experienceDifficulty = DungeonExperienceCalculator
+                    .ResolveStoryModeExperienceDifficulty(
+                        difficultyIndex,
+                        experienceDefinition);
+                return ratePercent >= 0
                     ? new QuestCompletionExperienceBonusSnapshot(
                         questId,
                         ratePercent,
+                        experienceDifficulty,
                         dungeonId,
                         difficulty,
                         runId,

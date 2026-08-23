@@ -62,11 +62,12 @@ namespace DfoServer.GameWorld
         internal bool UsesStandardFormula =>
             IsAvailable && Kind == DungeonExperienceDefinitionKind.Standard;
 
+        internal bool SupportsDifficulty(int difficulty) =>
+            difficulty >= 0 && difficulty < _difficultyRates.Length;
+
         internal double GetDifficultyRate(int difficulty)
         {
-            if (_difficultyRates.Length == 0
-                || difficulty < 0
-                || difficulty >= _difficultyRates.Length)
+            if (!SupportsDifficulty(difficulty))
             {
                 return 1.0;
             }

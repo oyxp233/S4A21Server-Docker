@@ -25,16 +25,25 @@ namespace DfoServer.Network.Handlers
             var (characterId, _) = ResolveOwner(session);
             ChronicleGrowthResult result = null;
             InventoryLease lease = null;
+            var isEmancipate = false;
             var ok = TryGetOwnedInventoryLease(session, characterId, out lease)
                 && OnlineInventoryMutationCommitCoordinator.TryCommit(
                     lease,
                     "chronicle-growth",
                     (connection, transaction) =>
                     {
-                        var grown = ChronicleGrowthService.TryGrow(
-                            lease.Inventory,
-                            command,
-                            out result);
+                        if (ItemMetadataResolver.TryLoadStackableFile(command.TicketItemTemplateId, out var ticket)
+                            && IsEquipmentConversionTicket(ticket.EmancipateTicket)
+                            && ticket.EmancipateTicket >= 0
+                            && ItemMetadataResolver.TryLoadEquipmentFile(command.TargetItemTemplateId, out var target)
+                            && target.Emancipate != null
+                            && target.Emancipate.Type == ticket.EmancipateTicket)
+                        {
+                            isEmancipate = true;
+                            return InventoryEmancipateService.TryConvert(lease.Inventory, command, out result);
+                        }
+
+                        var grown = ChronicleGrowthService.TryGrow(lease.Inventory, command, out result);
                         return grown && result != null;
                     });
 
@@ -48,21 +57,35 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
-            var refreshSlots = result.Consumptions.Select(x => x.SlotIndex)
-                .Append(command.TargetSlotIndex)
+            var refreshSlots = new[] { command.TargetSlotIndex }
+                .Concat(result.Consumptions.Select(x => x.SlotIndex))
                 .Distinct()
                 .ToArray();
-            // The 0x010F ACK has no target level/stat payload. Refresh first so the
-            // result dialog can compare the updated equipment and render stat gains.
-            await _refresh.SendUpdateItemList(session, InventoryListType.Main, refreshSlots);
-
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x01, (ushort)CmdPacketType.UPGRADE_CHRONICLE,
                 ChronicleGrowthAckBuilder.BuildSuccess(result)));
 
-            await _refresh.SendSortItemLockRefresh(session, InventoryListType.Main);
+            // A21 replacement flows first clear the old target entry with a
+            // single-slot 0x000E, then send the authoritative multi-slot
+            // update. This invalidates the client's cached source equipment.
+            if (isEmancipate)
+                await _refresh.SendEmptyUpdateItemList(session, InventoryListType.Main, command.TargetSlotIndex);
 
-            FileLogger.Log($"[{ProtocolName}] UPGRADE_CHRONICLE: OK target={command.TargetSlotIndex} level={result.OldLevel}->{result.NewLevel} success={result.GrowthSucceeded} fragments={result.RequiredFragmentCount} roll={result.ProbabilityRoll}/{result.SuccessWeight}");
+            // Send the authoritative multi-slot 0x000E update after the
+            // 0x010F ACK. The A21 client may rebuild the slot from the ACK
+            // handling path, so sending the update first can leave stale data
+            // visible until the next inventory sort/refresh.
+            await _refresh.SendUpdateItemList(session, InventoryListType.Main, refreshSlots);
+
+            FileLogger.Log($"[{ProtocolName}] UPGRADE_CHRONICLE: OK mode={(isEmancipate ? "emancipate" : "growth")} target={command.TargetSlotIndex} level={result.OldLevel}->{result.NewLevel} success={result.GrowthSucceeded} fragments={result.RequiredFragmentCount} roll={result.ProbabilityRoll}/{result.SuccessWeight}");
+        }
+
+        private static bool IsEquipmentConversionTicket(int ticket)
+        {
+            // Keep the existing growth/改造 path for PVF tickets handled by
+            // ChronicleGrowthService. This branch is only for equipment
+            // conversion records with an [emancipate] source definition.
+            return ticket >= 4 && ticket != 5;
         }
     }
 }

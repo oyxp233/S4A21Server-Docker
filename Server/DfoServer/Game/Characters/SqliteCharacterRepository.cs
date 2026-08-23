@@ -342,7 +342,7 @@ SELECT character_id, account_id, CAST(name AS BLOB), job, grow_type, level,
        town_id, area_id, pos_x, pos_y, direction, area_state, appearance_blob,
        delete_flag, created_at, updated_at, exp, ex_equip_slot_stat,
        pvp_grade, pvp_rating_grade, user_state, bonus_sp, bonus_tp, slot_index,
-       aura_skin_flag
+       aura_skin_flag, growup_change_count
 FROM characters";
 
         private static CharacterRecord Map(IDataRecord r)
@@ -375,6 +375,7 @@ FROM characters";
                 BonusTp = r.FieldCount > 22 && !r.IsDBNull(22) ? r.GetInt32(22) : 0,
                 SlotIndex = r.FieldCount > 23 && !r.IsDBNull(23) ? (byte)r.GetInt32(23) : (byte)0,
                 AuraSkinFlag = r.FieldCount > 24 && !r.IsDBNull(24) ? (byte)r.GetInt32(24) : (byte)0,
+                GrowupChangeCount = r.FieldCount > 25 && !r.IsDBNull(25) ? r.GetInt32(25) : 0,
             };
         }
 

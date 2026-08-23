@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS characters (
     name TEXT NOT NULL,
     job INTEGER NOT NULL DEFAULT 0,
     grow_type INTEGER NOT NULL DEFAULT 0,
+    growup_change_count INTEGER NOT NULL DEFAULT 0,
     level INTEGER NOT NULL DEFAULT 1,
     pvp_grade INTEGER NOT NULL DEFAULT 0,
     pvp_rating_grade INTEGER NOT NULL DEFAULT 0,
