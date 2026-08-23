@@ -450,6 +450,8 @@ namespace DfoServer.Network
             d[0x025C] = _inventoryHandler.Handle_UPGRADE_CARD;                     //604 monster card upgrade
             d[0x0207] = _inventoryHandler.Handle_OPEN_AVATAR_PACKAGE;
             d[0x0218] = _inventoryHandler.Handle_USE_BOOSTER_ITEM;
+            d[(ushort)CmdPacketTypeA21.CARGO_TRANSPORT_ITEM] =
+                _inventoryHandler.Handle_CARGO_TRANSPORT_ITEM;
             d[(ushort)CmdPacketTypeA21.EPIC_BOOK_MAKE_ITEM] =
                 _inventoryHandler.Handle_EPIC_BOOK_MAKE_ITEM;
             d[(ushort)CmdPacketTypeA21.OPEN_AURA_SKIN_SLOT] =

@@ -118,7 +118,33 @@ namespace DfoServer.Game.Inventory
                 nowUnixSeconds,
                 requiredCount,
                 stackable,
+                true,
+                true,
                 true);
+        }
+
+        internal static InventoryItemLifecycleUsePlan PrepareUseWithDefinition(
+            InventoryService inventory,
+            InventoryListType listType,
+            short slotIndex,
+            int expectedItemTemplateId,
+            long nowUnixSeconds,
+            int requiredCount,
+            PvfLib.StackableItemFile stackable,
+            bool checkEffectMaintenance,
+            bool checkCooltimeMaintenance)
+        {
+            return PrepareUseCore(
+                inventory,
+                listType,
+                slotIndex,
+                expectedItemTemplateId,
+                nowUnixSeconds,
+                requiredCount,
+                stackable,
+                true,
+                checkEffectMaintenance,
+                checkCooltimeMaintenance);
         }
 
         private static InventoryItemLifecycleUsePlan PrepareUseCore(
@@ -129,7 +155,9 @@ namespace DfoServer.Game.Inventory
             long nowUnixSeconds,
             int requiredCount,
             PvfLib.StackableItemFile stackableOverride,
-            bool hasStackableOverride)
+            bool hasStackableOverride,
+            bool checkEffectMaintenance = true,
+            bool checkCooltimeMaintenance = true)
         {
             var result = new InventoryItemLifecycleUsePlan
             {
@@ -190,7 +218,7 @@ namespace DfoServer.Game.Inventory
                 return result;
             }
 
-            if (stackable.HasEffectMaintenance)
+            if (checkEffectMaintenance && stackable.HasEffectMaintenance)
             {
                 if (stackable.StatChangeDurationMilliseconds <= 0)
                     return Reject(result, InventoryItemLifecycleStatus.InvalidDefinition, "missing [stat change duration]");
@@ -211,7 +239,7 @@ namespace DfoServer.Game.Inventory
                     stackable.StatChangeDurationMilliseconds);
             }
 
-            if (stackable.HasCooltimeMaintenance)
+            if (checkCooltimeMaintenance && stackable.HasCooltimeMaintenance)
             {
                 if (stackable.CoolTime <= 0)
                     return Reject(result, InventoryItemLifecycleStatus.InvalidDefinition, "missing [cool time]");

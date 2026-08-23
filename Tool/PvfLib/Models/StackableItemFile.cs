@@ -239,6 +239,7 @@ namespace PvfLib
         // [action type] `[xxx]` p1 p2 ...: ActionTypeName="[xxx]", ActionTypeParams=[p1,p2,...]
         public string ActionTypeName { get; set; }
         public List<int> ActionTypeParams { get; set; } = new List<int>();
+        public List<int> RarityPossibleExplain { get; set; } = new List<int>();
         public UpgradeLimitCubeInfo UpgradeLimitCube { get; set; }
         public EquipmentUpgradeTicketInfo EquipmentReinforcementTicket { get; set; }
         public EquipmentUpgradeTicketInfo EquipmentAmplifyReinforcementTicket { get; set; }
@@ -393,6 +394,7 @@ namespace PvfLib
                     case "3choro enchant": stk.ThreeChronicleEnchant = ParseThreeChronicleEnchant(root, node, content); break;
                     case "enchant table": stk.EnchantTable = ParseEnchantTableIndexes(node, content); break;
                     case "action type": ParseActionType(node, content, stk); break;
+                    case "rarity possible explain": stk.RarityPossibleExplain = ParseIntList(node, content); break;
                     case "upgrade limit cube info": stk.UpgradeLimitCube = ParseUpgradeLimitCubeInfo(node, content); break;
                     case "equipment reinforcement ticket": stk.EquipmentReinforcementTicket = ParseUpgradeTicket(node, content); break;
                     case "equipment amplify reinforcement ticket": stk.EquipmentAmplifyReinforcementTicket = ParseUpgradeTicket(node, content); break;
@@ -1283,24 +1285,29 @@ namespace PvfLib
 
         private static void ParseActionType(ScriptNode node, string content, StackableItemFile stk)
         {
-            if (node == null || node.DataItems == null)
+            if (node == null || node.DataItems == null || stk == null)
                 return;
 
+            var foundName = false;
+            stk.ActionTypeParams.Clear();
             foreach (var item in node.DataItems)
             {
                 var raw = item.GetContent(content);
-                var nameMatch = Regex.Match(raw, "`([^`]*)`");
-                if (!nameMatch.Success)
-                    continue;
-
-                stk.ActionTypeName = nameMatch.Groups[1].Value.Trim();
-                var rest = raw.Substring(nameMatch.Index + nameMatch.Length);
-                foreach (var token in rest.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                if (!foundName)
                 {
-                    if (int.TryParse(token, out var value))
+                    var nameMatch = Regex.Match(raw, "`([^`]*)`");
+                    if (!nameMatch.Success)
+                        continue;
+
+                    stk.ActionTypeName = nameMatch.Groups[1].Value.Trim();
+                    foreach (var value in ParseInts(raw.Substring(nameMatch.Index + nameMatch.Length)))
                         stk.ActionTypeParams.Add(value);
+                    foundName = true;
+                    continue;
                 }
-                break;
+
+                foreach (var value in ParseInts(raw))
+                    stk.ActionTypeParams.Add(value);
             }
         }
 
