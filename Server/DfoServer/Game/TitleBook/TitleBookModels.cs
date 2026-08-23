@@ -118,5 +118,31 @@ namespace DfoServer.Game.TitleBook
         public ushort CheckCount { get; set; } = 1;
 
         public int RewardTitleItemId { get; set; } = -1;
+
+        public string TriggerType { get; set; } = string.Empty;
+
+        public List<TitleQuestUseItemCondition> UseItemConditions { get; } =
+            new List<TitleQuestUseItemCondition>();
+
+        public bool IsUseItem =>
+            TriggerType.Equals("[use item]", System.StringComparison.OrdinalIgnoreCase);
+
+        public int GetUseItemProgressPerItem(int itemId)
+        {
+            foreach (var condition in UseItemConditions)
+            {
+                if (condition.ItemId == itemId)
+                    return condition.ProgressPerItem;
+            }
+
+            return 0;
+        }
+    }
+
+    public sealed class TitleQuestUseItemCondition
+    {
+        public int ItemId { get; set; }
+
+        public int ProgressPerItem { get; set; }
     }
 }
