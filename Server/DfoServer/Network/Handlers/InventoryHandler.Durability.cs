@@ -1,4 +1,5 @@
 using DfoServer.Game.Inventory;
+using DfoServer.Network.Builders;
 using DfoServer.Network.Parsers.Inventory;
 using System;
 using System.Threading.Tasks;
@@ -17,6 +18,11 @@ namespace DfoServer.Network.Handlers
                 FileLogger.Log(
                     $"[{ProtocolName}] DECREASE_DURABILITY invalid body({body?.Length ?? 0}B): "
                     + $"{(body != null ? BitConverter.ToString(body) : "null")}");
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    header.type,
+                    DecreaseDurabilityAckBuilder.BuildError(
+                        DecreaseDurabilityAckBuilder.ErrorInvalidTarget)));
                 return;
             }
 
@@ -44,6 +50,11 @@ namespace DfoServer.Network.Handlers
                 FileLogger.Log(
                     $"[{ProtocolName}] DECREASE_DURABILITY failed "
                     + $"slot={request.EquipmentSlotIndex}");
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    header.type,
+                    DecreaseDurabilityAckBuilder.BuildError(
+                        DecreaseDurabilityAckBuilder.ErrorInvalidTarget)));
                 return;
             }
 
@@ -55,11 +66,22 @@ namespace DfoServer.Network.Handlers
                 + $"durability={result?.PreviousDurability ?? 0}->{result?.CurrentDurability ?? 0} "
                 + $"reason={result?.Reason ?? "unknown"}");
 
-            if (result != null && result.Changed)
-                await _refresh.SendUpdateItemList(
-                    session,
-                    InventoryListType.Equipment,
-                    result.SlotIndex);
+            if (result != null && (result.Changed || result.Reason == "zero_durability"))
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    header.type,
+                    DecreaseDurabilityAckBuilder.BuildSuccess(
+                        result.SlotIndex,
+                        result.CurrentDurability)));
+                return;
+            }
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                header.type,
+                DecreaseDurabilityAckBuilder.BuildError(
+                    DecreaseDurabilityAckBuilder.ErrorInvalidTarget)));
         }
     }
 }

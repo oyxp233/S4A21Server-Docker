@@ -1,5 +1,6 @@
 using DfoServer.Game.Inventory;
 using DfoServer.Game.ItemUpgrade;
+using DfoServer.Network.Builders;
 using DfoServer.Network.Parsers.Inventory;
 using System;
 
@@ -116,6 +117,23 @@ namespace DfoServer.SelfTests
                     (short)EquipmentType.Amulet).Durability == 2,
                 ref failures);
 
+            Check(
+                "DECREASE_DURABILITY ACK carries slot and current durability",
+                BytesEqual(
+                    DecreaseDurabilityAckBuilder.BuildSuccess(
+                        (short)EquipmentType.Shoulder,
+                        29),
+                    new byte[] { 0x01, 0x0F, 0x1D, 0x00 }),
+                ref failures);
+
+            Check(
+                "DECREASE_DURABILITY error ACK uses command error shape",
+                BytesEqual(
+                    DecreaseDurabilityAckBuilder.BuildError(
+                        DecreaseDurabilityAckBuilder.ErrorInvalidTarget),
+                    new byte[] { 0x00, 0x11 }),
+                ref failures);
+
             Console.WriteLine(
                 failures == 0
                     ? "A21_EQUIPMENT_DURABILITY selftest passed."
@@ -128,6 +146,20 @@ namespace DfoServer.SelfTests
             Console.WriteLine($"[{(condition ? "PASS" : "FAIL")}] {name}");
             if (!condition)
                 failures++;
+        }
+
+        private static bool BytesEqual(byte[] actual, byte[] expected)
+        {
+            if (actual == null || expected == null || actual.Length != expected.Length)
+                return false;
+
+            for (var i = 0; i < actual.Length; i++)
+            {
+                if (actual[i] != expected[i])
+                    return false;
+            }
+
+            return true;
         }
     }
 }
