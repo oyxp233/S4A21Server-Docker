@@ -6,7 +6,7 @@ namespace DfoServer.Game.Inventory
     internal sealed class CargoModel
     {
         public const short SlotStart = 0;
-        public const short SlotEnd = 151;
+        public const short SlotEnd = 199;
         public const int SlotCount = SlotEnd - SlotStart + 1;
         public const ushort DefaultCapacity = 8;
 
