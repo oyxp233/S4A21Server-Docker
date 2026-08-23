@@ -3,9 +3,9 @@ using DfoServer.Game.Dungeon;
 
 namespace DfoServer.Game.Quests
 {
-    internal readonly struct QuestCompletionExperienceBonusSnapshot
+    internal readonly struct DungeonStoryExperienceProfileSnapshot
     {
-        internal QuestCompletionExperienceBonusSnapshot(
+        internal DungeonStoryExperienceProfileSnapshot(
             ushort questId,
             int ratePercent,
             int experienceDifficulty,
@@ -34,17 +34,14 @@ namespace DfoServer.Game.Quests
             && ExperienceDifficulty >= 0;
         internal bool IsEligible => IsStoryRun && RatePercent > 0;
 
-        internal bool Matches(ushort questId) =>
-            IsEligible && QuestId == questId;
     }
 
-    internal static class QuestCompletionExperienceBonusPolicy
+    internal static class DungeonStoryExperienceProfilePolicy
     {
-        internal static QuestCompletionExperienceBonusSnapshot Capture(
-            DungeonRun run,
-            int playerLevel)
+        internal static DungeonStoryExperienceProfileSnapshot Capture(
+            DungeonRun run)
         {
-            if (run == null || playerLevel <= 0)
+            if (run == null)
                 return default;
 
             short dungeonId;
@@ -52,8 +49,8 @@ namespace DfoServer.Game.Quests
             int activeQuestId;
             long runId;
             long runGeneration;
-            GameWorld.DungeonExperienceDefinition experienceDefinition;
             QuestRunSnapshot questSnapshot;
+            GameWorld.DungeonExperienceDefinition experienceDefinition;
             lock (run.SyncRoot)
             {
                 dungeonId = run.DungeonId;
@@ -61,8 +58,8 @@ namespace DfoServer.Game.Quests
                 activeQuestId = run.ActiveQuestMazeQuestId;
                 runId = run.RunId;
                 runGeneration = run.RunGeneration;
-                experienceDefinition = run.ExperienceDefinition;
                 questSnapshot = run.QuestSnapshot;
+                experienceDefinition = run.ExperienceDefinition;
             }
 
             if (dungeonId <= 0
@@ -115,7 +112,7 @@ namespace DfoServer.Game.Quests
                         difficultyIndex,
                         experienceDefinition);
                 return ratePercent >= 0
-                    ? new QuestCompletionExperienceBonusSnapshot(
+                    ? new DungeonStoryExperienceProfileSnapshot(
                         questId,
                         ratePercent,
                         experienceDifficulty,
@@ -128,45 +125,11 @@ namespace DfoServer.Game.Quests
             catch (Exception ex)
             {
                 FileLogger.Log(
-                    $"[QuestCompletionExperienceBonusPolicy] capture failed: " +
+                    $"[DungeonStoryExperienceProfilePolicy] capture failed: " +
                     $"quest={questId} dungeon={dungeonId} " +
                     $"difficulty={difficulty} error={ex.Message}");
                 return default;
             }
-        }
-
-        internal static bool TryApply(
-            ref GameWorld.QuestReward reward,
-            ushort completedQuestId,
-            string questGrade,
-            GameWorld.QuestRewardKind rewardKind,
-            QuestCompletionExperienceBonusSnapshot snapshot,
-            out string error)
-        {
-            error = string.Empty;
-            if (!snapshot.Matches(completedQuestId)
-                || reward.Exp == 0
-                || rewardKind == GameWorld.QuestRewardKind.CircleDungeon
-                || !string.Equals(
-                    questGrade,
-                    "epic",
-                    StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            var multiplier = 100UL + (uint)snapshot.RatePercent;
-            var adjustedExperience = (ulong)reward.Exp * multiplier / 100UL;
-            if (adjustedExperience > uint.MaxValue)
-            {
-                error =
-                    $"mainline quest EXP exceeds uint32: base={reward.Exp} " +
-                    $"rate={snapshot.RatePercent}";
-                return false;
-            }
-
-            reward.Exp = (uint)adjustedExperience;
-            return true;
         }
     }
 }

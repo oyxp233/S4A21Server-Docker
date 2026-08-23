@@ -323,14 +323,12 @@ namespace DfoServer.Game.Quests
             int cid = _sender.CharacterId;
             if (cid <= 0) return;
             InventoryContext.TryGetOwnedLease(sessionId, cid, out var lease);
-            var experienceBonus = CaptureCompletionExperienceBonus();
             var owner = new QuestCommandOwnerContext(
                 cid,
                 _sender.AccountId,
                 sessionId,
                 lease,
-                _sender.Player?.Exp,
-                experienceBonus);
+                _sender.Player?.Exp);
             var result = QuestCommandParser.TryParseFinish(qBody, out var command)
                 ? _service.HandleFinishQuest(owner, command)
                 : QuestFinishResult.Fail(22);
@@ -429,25 +427,6 @@ namespace DfoServer.Game.Quests
                 cid,
                 result,
                 sendAcceptableQuestList);
-        }
-
-        private QuestCompletionExperienceBonusSnapshot
-            CaptureCompletionExperienceBonus()
-        {
-            var player = _sender.Player;
-            if (player == null)
-                return default;
-
-            var run = player.CurrentRun;
-            var snapshot = QuestCompletionExperienceBonusPolicy.Capture(
-                run,
-                player.Level);
-            lock (player.DungeonRunLifecycleSyncRoot)
-            {
-                return ReferenceEquals(player.CurrentRun, run)
-                    ? snapshot
-                    : default;
-            }
         }
 
         public void HandleSaveQuestNotify(byte[] body)

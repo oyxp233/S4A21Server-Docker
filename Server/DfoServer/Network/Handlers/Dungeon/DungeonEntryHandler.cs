@@ -852,9 +852,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 activeQuestIds,
                 req.Difficulty);
             var storyExperienceBonus =
-                QuestCompletionExperienceBonusPolicy.Capture(
-                    run,
-                    session.Player.Level);
+                DungeonStoryExperienceProfilePolicy.Capture(run);
             if (storyExperienceBonus.IsStoryRun)
             {
                 run.TryFreezeStoryExperienceProfile(
@@ -1446,9 +1444,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                         throw new InvalidOperationException("Party dungeon selection snapshot is missing.");
                     sharedSelection.ApplyTo(br);
                     var memberStoryExperienceBonus =
-                        QuestCompletionExperienceBonusPolicy.Capture(
-                            br,
-                            bs.Player.Level);
+                        DungeonStoryExperienceProfilePolicy.Capture(br);
                     if (memberStoryExperienceBonus.IsStoryRun)
                     {
                         br.TryFreezeStoryExperienceProfile(

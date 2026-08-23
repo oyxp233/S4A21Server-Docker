@@ -10,15 +10,13 @@ namespace DfoServer.Game.Quests
             int accountId,
             Guid sessionId,
             InventoryLease inventoryLease,
-            uint? currentExp = null,
-            QuestCompletionExperienceBonusSnapshot experienceBonus = default)
+            uint? currentExp = null)
         {
             CharacterId = characterId;
             AccountId = accountId;
             SessionId = sessionId;
             InventoryLease = inventoryLease;
             CurrentExp = currentExp;
-            ExperienceBonus = experienceBonus;
         }
 
         internal int CharacterId { get; }
@@ -26,11 +24,6 @@ namespace DfoServer.Game.Quests
         internal Guid SessionId { get; }
         internal InventoryLease InventoryLease { get; }
         internal uint? CurrentExp { get; }
-        internal QuestCompletionExperienceBonusSnapshot ExperienceBonus
-        {
-            get;
-        }
-
         internal bool IsCurrentInventoryOwner()
         {
             return InventoryContext.IsCurrentLease(
