@@ -104,6 +104,17 @@ namespace DfoServer.Game.Quests
         public static QuestFinishResult Fail(byte errorCode) => new QuestFinishResult { ErrorCode = errorCode };
     }
 
+    internal sealed class QuestScenarioModeClearResult
+    {
+        internal ushort QuestId { get; set; }
+        internal InventoryMutationSet InventoryChanges { get; } =
+            new InventoryMutationSet();
+        internal bool Success { get; set; }
+
+        internal static QuestScenarioModeClearResult Fail(ushort questId)
+            => new QuestScenarioModeClearResult { QuestId = questId };
+    }
+
     // 客户端 CMDFUNC_FINISH_QUEST 对此字段做减法 (currentStack -= value)，必须填扣除量。
     public sealed class ConsumedItemEntry
     {

@@ -281,6 +281,13 @@ namespace DfoServer.Game.Dungeon
                 return Combat.Experience.TryFreezeBonusSnapshot(snapshot);
         }
 
+        internal bool TryFreezeStoryExperienceBonusRate(int ratePercent)
+        {
+            lock (SyncRoot)
+                return Combat.Experience.TryFreezeStoryExperienceBonusRate(
+                    ratePercent);
+        }
+
         internal DungeonParticipantExperienceBonusSnapshot
             CaptureExperienceBonusSnapshot()
         {

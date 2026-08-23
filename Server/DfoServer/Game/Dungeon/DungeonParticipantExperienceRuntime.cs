@@ -24,13 +24,11 @@ namespace DfoServer.Game.Dungeon
             uint championBaseExperience,
             uint superChampionBaseExperience,
             uint namedMonsterBaseExperience,
-            uint monsterChannelBonusExperience = 0,
             IReadOnlyList<DungeonObjectExperienceEntry> objectExperienceEntries = null)
         {
             MonsterBaseExperience = monsterBaseExperience;
             MonsterGrowthContractBonusExperience =
                 monsterGrowthContractBonusExperience;
-            MonsterChannelBonusExperience = monsterChannelBonusExperience;
             BossBaseExperience = bossBaseExperience;
             ChampionBaseExperience = championBaseExperience;
             SuperChampionBaseExperience = superChampionBaseExperience;
@@ -41,12 +39,9 @@ namespace DfoServer.Game.Dungeon
 
         internal uint MonsterBaseExperience { get; }
         internal uint MonsterGrowthContractBonusExperience { get; }
-        internal uint MonsterChannelBonusExperience { get; }
         internal uint MonsterTotalExperience => AddSaturating(
             MonsterBaseExperience,
-            AddSaturating(
-                MonsterGrowthContractBonusExperience,
-                MonsterChannelBonusExperience));
+            MonsterGrowthContractBonusExperience);
         internal uint BossBaseExperience { get; }
         internal uint ChampionBaseExperience { get; }
         internal uint SuperChampionBaseExperience { get; }
@@ -73,12 +68,9 @@ namespace DfoServer.Game.Dungeon
 
         internal uint MonsterBaseExperience { get; private set; }
         internal uint MonsterGrowthContractBonusExperience { get; private set; }
-        internal uint MonsterChannelBonusExperience { get; private set; }
         internal uint MonsterTotalExperience => AddSaturating(
             MonsterBaseExperience,
-            AddSaturating(
-                MonsterGrowthContractBonusExperience,
-                MonsterChannelBonusExperience));
+            MonsterGrowthContractBonusExperience);
         internal uint BossBaseExperience { get; private set; }
         internal uint ChampionBaseExperience { get; private set; }
         internal uint SuperChampionBaseExperience { get; private set; }
@@ -98,6 +90,20 @@ namespace DfoServer.Game.Dungeon
         internal DungeonParticipantExperienceBonusSnapshot
             CaptureBonusSnapshot() => _bonusSnapshot;
 
+        internal bool TryFreezeStoryExperienceBonusRate(int ratePercent)
+        {
+            if (!_bonusSnapshotFrozen
+                || _bonusSnapshot.StoryExperienceBonusRatePercent > 0
+                || ratePercent <= 0)
+            {
+                return false;
+            }
+
+            _bonusSnapshot = _bonusSnapshot
+                .WithStoryExperienceBonusRate(ratePercent);
+            return true;
+        }
+
         internal void RecordMonster(
             uint baseExperience,
             uint growthContractBonusExperience,
@@ -105,7 +111,6 @@ namespace DfoServer.Game.Dungeon
             bool isChampion,
             bool isSuperChampion,
             bool isNamedMonster,
-            uint channelBonusExperience = 0,
             ushort actorSequenceId = 0)
         {
             MonsterBaseExperience = AddSaturating(
@@ -114,9 +119,6 @@ namespace DfoServer.Game.Dungeon
             MonsterGrowthContractBonusExperience = AddSaturating(
                 MonsterGrowthContractBonusExperience,
                 growthContractBonusExperience);
-            MonsterChannelBonusExperience = AddSaturating(
-                MonsterChannelBonusExperience,
-                channelBonusExperience);
             if (isBoss)
                 BossBaseExperience = AddSaturating(
                     BossBaseExperience,
@@ -148,7 +150,6 @@ namespace DfoServer.Game.Dungeon
                 ChampionBaseExperience,
                 SuperChampionBaseExperience,
                 NamedMonsterBaseExperience,
-                MonsterChannelBonusExperience,
                 _objectExperienceEntries.ToArray());
 
         // Compatibility setters keep existing fixture/setup APIs usable. New
@@ -173,9 +174,6 @@ namespace DfoServer.Game.Dungeon
 
         internal void SetGrowthContractBonusForCompatibility(uint value) =>
             MonsterGrowthContractBonusExperience = value;
-
-        internal void SetChannelBonusForCompatibility(uint value) =>
-            MonsterChannelBonusExperience = value;
 
         private static uint AddSaturating(uint left, uint right)
         {

@@ -741,12 +741,13 @@ namespace DfoServer.Network.Handlers.Dungeon
             var allowsDrops = run.RewardPolicy.AllowsMonsterDrops
                 && (dynamicPolicy?.GeneratesMonsterDrops ?? true)
                 && actorAllowsRewards;
-            var rewardMonsterType = GetRewardMonsterType(monster.Type);
-            var isBoss = IsBossActorType(monster.Type);
-            var isChampion = monster.Type == 1;
+            var rewardMonsterType = DungeonExperienceCalculator
+                .ResolveMonsterKind(monster.Type);
+            var isBoss = rewardMonsterType == 3;
+            var isChampion = rewardMonsterType == 1;
             var isNamed = !isBoss
                 && DungeonData.IsNamedMonster(run.DungeonId, monster.Code);
-            var isSuperChampion = monster.Type == 2 && !isNamed;
+            var isSuperChampion = rewardMonsterType == 2 && !isNamed;
             var partyMemberCount = Math.Max(
                 1,
                 run.Instance?.Selection?.PartyMemberCount
@@ -768,21 +769,27 @@ namespace DfoServer.Network.Handlers.Dungeon
                             run.ExperienceDefinition,
                             experienceContext)
                 : default;
-            var scaledExp = baseExperience.ParticipantBaseExperience;
             var experienceBonusSnapshot = run.CaptureExperienceBonusSnapshot();
+            var baseExp = baseExperience.ParticipantBaseExperience;
+            var storyBonus = DungeonExperienceCalculator.CalculateStoryExperienceBonus(
+                baseExp,
+                experienceBonusSnapshot);
+            var storyAdjustedBaseExp = CharacterExperienceService.AddSaturating(
+                baseExp,
+                storyBonus);
+            var eliteMonsterKillBonusExp = CalculateEliteMonsterKillBonus(
+                run,
+                experienceContext,
+                baseExp,
+                storyAdjustedBaseExp,
+                allowsExperience,
+                isChampion || isSuperChampion);
             var growthContractBonus = allowsExperience
-                ? CalculateGrowthContractMonsterBonus(session, scaledExp)
-                : 0;
-            var channelBonus = allowsExperience
-                ? DungeonExperienceCalculator.CalculateChannelMonsterBonus(
-                    scaledExp,
-                    experienceBonusSnapshot)
+                ? CalculateGrowthContractMonsterBonus(session, baseExp)
                 : 0;
             var awardedExp = CharacterExperienceService.AddSaturating(
-                CharacterExperienceService.AddSaturating(
-                    scaledExp,
-                    growthContractBonus),
-                channelBonus);
+                storyAdjustedBaseExp,
+                growthContractBonus);
 
             var dungeonBasisLevel = (int)monster.Level;
             var dungeonMinimumLevel = (int)monster.Level;
@@ -869,13 +876,12 @@ namespace DfoServer.Network.Handlers.Dungeon
             lock (run.SyncRoot)
             {
                 run.Combat.Experience.RecordMonster(
-                    scaledExp,
+                    storyAdjustedBaseExp,
                     growthContractBonus,
                     isBoss,
                     isChampion,
                     isSuperChampion,
                     isNamed,
-                    channelBonus,
                     actorSequenceId: sequenceId);
                 run.TotalGold = checked(run.TotalGold + goldGained);
             }
@@ -892,7 +898,10 @@ namespace DfoServer.Network.Handlers.Dungeon
                     $"difficultyRate={definition?.GetDifficultyRate(run.Difficulty):R} " +
                     $"sharedBaseExp={baseExperience.SharedBaseExperience} " +
                     $"participantBaseExp={baseExperience.ParticipantBaseExperience} " +
-                    $"growthContract={growthContractBonus} channel={channelBonus} " +
+                    $"storyRate={experienceBonusSnapshot.StoryExperienceBonusRatePercent}% " +
+                    $"storyBonus={storyBonus} " +
+                    $"eliteBonus={eliteMonsterKillBonusExp} " +
+                    $"growthContract={growthContractBonus} " +
                     $"awarded={awardedExp}");
             }
 
@@ -902,8 +911,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     session,
                     grant,
                     "DUNGEON_KILL",
-                    growthContractBonus,
-                    channelBonus);
+                    growthContractBonusExp: growthContractBonus,
+                    eliteMonsterKillBonusExp: eliteMonsterKillBonusExp);
                 if (!session.Player.IsCurrentDungeonRun(identity))
                     return generatedDrops;
                 if (grant.LeveledUp)
@@ -1378,8 +1387,47 @@ namespace DfoServer.Network.Handlers.Dungeon
         private static bool IsBossActorType(byte monsterType) =>
             monsterType == 3 || monsterType == 8;
 
-        private static int GetRewardMonsterType(byte monsterType) =>
-            monsterType == 8 ? 3 : monsterType;
+        private static uint CalculateEliteMonsterKillBonus(
+            DungeonRun run,
+            DungeonMonsterExperienceContext context,
+            uint baseExperience,
+            uint adjustedBaseExperience,
+            bool allowsExperience,
+            bool isEliteMonster)
+        {
+            if (!allowsExperience
+                || !isEliteMonster
+                || run?.ExperienceDefinition == null
+                || baseExperience == 0)
+            {
+                return 0;
+            }
+
+            var commonContext = new DungeonMonsterExperienceContext(
+                context.CharacterLevel,
+                context.MonsterLevel,
+                context.Difficulty,
+                monsterKind: 0,
+                context.IsNamedMonster,
+                context.PartyMemberCount,
+                context.PartyEventBonusRate,
+                context.MemberPenaltyRate);
+            var commonBase = run.ExperienceDefinition.UsesStandardFormula
+                ? DungeonExperienceCalculator.CalculateStandardMonster(
+                    run.ExperienceDefinition,
+                    commonContext)
+                : DungeonExperienceCalculator
+                    .CalculateNonStandardCompatibilityMonster(
+                        run.ExperienceDefinition,
+                        commonContext);
+            var commonAdjustedBase = DungeonExperienceCalculator
+                .ApplyStoryExperienceBonus(
+                    commonBase.ParticipantBaseExperience,
+                    run.CaptureExperienceBonusSnapshot());
+            return adjustedBaseExperience > commonAdjustedBase
+                ? adjustedBaseExperience - commonAdjustedBase
+                : 0;
+        }
 
         private static AbyssPartyDropRequest BuildAbyssPartyDropRequest(
             RoomState roomState,

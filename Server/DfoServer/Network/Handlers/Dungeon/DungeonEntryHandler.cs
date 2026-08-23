@@ -700,8 +700,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     session,
                     entryParty,
                     _svc.Sessions,
-                    entryPartyMemberCount,
-                    req.DungeonId);
+                    entryPartyMemberCount);
 
             // 塔类副本分流: dungeonKind==1 走专属流程(NOTI 142+143, 非普通副本的 START_MAP)
             if (_svc.DeathTower.TryCreateSession(req.DungeonId, out var tower))
@@ -852,6 +851,22 @@ namespace DfoServer.Network.Handlers.Dungeon
                 selection.Maze,
                 activeQuestIds,
                 req.Difficulty);
+            var storyExperienceBonus =
+                QuestCompletionExperienceBonusPolicy.Capture(
+                    run,
+                    session.Player.Level);
+            if (storyExperienceBonus.IsEligible)
+            {
+                run.TryFreezeStoryExperienceBonusRate(
+                    storyExperienceBonus.RatePercent);
+                FileLogger.Log(
+                    $"[DungeonExperience] story rate frozen: " +
+                    $"cid={session.Player.CharacterId} " +
+                    $"dungeon={req.DungeonId} " +
+                    $"difficulty={req.Difficulty} " +
+                    $"quest={storyExperienceBonus.QuestId} " +
+                    $"rate={storyExperienceBonus.RatePercent}%");
+            }
             var bossPos = DungeonData.RandomizeBossPosition(selection.Maze.BossMap);
             run.BossMapPos = bossPos;
             var startPos = DungeonData.RandomizeStartPosition(selection.Maze.StartMap);
@@ -1427,6 +1442,15 @@ namespace DfoServer.Network.Handlers.Dungeon
                     if (sharedSelection == null)
                         throw new InvalidOperationException("Party dungeon selection snapshot is missing.");
                     sharedSelection.ApplyTo(br);
+                    var memberStoryExperienceBonus =
+                        QuestCompletionExperienceBonusPolicy.Capture(
+                            br,
+                            bs.Player.Level);
+                    if (memberStoryExperienceBonus.IsEligible)
+                    {
+                        br.TryFreezeStoryExperienceBonusRate(
+                            memberStoryExperienceBonus.RatePercent);
+                    }
                     br.HellMode = lr.HellMode;
                     br.HellPartyMode = lr.HellPartyMode;
                     br.HellMapId = lr.HellMapId;

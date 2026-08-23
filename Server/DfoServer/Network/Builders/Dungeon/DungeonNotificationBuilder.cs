@@ -64,14 +64,20 @@ namespace DfoServer.Network.Builders
             // caller's resolved coordinates, including that sentinel.
             writer.WriteByte(bossX); // +6
             writer.WriteByte(bossY); // +7
-            writer.WriteByte(hellPartyEnabled > 0 ? (byte)2 : (byte)0); // +8 official hell marker
-            writer.WriteByte(hellPartyEnabled > 0 ? (byte)1 : (byte)0); // +9 hell enabled
+            // A21 projects the selected Hell room coordinate here. The
+            // official no-Hell baseline is 0/0; when Hell is enabled these
+            // bytes must match the frozen HellPartyRoomInfo used by
+            // START_MAP/MOVE_MAP, otherwise the minimap marker points at a
+            // different room than the actual Hell MAP.
+            writer.WriteByte(hellPartyEnabled > 0 ? hellPartyRoomX : (byte)0); // +8 Hell room X
+            writer.WriteByte(hellPartyEnabled > 0 ? hellPartyRoomY : (byte)0); // +9 Hell room Y
             writer.WriteByte(0);                       // +10
             WriteMinimapGroups(writer, extraPairGroups);
-            // Official A21 samples keep the post-group fixed value at 1.
-            // Its client-side semantic is not closed; preserve the captured
-            // bytes instead of using this field as an unverified red-cross switch.
-            writer.WriteByte(1);
+            // A21 official Packets01/02/03 keep the post-group fixed tail
+            // identical for ordinary and Hell runs. Keep the captured bytes
+            // byte-for-byte; the selected Hell coordinate is carried by the
+            // prefix above, not by this trailing region.
+            writer.WriteByte(1);                      // fixed marker after minimap groups
             writer.WriteZeroBytes(5);                 // trailing fixed u8/reserved bytes
             writer.WriteUInt32(0xFFFFFFFFu);            // trailing sentinel
             writer.WriteZeroBytes(10);                 // remaining reserved bytes
@@ -416,17 +422,12 @@ namespace DfoServer.Network.Builders
             int avatarExp = 0, int creatureExp = 0,
             int blackDiamondExp = 0, int growthContractExp = 0,
             int monsterGrowthContractExp = 0, int adventureGroupExp = 0,
-            int channelExp = 0,
             uint monsterExp = 0, int bossExp = 0, int championExp = 0, int superChampionExp = 0,
             int freeCardGold = 0, int freeCardItemId = 0, int freeCardItemCount = 0,
             int paidCardCost = 0,
             IReadOnlyList<DungeonObjectExperienceEntry> objectExperienceEntries = null)
         {
             var w = new GamePacketWriter();
-            // Current A21 client exposes no confirmed labelled channel field in
-            // this notification. The authoritative total already includes the
-            // channel bonus; do not feed it into a guessed presentation slot.
-            _ = channelExp;
             // A12 wrote the aggregate monster EXP into its fixed tail. Current
             // A21 captures keep that field zero and project per-object EXP from
             // the u32 count/list at offsets 155/159 instead.

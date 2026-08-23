@@ -24,18 +24,16 @@ namespace DfoServer.Game.Dungeon
             int partyMemberCount,
             bool partyHasEquippedAvatar,
             bool hasEquippedCreature,
-            int channelId = 0,
-            int channelType = 0,
-            double channelExperienceBonusRate = 0.0)
+            int storyExperienceBonusRatePercent = 0)
         {
             IsCaptured = true;
             PartyMemberCount = Math.Max(1, Math.Min(4, partyMemberCount));
             PartyHasEquippedAvatar = partyHasEquippedAvatar;
             HasEquippedCreature = hasEquippedCreature;
-            ChannelId = channelId;
-            ChannelType = channelType;
-            ChannelExperienceBonusRate = NormalizeRate(
-                channelExperienceBonusRate);
+            StoryExperienceBonusRatePercent =
+                storyExperienceBonusRatePercent > 0
+                    ? storyExperienceBonusRatePercent
+                    : 0;
         }
 
         internal static DungeonParticipantExperienceBonusSnapshot None =>
@@ -48,16 +46,15 @@ namespace DfoServer.Game.Dungeon
         internal int PartyMemberCount { get; }
         internal bool PartyHasEquippedAvatar { get; }
         internal bool HasEquippedCreature { get; }
-        internal int ChannelId { get; }
-        internal int ChannelType { get; }
-        internal double ChannelExperienceBonusRate { get; }
+        internal int StoryExperienceBonusRatePercent { get; }
 
-        private static double NormalizeRate(double value)
-            => value > 0.0 && value <= 1.0
-                && !double.IsNaN(value)
-                && !double.IsInfinity(value)
-                ? value
-                : 0.0;
+        internal DungeonParticipantExperienceBonusSnapshot
+            WithStoryExperienceBonusRate(int ratePercent)
+            => new DungeonParticipantExperienceBonusSnapshot(
+                PartyMemberCount,
+                PartyHasEquippedAvatar,
+                HasEquippedCreature,
+                ratePercent);
     }
 
     internal readonly struct DungeonClearParticipantBonusResult

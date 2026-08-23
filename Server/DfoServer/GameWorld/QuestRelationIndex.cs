@@ -115,45 +115,11 @@ namespace DfoServer.GameWorld
                 if (!IsSelectableGrade(grade))
                     continue;
 
-                var targetCharacter = (quest.TargetCharacter ?? string.Empty)
-                    .Trim()
-                    .ToLowerInvariant();
-                if (targetCharacter.Length > 0
-                    && !MatchesTargetCharacter(targetCharacter, characterJob))
-                {
-                    continue;
-                }
-
-                var minimumLevel = quest.Level != null && quest.Level.Length > 0
-                    ? quest.Level[0]
-                    : 1;
-                var maximumLevel = quest.Level != null && quest.Level.Length > 1
-                    ? quest.Level[1]
-                    : 99;
-                if (characterLevel < minimumLevel || characterLevel > maximumLevel)
-                    continue;
-
-                var job = (quest.Job ?? string.Empty).Trim().ToLowerInvariant();
-                if (job.Length > 0
-                    && job != "[all]"
-                    && !MatchesJob(job, characterJob))
-                {
-                    continue;
-                }
-
-                var jobChangeQuest = quest.JobChangeQuestValue;
-                if (jobChangeQuest == 2 || jobChangeQuest == 3)
-                {
-                    var firstGrow = growType & 0xF;
-                    if (quest.GrowType != -1 && quest.GrowType != firstGrow)
-                        continue;
-                }
-                else if (quest.GrowType != -1
-                    && jobChangeQuest != 1
-                    && jobChangeQuest != 10
-                    && jobChangeQuest != 20
-                    && growType >= 0
-                    && quest.GrowType != growType)
+                if (!MeetsCharacterRestrictions(
+                        quest,
+                        characterLevel,
+                        characterJob,
+                        growType))
                 {
                     continue;
                 }
@@ -178,6 +144,72 @@ namespace DfoServer.GameWorld
                 $"[QuestRelationIndex] acceptable={result.Count} " +
                 $"job={characterJob} lv={characterLevel} grow={growType}");
             return result;
+        }
+
+        internal static bool MeetsCharacterRestrictions(
+            int questId,
+            int characterLevel,
+            int characterJob,
+            int growType)
+            => MeetsCharacterRestrictions(
+                QuestCatalog.Get(questId),
+                characterLevel,
+                characterJob,
+                growType);
+
+        private static bool MeetsCharacterRestrictions(
+            QuestFile quest,
+            int characterLevel,
+            int characterJob,
+            int growType)
+        {
+            if (quest == null)
+                return false;
+
+            var targetCharacter = (quest.TargetCharacter ?? string.Empty)
+                .Trim()
+                .ToLowerInvariant();
+            if (targetCharacter.Length > 0
+                && !MatchesCharacterTag(targetCharacter, characterJob))
+            {
+                return false;
+            }
+
+            var minimumLevel = quest.Level != null && quest.Level.Length > 0
+                ? quest.Level[0]
+                : 1;
+            var maximumLevel = quest.Level != null && quest.Level.Length > 1
+                ? quest.Level[1]
+                : 99;
+            if (characterLevel < minimumLevel || characterLevel > maximumLevel)
+                return false;
+
+            var job = (quest.Job ?? string.Empty).Trim().ToLowerInvariant();
+            if (job.Length > 0
+                && job != "[all]"
+                && !MatchesCharacterTag(job, characterJob))
+            {
+                return false;
+            }
+
+            var jobChangeQuest = quest.JobChangeQuestValue;
+            if (jobChangeQuest == 2 || jobChangeQuest == 3)
+            {
+                var firstGrow = growType & 0xF;
+                if (quest.GrowType != -1 && quest.GrowType != firstGrow)
+                    return false;
+            }
+            else if (quest.GrowType != -1
+                && jobChangeQuest != 1
+                && jobChangeQuest != 10
+                && jobChangeQuest != 20
+                && growType >= 0
+                && quest.GrowType != growType)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         internal static bool IsQuestClearQuest(int questId)
@@ -391,66 +423,15 @@ namespace DfoServer.GameWorld
                 ? parsed
                 : -1;
 
-        private static bool MatchesTargetCharacter(
-            string targetCharacter,
+        private static bool MatchesCharacterTag(
+            string configuredTags,
             int characterJob)
         {
-            var baseIndex = GetBaseJobIndex(characterJob);
-            if (baseIndex < 0)
+            if (characterJob < 0 || characterJob >= CharacterJobTags.Length)
                 return false;
-            return targetCharacter.Contains(
-                IsAtVariant(characterJob)
-                    ? AtJobNames[baseIndex]
-                    : JobNames[baseIndex]);
-        }
 
-        private static bool MatchesJob(string job, int characterJob)
-        {
-            var baseIndex = GetBaseJobIndex(characterJob);
-            if (baseIndex < 0)
-                return false;
-            return job.Contains(
-                IsAtVariant(characterJob)
-                    ? AtJobNames[baseIndex]
-                    : JobNames[baseIndex]);
+            return configuredTags.Contains(CharacterJobTags[characterJob]);
         }
-
-        private static int GetBaseJobIndex(int characterJob)
-        {
-            switch (characterJob)
-            {
-                case 0:
-                case 9:
-                case 11:
-                    return 0;
-                case 1:
-                case 7:
-                    return 1;
-                case 2:
-                case 5:
-                    return 2;
-                case 3:
-                case 8:
-                case 10:
-                    return 3;
-                case 4:
-                    return 4;
-                case 6:
-                    return 5;
-                case 12:
-                    return 6;
-                default:
-                    return -1;
-            }
-        }
-
-        private static bool IsAtVariant(int characterJob)
-            => characterJob == 5
-                || characterJob == 7
-                || characterJob == 8
-                || characterJob == 9
-                || characterJob == 10
-                || characterJob == 11;
 
         private static bool ContainsItem(
             IReadOnlyCollection<QuestRewardItem> items,
@@ -464,26 +445,24 @@ namespace DfoServer.GameWorld
             return false;
         }
 
-        private static readonly string[] JobNames =
+        // A21 character.lst 的 job id 必须直接映射到 QST 使用的职业标签。
+        // 暗黑武士/缔造者是外传职业，不是 AT 鬼剑士/男法师的别名。
+        private static readonly string[] CharacterJobTags =
         {
             "[swordman]",
             "[fighter]",
             "[gunner]",
             "[mage]",
             "[priest]",
-            "[thief]",
-            "[knight]",
-        };
-
-        private static readonly string[] AtJobNames =
-        {
-            "[at swordman]",
-            "[at fighter]",
             "[at gunner]",
+            "[thief]",
+            "[at fighter]",
             "[at mage]",
-            "[at priest]",
-            "[at thief]",
-            "[at knight]",
+            "[demonic swordman]",
+            "[creator mage]",
+            "[at swordman]",
+            "[knight]",
+            "[demonic lancer]",
         };
     }
 }

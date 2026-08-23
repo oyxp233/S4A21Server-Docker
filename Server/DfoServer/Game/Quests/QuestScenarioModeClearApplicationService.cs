@@ -16,7 +16,7 @@ namespace DfoServer.Game.Quests
             _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         }
 
-        internal bool Apply(
+        internal QuestScenarioModeClearResult Apply(
             QuestCommandOwnerContext owner,
             QuestScenarioModeClearCommand command,
             int characterLevel,
@@ -29,7 +29,7 @@ namespace DfoServer.Game.Quests
             if (!owner.IsCurrentInventoryOwner()
                 || lease.AccountId != owner.AccountId)
             {
-                return false;
+                return QuestScenarioModeClearResult.Fail(questId);
             }
 
             var quest = GameWorld.QuestData.GetQuestFile(questId);
@@ -38,7 +38,7 @@ namespace DfoServer.Game.Quests
                 FileLogger.Log(
                     $"[QuestScenarioModeClear] rejected quest={questId} " +
                     $"cid={characterId} reason=not-mainline-or-level");
-                return false;
+                return QuestScenarioModeClearResult.Fail(questId);
             }
 
             lock (lease.SyncRoot)
@@ -46,102 +46,173 @@ namespace DfoServer.Game.Quests
                 if (!owner.IsCurrentInventoryOwner()
                     || lease.AccountId != owner.AccountId)
                 {
-                    return false;
+                    return QuestScenarioModeClearResult.Fail(questId);
                 }
 
+                var result = QuestScenarioModeClearResult.Fail(questId);
+                var inventoryMutated = false;
                 using (var connection = new SqliteConnection(
                            _repository.ConnectionString))
                 {
                     connection.Open();
-                    using (var transaction = connection.BeginTransaction(deferred: false))
+                    try
                     {
-                        if (!owner.IsCurrentInventoryOwner()
-                            || lease.AccountId != owner.AccountId)
+                        using (var transaction = connection.BeginTransaction(deferred: false))
                         {
-                            return false;
-                        }
-
-                        var active = QuestRepository.LoadActiveQuests(
-                            connection,
-                            transaction,
-                            characterId);
-                        var activeQuest = QuestActiveListRules.FindByQuestId(
-                            active,
-                            questId);
-
-                        var clearedFlags = QuestRepository.LoadClearedFlags(
-                            connection,
-                            transaction,
-                            characterId);
-                        var alreadyCleared = clearedFlags.TryGetValue(
-                            questId,
-                            out var clearValue)
-                            && clearValue != 0;
-
-                        if (activeQuest == null)
-                        {
-                            var allowedCreatureKinds =
-                                PetCreatureEvolutionRuntimeService
-                                    .LoadEligiblePetCreatureEvolutionQuestKinds(
-                                        lease.Inventory);
-                            var acceptable = GameWorld.QuestData.ComputeAcceptableQuests(
-                                characterLevel,
-                                characterJob,
-                                growType,
-                                new HashSet<int>(clearedFlags.Keys),
-                                clearedFlags,
-                                allowedCreatureKinds);
-                            if (!acceptable.Contains(questId))
+                            if (!owner.IsCurrentInventoryOwner()
+                                || lease.AccountId != owner.AccountId)
                             {
-                                FileLogger.Log(
-                                    $"[QuestScenarioModeClear] rejected quest={questId} " +
-                                    $"cid={characterId} reason=not-active-or-acceptable");
-                                return false;
+                                return QuestScenarioModeClearResult.Fail(questId);
                             }
 
-                            if (alreadyCleared)
-                            {
-                                FileLogger.Log(
-                                    $"[QuestScenarioModeClear] rejected quest={questId} " +
-                                    $"cid={characterId} reason=already-cleared");
-                                return false;
-                            }
-                        }
-
-                        if (activeQuest != null
-                            && !QuestRepository.TryDeleteActiveQuestCas(
+                            var active = QuestRepository.LoadActiveQuests(
                                 connection,
                                 transaction,
-                                characterId,
+                                characterId);
+                            var activeQuest = QuestActiveListRules.FindByQuestId(
+                                active,
+                                questId);
+
+                            var clearedFlags = QuestRepository.LoadClearedFlags(
+                                connection,
+                                transaction,
+                                characterId);
+                            var alreadyCleared = clearedFlags.TryGetValue(
                                 questId,
-                                activeQuest.ActivationId,
-                                activeQuest.Version,
-                                activeQuest.TriggerValue))
-                        {
+                                out var clearValue)
+                                && clearValue != 0;
+
+                            if (activeQuest == null)
+                            {
+                                var allowedCreatureKinds =
+                                    PetCreatureEvolutionRuntimeService
+                                        .LoadEligiblePetCreatureEvolutionQuestKinds(
+                                            lease.Inventory);
+                                var acceptable = GameWorld.QuestData.ComputeAcceptableQuests(
+                                    characterLevel,
+                                    characterJob,
+                                    growType,
+                                    new HashSet<int>(clearedFlags.Keys),
+                                    clearedFlags,
+                                    allowedCreatureKinds);
+                                if (!acceptable.Contains(questId))
+                                {
+                                    FileLogger.Log(
+                                        $"[QuestScenarioModeClear] rejected quest={questId} " +
+                                        $"cid={characterId} reason=not-active-or-acceptable");
+                                    return QuestScenarioModeClearResult.Fail(questId);
+                                }
+
+                                if (alreadyCleared)
+                                {
+                                    FileLogger.Log(
+                                        $"[QuestScenarioModeClear] rejected quest={questId} " +
+                                        $"cid={characterId} reason=already-cleared");
+                                    return QuestScenarioModeClearResult.Fail(questId);
+                                }
+                            }
+
+                            if (activeQuest != null)
+                            {
+                                var recoveryPlan = QuestGiveupItemRecoveryPolicy.Build(
+                                    active,
+                                    questId);
+                                foreach (var entry in recoveryPlan)
+                                {
+                                    var current = lease.Inventory.CountMainItem(entry.ItemId);
+                                    var deleteCount = Math.Max(
+                                        0,
+                                        current - entry.RetainCount);
+                                    if (deleteCount <= 0)
+                                        continue;
+
+                                    if (!InventoryDeleteService.TryDeleteMainItemsByTemplateId(
+                                            lease.Inventory,
+                                            entry.ItemId,
+                                            deleteCount,
+                                            out var deleted))
+                                    {
+                                        throw new InvalidOperationException(
+                                            $"scenario event-item cleanup failed " +
+                                            $"item={entry.ItemId} count={deleteCount}");
+                                    }
+
+                                    inventoryMutated = true;
+                                    result.InventoryChanges.AddRange(deleted);
+                                }
+
+                                if (!QuestRepository.TryDeleteActiveQuestCas(
+                                        connection,
+                                        transaction,
+                                        characterId,
+                                        questId,
+                                        activeQuest.ActivationId,
+                                        activeQuest.Version,
+                                        activeQuest.TriggerValue))
+                                {
+                                    throw new InvalidOperationException(
+                                        "quest activation changed before scenario clear commit");
+                                }
+                            }
+
+                            if (!alreadyCleared)
+                            {
+                                QuestRepository.MarkQuestCleared(
+                                    connection,
+                                    transaction,
+                                    characterId,
+                                    questId,
+                                    flagValue: 1);
+                            }
+
+                            if (inventoryMutated
+                                && !InventoryPersistenceService.SaveDirtyInTransaction(
+                                    connection,
+                                    transaction,
+                                    lease))
+                            {
+                                throw new InvalidOperationException(
+                                    "scenario event-item cleanup persistence returned false");
+                            }
+
+                            transaction.Commit();
+                            result.Success = true;
                             FileLogger.Log(
-                                $"[QuestScenarioModeClear] rejected quest={questId} " +
-                                $"cid={characterId} reason=active-quest-changed");
-                            return false;
+                                $"[QuestScenarioModeClear] cleared quest={questId} " +
+                                $"cid={characterId} active={activeQuest != null} " +
+                                $"alreadyCleared={alreadyCleared} " +
+                                $"eventItemSlots={result.InventoryChanges.Slots.Count}");
                         }
-
-                        if (!alreadyCleared)
+                    }
+                    catch (Exception ex)
+                    {
+                        if (inventoryMutated)
                         {
-                            QuestRepository.MarkQuestCleared(
-                                connection,
-                                transaction,
-                                characterId,
-                                questId,
-                                flagValue: 1);
+                            try
+                            {
+                                InventoryRollbackRecoveryService.ReloadOnlineInventory(
+                                    _repository.ConnectionString,
+                                    lease);
+                            }
+                            catch (Exception recoveryException)
+                            {
+                                FileLogger.Log(
+                                    $"[QuestScenarioModeClear] inventory rollback reload " +
+                                    $"failed quest={questId} cid={characterId}: " +
+                                    recoveryException.Message);
+                            }
                         }
 
-                        transaction.Commit();
                         FileLogger.Log(
-                            $"[QuestScenarioModeClear] cleared quest={questId} " +
-                            $"cid={characterId} active={activeQuest != null} " +
-                            $"alreadyCleared={alreadyCleared}");
-                        return true;
+                            $"[QuestScenarioModeClear] failed before atomic commit " +
+                            $"quest={questId} cid={characterId}: {ex.Message}");
+                        return QuestScenarioModeClearResult.Fail(questId);
                     }
                 }
+
+                if (inventoryMutated)
+                    lease.Inventory.ClearDirtyState();
+                return result;
             }
         }
 

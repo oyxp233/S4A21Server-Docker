@@ -688,7 +688,7 @@ namespace DfoServer.Game.Quests
                 var missing = Math.Max(0, eventItem.Count - held);
                 if (missing <= 0)
                     continue;
-                requests.Add(InventoryRewardGrantRequest.Create(
+                requests.Add(InventoryRewardGrantRequest.CreateQuestEventItem(
                     eventItem.ItemId,
                     missing,
                     ItemCreateReason.QuestReward));

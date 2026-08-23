@@ -16,6 +16,13 @@ namespace DfoServer.Network.Handlers.Dungeon
         private const byte HellPartyHiddenTemplateFlag = 1;
         private const byte HellPartyAttachAllWavesSelector = 0xFF;
 
+        // A21 START_MAP +2 is consumed as the room's layered-map state, not as
+        // a generic "map override exists" flag. Hell-party and mechanism maps
+        // may override the MAP id while remaining ordinary rooms; only an
+        // active layered-map progression may select the client layer branch.
+        internal static byte ResolveStartMapLayeredFlag(int layeredMapIndex)
+            => layeredMapIndex >= 0 ? (byte)1 : (byte)0;
+
         private readonly DungeonSharedServices _svc;
 
         internal DungeonMapHandler(DungeonSharedServices svc) => _svc = svc;
@@ -475,7 +482,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     $"firstActorSeq={run.RoomStartSequence} " +
                     $"actors={FormatStartMapActorSummary(startMapMaze, run.RoomStartSequence)}");
 
-                byte layeredFlag = (byte)(effectiveOverrideMapId > 0 ? 1 : 0);
+                var layeredFlag = ResolveStartMapLayeredFlag(run.LayeredMapIndex);
 
                 if (isHellPartyRoom)
                 {

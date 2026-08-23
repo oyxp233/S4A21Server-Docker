@@ -496,9 +496,15 @@ namespace DfoServer.Game.SelectCharacter
             SelectCharacterInitializationSnapshot initSnapshot,
             long now)
         {
-            if (initSnapshot == null
-                || !InventoryContext.TryGetLease(characterId, out var lease))
+            if (initSnapshot == null)
                 return;
+
+            if (!InventoryContext.TryGetLease(characterId, out var lease))
+            {
+                ProjectLoadedItemStateSnapshots(initSnapshot.CooltimeItemStates, now);
+                ProjectLoadedItemStateSnapshots(initSnapshot.EffectItemStates, now);
+                return;
+            }
 
             var removedExpired = false;
             lock (lease.SyncRoot)
@@ -514,6 +520,35 @@ namespace DfoServer.Game.SelectCharacter
 
             if (removedExpired)
                 InventoryPersistenceService.SaveDirty(lease);
+        }
+
+        private static void ProjectLoadedItemStateSnapshots(
+            List<ItemStateEntrySnapshot> items,
+            long now)
+        {
+            if (items == null)
+                return;
+
+            for (var index = items.Count - 1; index >= 0; index--)
+            {
+                var item = items[index];
+                if (item == null || item.ItemId <= 0)
+                {
+                    items.RemoveAt(index);
+                    continue;
+                }
+
+                var remainingSeconds = item.ExpireTime - now;
+                if (remainingSeconds <= 0)
+                {
+                    items.RemoveAt(index);
+                    continue;
+                }
+
+                item.ExpireTime = remainingSeconds > int.MaxValue
+                    ? int.MaxValue
+                    : (int)remainingSeconds;
+            }
         }
 
         private static void ApplyWallet(SelectCharacterInitializationSnapshot initSnapshot, WalletSnapshot wallet)

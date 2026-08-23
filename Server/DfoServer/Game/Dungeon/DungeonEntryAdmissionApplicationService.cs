@@ -259,7 +259,7 @@ namespace DfoServer.Game.Dungeon
                 }
                 else
                 {
-                    hellMode = HellPartyData.PickManualHellPartyMode();
+                    hellMode = HellPartyData.ResolveManualHellPartyMode();
                 }
             }
 
@@ -380,7 +380,7 @@ namespace DfoServer.Game.Dungeon
         {
             return requestFlag == 1 || requestFlag == 2
                 ? requestFlag
-                : HellPartyData.PickManualHellPartyMode();
+                : HellPartyData.ResolveManualHellPartyMode();
         }
     }
 
