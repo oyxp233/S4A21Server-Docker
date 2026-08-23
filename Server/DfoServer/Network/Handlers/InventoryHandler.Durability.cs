@@ -71,9 +71,7 @@ namespace DfoServer.Network.Handlers
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                     0x01,
                     header.type,
-                    DecreaseDurabilityAckBuilder.BuildSuccess(
-                        result.SlotIndex,
-                        result.CurrentDurability)));
+                    DecreaseDurabilityAckBuilder.BuildSuccess(result.SlotIndex)));
                 return;
             }
 

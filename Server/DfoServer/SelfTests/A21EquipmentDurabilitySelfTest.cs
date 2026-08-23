@@ -118,12 +118,11 @@ namespace DfoServer.SelfTests
                 ref failures);
 
             Check(
-                "DECREASE_DURABILITY ACK carries slot and current durability",
+                "DECREASE_DURABILITY ACK carries status and slot",
                 BytesEqual(
                     DecreaseDurabilityAckBuilder.BuildSuccess(
-                        (short)EquipmentType.Shoulder,
-                        29),
-                    new byte[] { 0x01, 0x0F, 0x1D, 0x00 }),
+                        (short)EquipmentType.Shoulder),
+                    new byte[] { 0x01, 0x0F }),
                 ref failures);
 
             Check(
