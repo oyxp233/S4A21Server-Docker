@@ -83,6 +83,16 @@ namespace DfoServer.Game.Quests
                 await SendExpertJobChangeNotificationAsync(characterId, result.GrowNumber);
         }
 
+        internal async Task SendGrowupChangeRefreshAsync(int characterId)
+        {
+            if (characterId <= 0)
+                return;
+
+            await SendSkillInfoRefreshAsync(characterId);
+            await SendJobChangeNotificationAsync(characterId);
+            await SendUserInfoBroadcastAsync(characterId);
+        }
+
         // Must be called after FINISH_QUEST ACK. This is intentionally a projector,
         // not another reward/completion entry point.
         internal async Task ProjectFinishedQuestAsync(

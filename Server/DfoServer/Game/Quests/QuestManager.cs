@@ -478,6 +478,16 @@ namespace DfoServer.Game.Quests
             await _notifications.SendActiveQuestListAsync(cid);
         }
 
+        public async Task SendGrowupChangeRefreshAsync()
+        {
+            int cid = _sender.CharacterId;
+            if (cid <= 0) return;
+
+            await _notifications.SendGrowupChangeRefreshAsync(cid);
+            await _notifications.SendActiveQuestListAsync(cid);
+            await _notifications.SendAcceptableQuestListAsync();
+        }
+
         public async Task SyncItemSeekingQuestProgressAsync(
             ICollection<int> itemFilter,
             IReadOnlyDictionary<int, int> temporaryHeldCounts = null)

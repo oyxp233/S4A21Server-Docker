@@ -8,6 +8,7 @@ namespace DfoServer.Game.Session
         public byte[] Name { get; set; } = Array.Empty<byte>();
         public byte Job { get; set; }
         public byte GrowType { get; set; }
+        public int GrowupChangeCount { get; set; }
         public byte Level { get; set; } = 1;
         public uint Exp { get; set; }
         public ushort UserId { get; set; }

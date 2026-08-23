@@ -21,6 +21,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(5, "add_aura_skin_flag", ApplyAuraSkinFlag),
                 new MigrationStep(6, "add_daily_challenge_entry_claims", ApplyDailyChallengeEntryClaims),
                 new MigrationStep(7, "add_character_item_states", ApplyCharacterItemStates),
+                new MigrationStep(8, "add_growup_change_count", ApplyGrowupChangeCount),
             };
 
         internal static int CurrentVersion =>
@@ -204,6 +205,18 @@ WHERE list_kind IN ('cooltime', 'effect')
 GROUP BY character_id, list_kind, item_id;
 
 DROP TABLE character_item_values_legacy;");
+        }
+
+        private static void ApplyGrowupChangeCount(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            AddColumnIfMissing(
+                connection,
+                transaction,
+                "characters",
+                "growup_change_count",
+                "INTEGER NOT NULL DEFAULT 0");
         }
 
         private static void ApplyPurchaseLimitTracking(

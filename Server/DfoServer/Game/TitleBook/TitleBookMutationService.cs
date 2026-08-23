@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.ItemUpgrade;
@@ -322,6 +324,7 @@ namespace DfoServer.Game.TitleBook
                 var entry = inventory.Achievements.GetOrCreateEntry(
                     questId,
                     quest != null ? quest.CheckCount : (ushort)1);
+                var wasCompleted = entry.P1 == 0 && entry.P2 == 0 && entry.P3 == 0;
                 entry.P1 = SaturatingSubtract(entry.P1, delta1);
                 entry.P2 = SaturatingSubtract(entry.P2, delta2);
                 entry.P3 = SaturatingSubtract(entry.P3, delta3);
@@ -332,7 +335,10 @@ namespace DfoServer.Game.TitleBook
                 result.Remain3 = entry.P3;
                 result.TailOrState = entry.P4;
                 result.Success = true;
-                result.Completed = entry.P1 == 0 && entry.P2 == 0 && entry.P3 == 0;
+                result.Completed = !wasCompleted
+                    && entry.P1 == 0
+                    && entry.P2 == 0
+                    && entry.P3 == 0;
 
                 if (result.Completed && definition != null)
                 {
@@ -355,6 +361,44 @@ namespace DfoServer.Game.TitleBook
 
                 return result;
             }
+        }
+
+        internal IReadOnlyList<AchievementTriggerResult> TriggerUseItemAchievements(
+            InventoryLease lease,
+            int itemId,
+            int consumedCount)
+        {
+            return TriggerUseItemAchievements(
+                lease,
+                new[]
+                {
+                    new KeyValuePair<int, int>(itemId, consumedCount),
+                });
+        }
+
+        internal IReadOnlyList<AchievementTriggerResult> TriggerUseItemAchievements(
+            InventoryLease lease,
+            IEnumerable<KeyValuePair<int, int>> consumedItems)
+        {
+            var results = new List<AchievementTriggerResult>();
+            if (lease?.Inventory == null || consumedItems == null)
+                return results;
+
+            foreach (var pair in _staticData
+                .BuildUseItemProgressDeltas(consumedItems)
+                .OrderBy(pair => pair.Key))
+            {
+                var result = TriggerAchievement(
+                    lease,
+                    pair.Key,
+                    pair.Value,
+                    0,
+                    0);
+                if (result.Success)
+                    results.Add(result);
+            }
+
+            return results;
         }
 
         private static bool MatchesOwner(

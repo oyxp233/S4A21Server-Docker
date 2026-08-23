@@ -5,7 +5,8 @@ using DfoServer.Network;
 
 namespace DfoServer.Network.Builders
 {
-    // 塔专属包构建(NOTI 142/143/144/145/146)。字段定义全部来自 86JP IDA 汇编定案。
+    // 塔专属包构建(NOTI 142/143/144/145/146)。
+    // A21 已验证字段注明当前客户端证据；其余字段保留既有证据边界。
     public static class DeathTowerPacketBuilder
     {
         public const byte NormalTowerInfoModeByte = 0;
@@ -27,7 +28,9 @@ namespace DfoServer.Network.Builders
             return w.ToArray();
         }
 
-        // NOTI 143 START_DEATH_TOWER_MAP (变长, 汇编定案: 9B头 + 14B×怪物 + 1B + 18B×物品)
+        // NOTI 143 START_DEATH_TOWER_MAP
+        // A21 DNF.exe SHA256 1F8244... handler 0x01159850 consumes:
+        // 11B header + 14B per monster + 1B item count + 18B per item.
         public static byte[] BuildStageMap(
             DeathTowerSession tower,
             List<StageMonster> monsters,
@@ -38,10 +41,10 @@ namespace DfoServer.Network.Builders
             var monsterCount = Math.Min(monsters?.Count ?? 0, byte.MaxValue);
             var itemCount = Math.Min(items?.Count ?? 0, byte.MaxValue);
 
-            // Header 9B — currentStage 是 1-based(客户端显示层数)
+            // Header 11B — currentStage 是 1-based(客户端显示层数)
             w.WriteUInt16((ushort)(tower.CurrentStage + 1));
             w.WriteUInt32(randomSeed);
-            w.WriteUInt16((ushort)tower.GetCurrentMapId());
+            w.WriteUInt32((uint)tower.GetCurrentMapId());
             w.WriteByte((byte)monsterCount);
 
             // 怪物条目 14B/条

@@ -192,6 +192,7 @@ namespace DfoServer.Game.Session
             DungeonSceneUniqueId = 0;
             Job = record.Job;
             GrowType = record.GrowType;
+            GrowupChangeCount = record.GrowupChangeCount;
             Level = record.Level == 0 ? Level : record.Level;
             Exp = record.Exp;
             UserState = record.UserState;

@@ -6,7 +6,7 @@ namespace DfoServer.Game.Inventory
     internal sealed class AccountCargoModel
     {
         public const short SlotStart = 0;
-        public const short SlotEnd = 63;
+        public const short SlotEnd = 119;
         public const int SlotCount = SlotEnd - SlotStart + 1;
 
         private readonly ItemCore[] _items = new ItemCore[SlotCount];

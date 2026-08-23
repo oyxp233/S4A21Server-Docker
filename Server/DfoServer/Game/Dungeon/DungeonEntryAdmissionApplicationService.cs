@@ -238,7 +238,8 @@ namespace DfoServer.Game.Dungeon
                     dungeonId,
                     maze,
                     mazeIndex,
-                    difficulty: 1);
+                    difficulty: 1,
+                    preferSeasonSealDoor: true);
                 int gold;
                 lock (lease.SyncRoot)
                     gold = lease.Inventory.CountMainItem(0);
@@ -269,7 +270,8 @@ namespace DfoServer.Game.Dungeon
                     dungeonId,
                     maze,
                     mazeIndex,
-                    hellMode);
+                    hellMode,
+                    preferSeasonSealDoor: gorgeousPlanned);
             }
             if (hellRoom == null || !hellRoom.Found)
             {

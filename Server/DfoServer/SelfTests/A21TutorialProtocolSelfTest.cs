@@ -935,7 +935,7 @@ namespace DfoServer.SelfTests
                 kind: DungeonExperienceDefinitionKind.Standard,
                 standardLevel: 1,
                 experienceWeight: 1.0,
-                difficultyRates: new[] { 1.0 },
+                difficultyRates: new[] { 1.0, 2.0, 2.5 },
                 partyMemberRates: new[] { 1.0 },
                 monsterKindExperienceRates: warroomExpRates,
                 legacyMonsterOverallRate: 1.0);
@@ -989,8 +989,19 @@ namespace DfoServer.SelfTests
                         monsterKind: 0,
                         isNamedMonster: true,
                         partyMemberCount: 1));
+            var namedChampionExperience = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    expDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 1,
+                        monsterLevel: 1,
+                        difficulty: 0,
+                        monsterKind: 1,
+                        isNamedMonster: true,
+                        partyMemberCount: 1));
+            var namedDungeon = Dungeon.GetDungeonFile(5006);
             Check(
-                "champion/super/boss use 2x/3x/4x actor-kind exp and named remains independent",
+                "PVF champion and named monster categories remain independent",
                 normalMonsterExperience.SharedBaseExperience > 0
                 && championExperience.SharedBaseExperience
                     == normalMonsterExperience.SharedBaseExperience * 2
@@ -999,7 +1010,11 @@ namespace DfoServer.SelfTests
                 && bossExperience.SharedBaseExperience
                     == normalMonsterExperience.SharedBaseExperience * 4
                 && namedNormalExperience.SharedBaseExperience
-                    == normalMonsterExperience.SharedBaseExperience * 3,
+                    == normalMonsterExperience.SharedBaseExperience * 3
+                && namedChampionExperience.SharedBaseExperience
+                    == normalMonsterExperience.SharedBaseExperience * 3
+                && namedDungeon?.NamedMonster?.Contains(56349) == true
+                && Dungeon.IsNamedMonster(5006, 56349),
                 ref failures);
             Check(
                 "APC actor kinds share the monster experience normalization",
@@ -1013,7 +1028,8 @@ namespace DfoServer.SelfTests
                     partyMemberCount: 1,
                     partyHasEquippedAvatar: false,
                     hasEquippedCreature: false,
-                    storyExperienceBonusRatePercent: 30);
+                    storyExperienceBonusRatePercent: 30,
+                    storyExperienceDifficulty: 2);
             var nonStoryBonusSnapshot =
                 DungeonParticipantExperienceBonusSnapshot.None;
             Check(
@@ -1023,7 +1039,9 @@ namespace DfoServer.SelfTests
                     storyBonusSnapshot) == 1300
                 && DungeonExperienceCalculator.ApplyStoryExperienceBonus(
                     1000,
-                    nonStoryBonusSnapshot) == 1000,
+                    nonStoryBonusSnapshot) == 1000
+                && storyBonusSnapshot.ResolveExperienceDifficulty(0) == 2
+                && nonStoryBonusSnapshot.ResolveExperienceDifficulty(0) == 0,
                 ref failures);
 
             var prisonMazeResolved = Dungeon.TrySelectActiveQuestMaze(
@@ -1101,6 +1119,7 @@ namespace DfoServer.SelfTests
                 && string.IsNullOrEmpty(mainlineBonusError)
                 && mainlineBonus.IsEligible
                 && mainlineBonus.RatePercent == 30
+                && mainlineBonus.ExperienceDifficulty == 2
                 && mainlineReward.Exp == 1300
                 && mainlineReward.Gold == 77
                 && mainlineReward.ChainType == 2
@@ -1135,9 +1154,143 @@ namespace DfoServer.SelfTests
                 "story-mode quest EXP bonus filters zero-rate, non-story and " +
                 "unfrozen runs without applying a recommendation-level gate",
                 !difficultyZeroBonus.IsEligible
+                && difficultyZeroBonus.IsStoryRun
+                && difficultyZeroBonus.RatePercent == 0
+                && difficultyZeroBonus.ExperienceDifficulty == 1
                 && !nonStoryBonus.IsEligible
+                && !nonStoryBonus.IsStoryRun
                 && !missingFrozenQuestBonus.IsEligible
+                && !missingFrozenQuestBonus.IsStoryRun
                 && unsuitableLevelBonus.IsEligible,
+                ref failures);
+
+            var chessStoryRun = CreateQuestRun(
+                dungeonId: 160,
+                difficulty: 0,
+                activeQuestMazeQuestId: 1842,
+                snapshotQuestId: 1842);
+            var chessStoryProfile = QuestCompletionExperienceBonusPolicy.Capture(
+                chessStoryRun,
+                playerLevel: 26);
+            var chessProfileFrozen = chessStoryRun
+                    .TryFreezeExperienceBonusSnapshot(
+                        DungeonParticipantExperienceBonusSnapshot.None)
+                && chessStoryRun.TryFreezeStoryExperienceProfile(
+                    chessStoryProfile.RatePercent,
+                    chessStoryProfile.ExperienceDifficulty);
+            var chessBonusSnapshot = chessStoryRun
+                .CaptureExperienceBonusSnapshot();
+            var chessDefinition = chessStoryRun.ExperienceDefinition;
+            var chessWireNormal = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    chessDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 26,
+                        monsterLevel: 28,
+                        difficulty: 0,
+                        monsterKind: 0,
+                        isNamedMonster: false,
+                        partyMemberCount: 1));
+            var chessExperienceNormal = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    chessDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 26,
+                        monsterLevel: 28,
+                        difficulty: chessBonusSnapshot
+                            .ResolveExperienceDifficulty(0),
+                        monsterKind: 0,
+                        isNamedMonster: false,
+                        partyMemberCount: 1));
+            var chessChampionContext = new DungeonMonsterExperienceContext(
+                characterLevel: 26,
+                monsterLevel: 28,
+                difficulty: chessBonusSnapshot.ResolveExperienceDifficulty(0),
+                monsterKind: 1,
+                isNamedMonster: false,
+                partyMemberCount: 1);
+            var chessChampion = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    chessDefinition,
+                    chessChampionContext);
+            var chessSuperChampion = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    chessDefinition,
+                    new DungeonMonsterExperienceContext(
+                        characterLevel: 26,
+                        monsterLevel: 28,
+                        difficulty: chessBonusSnapshot
+                            .ResolveExperienceDifficulty(0),
+                        monsterKind: 2,
+                        isNamedMonster: false,
+                        partyMemberCount: 1));
+            var chessNamedContext = new DungeonMonsterExperienceContext(
+                characterLevel: 26,
+                monsterLevel: 28,
+                difficulty: chessBonusSnapshot.ResolveExperienceDifficulty(0),
+                monsterKind: 1,
+                isNamedMonster: true,
+                partyMemberCount: 1);
+            var chessNamed = DungeonExperienceCalculator
+                .CalculateStandardMonster(
+                    chessDefinition,
+                    chessNamedContext);
+            var chessNamedDisplayBonus = DungeonKillApplicationService
+                .CalculateNamedMonsterDisplayBonus(
+                    chessStoryRun,
+                    chessNamedContext,
+                    chessNamed.ParticipantBaseExperience,
+                    chessNamed.ParticipantBaseExperience,
+                    allowsExperience: true,
+                    isNamedMonster: true);
+            var chessChampionAwardBase = chessChampion.ParticipantBaseExperience;
+            var chessLedger = new DungeonParticipantExperienceRuntime();
+            chessLedger.RecordMonster(
+                chessChampionAwardBase,
+                growthContractBonusExperience: 0,
+                isBoss: false,
+                isChampion: true,
+                isSuperChampion: false,
+                isNamedMonster: false);
+            var chessLedgerSnapshot = chessLedger.Capture();
+            var chessNamedLedger = new DungeonParticipantExperienceRuntime();
+            chessNamedLedger.RecordMonster(
+                chessNamed.ParticipantBaseExperience,
+                growthContractBonusExperience: 0,
+                isBoss: false,
+                isChampion: false,
+                isSuperChampion: false,
+                isNamedMonster: true);
+            var chessNamedLedgerSnapshot = chessNamedLedger.Capture();
+            Check(
+                "story relative difficulty and monster category awards share one frozen EXP owner",
+                chessStoryProfile.IsStoryRun
+                && chessStoryProfile.RatePercent == 0
+                && chessStoryProfile.ExperienceDifficulty == 1
+                && chessProfileFrozen
+                && chessBonusSnapshot.ResolveExperienceDifficulty(0) == 1
+                && chessWireNormal.ParticipantBaseExperience == 420
+                && chessExperienceNormal.ParticipantBaseExperience == 646
+                && chessChampion.ParticipantBaseExperience == 1292
+                && chessNamed.ParticipantBaseExperience
+                    == chessSuperChampion.ParticipantBaseExperience
+                && chessNamedDisplayBonus
+                    == chessNamed.ParticipantBaseExperience
+                        - chessExperienceNormal.ParticipantBaseExperience
+                && chessChampionAwardBase
+                    == chessExperienceNormal.ParticipantBaseExperience * 2
+                && chessSuperChampion.ParticipantBaseExperience
+                    >= chessExperienceNormal.ParticipantBaseExperience * 3
+                && chessSuperChampion.ParticipantBaseExperience
+                    <= chessExperienceNormal.ParticipantBaseExperience * 3 + 1
+                && chessLedgerSnapshot.MonsterBaseExperience
+                    == chessChampionAwardBase
+                && chessLedgerSnapshot.ChampionBaseExperience
+                    == chessChampionAwardBase
+                && chessNamedLedgerSnapshot.MonsterBaseExperience
+                    == chessNamed.ParticipantBaseExperience
+                && chessNamedLedgerSnapshot.NamedMonsterBaseExperience
+                    == chessNamed.ParticipantBaseExperience,
                 ref failures);
 
             Check(
@@ -2932,6 +3085,14 @@ namespace DfoServer.SelfTests
                         77,
                         consciousnessMaze,
                         0,
+                        difficulty: 1,
+                        preferSeasonSealDoor: true)
+                    : null;
+                var consciousnessDifficultyARoom = consciousnessMaze != null
+                    ? Dungeon.FindHellMapRoom(
+                        77,
+                        consciousnessMaze,
+                        0,
                         difficulty: 1)
                     : null;
                 var consciousnessOrdinaryRoom = consciousnessMaze != null
@@ -2942,7 +3103,7 @@ namespace DfoServer.SelfTests
                         difficulty: 2)
                     : null;
                 Check(
-                    "PVF season hellparty switch selects mode 1 season and mode 2 ordinary rooms",
+                    "PVF season route is explicit and independent from A/B difficulty",
                     HellPartyData.IsSeasonHellPartyEnabled()
                     && consciousnessMaze != null
                     && consciousnessMaze.SealDoorMapIndex == 60064
@@ -2961,6 +3122,11 @@ namespace DfoServer.SelfTests
                     && consciousnessSeasonRoom.NormalMapId > 0
                     && consciousnessSeasonRoom.X == 1
                     && consciousnessSeasonRoom.Y == 0
+                    && consciousnessDifficultyARoom != null
+                    && consciousnessDifficultyARoom.Found
+                    && consciousnessDifficultyARoom.MapId == 60064
+                    && consciousnessDifficultyARoom.X == 3
+                    && consciousnessDifficultyARoom.Y == 1
                     && consciousnessOrdinaryRoom != null
                     && consciousnessOrdinaryRoom.Found
                     && consciousnessOrdinaryRoom.MapId == 60064
@@ -2975,6 +3141,14 @@ namespace DfoServer.SelfTests
                     ? trombeDungeon.Mazes[0]
                     : null;
                 var trombeSeasonRoom = trombeMaze != null
+                    ? Dungeon.FindHellMapRoom(
+                        103,
+                        trombeMaze,
+                        0,
+                        difficulty: 1,
+                        preferSeasonSealDoor: true)
+                    : null;
+                var trombeDifficultyARoom = trombeMaze != null
                     ? Dungeon.FindHellMapRoom(103, trombeMaze, 0, difficulty: 1)
                     : null;
                 var grandineDungeon = Dungeon.GetDungeonFile(104);
@@ -2990,12 +3164,17 @@ namespace DfoServer.SelfTests
                         difficulty: 2)
                     : null;
                 Check(
-                    "PVF mode owner rule covers Trombe season and Grandine ordinary rooms",
+                    "PVF room owner keeps A/B difficulty on ordinary route and reserves season route",
                     trombeSeasonRoom != null
                     && trombeSeasonRoom.Found
                     && trombeSeasonRoom.MapId == 91007
                     && trombeSeasonRoom.X == 1
                     && trombeSeasonRoom.Y == 0
+                    && trombeDifficultyARoom != null
+                    && trombeDifficultyARoom.Found
+                    && trombeDifficultyARoom.MapId == 60069
+                    && trombeDifficultyARoom.X == 3
+                    && trombeDifficultyARoom.Y == 0
                     && grandineOrdinaryRoom != null
                     && grandineOrdinaryRoom.Found
                     && grandineOrdinaryRoom.MapId == 60070
@@ -3003,9 +3182,13 @@ namespace DfoServer.SelfTests
                     && grandineOrdinaryRoom.Y == 1,
                 ref failures);
 
+            var manualHellModes = new HashSet<byte>();
+            for (var index = 0; index < 256; index++)
+                manualHellModes.Add(HellPartyData.ResolveManualHellPartyMode());
             Check(
-                "A21 manual hell entry defaults to ordinary mode without very-difficult toggle",
-                HellPartyData.ResolveManualHellPartyMode() == 2,
+                "A21 manual hell entry uses PVF A/B weights instead of fixed ordinary mode",
+                manualHellModes.Contains(1)
+                && manualHellModes.Contains(2),
                 ref failures);
 
             var banquetDungeon = Dungeon.GetDungeonFile(194);
@@ -3014,7 +3197,12 @@ namespace DfoServer.SelfTests
                     ? banquetDungeon.Mazes[0]
                     : null;
                 var banquetSeasonRoom = banquetMaze != null
-                    ? Dungeon.FindHellMapRoom(194, banquetMaze, 0, difficulty: 1)
+                    ? Dungeon.FindHellMapRoom(
+                        194,
+                        banquetMaze,
+                        0,
+                        difficulty: 1,
+                        preferSeasonSealDoor: true)
                     : null;
                 Check(
                     "PVF mode owner rule is shared across the Castle of the Dead region",

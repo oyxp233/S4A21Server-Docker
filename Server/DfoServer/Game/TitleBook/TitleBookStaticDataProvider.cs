@@ -17,6 +17,7 @@ namespace DfoServer.Game.TitleBook
         private readonly Dictionary<int, TitleBookSlotDefinition> _slotsByQuestId;
         private readonly Dictionary<int, TitleBookSlotDefinition> _slotsByAchievementQuestId;
         private readonly Dictionary<int, TitleQuestDefinition> _quests;
+        private readonly Dictionary<int, List<TitleQuestDefinition>> _useItemQuestsByItemId;
 
         private TitleBookStaticDataProvider(
             Dictionary<(int Category, int Index), TitleBookSlotDefinition> slots,
@@ -28,6 +29,7 @@ namespace DfoServer.Game.TitleBook
             _slotsByQuestId = slotsByQuestId;
             _slotsByAchievementQuestId = slotsByAchievementQuestId;
             _quests = quests;
+            _useItemQuestsByItemId = BuildUseItemQuestIndex(quests.Values);
         }
 
         public static IReadOnlyList<int> CategoryCapacities => DefaultCapacities;
@@ -114,6 +116,40 @@ namespace DfoServer.Game.TitleBook
         public TitleQuestDefinition GetQuest(int questId)
         {
             return _quests.TryGetValue(questId, out var quest) ? quest : null;
+        }
+
+        internal IReadOnlyList<TitleQuestDefinition> GetUseItemQuests(int itemId)
+        {
+            return _useItemQuestsByItemId.TryGetValue(itemId, out var quests)
+                ? quests
+                : Array.Empty<TitleQuestDefinition>();
+        }
+
+        internal IReadOnlyDictionary<int, ushort> BuildUseItemProgressDeltas(
+            IEnumerable<KeyValuePair<int, int>> consumedItems)
+        {
+            var deltasByQuest = new Dictionary<int, long>();
+            foreach (var consumed in consumedItems ?? Enumerable.Empty<KeyValuePair<int, int>>())
+            {
+                if (consumed.Key <= 0 || consumed.Value <= 0)
+                    continue;
+
+                foreach (var quest in GetUseItemQuests(consumed.Key))
+                {
+                    var progressPerItem = quest.GetUseItemProgressPerItem(consumed.Key);
+                    if (progressPerItem <= 0)
+                        continue;
+
+                    deltasByQuest.TryGetValue(quest.QuestId, out var current);
+                    deltasByQuest[quest.QuestId] = Math.Min(
+                        ushort.MaxValue,
+                        current + (long)consumed.Value * progressPerItem);
+                }
+            }
+
+            return deltasByQuest.ToDictionary(
+                pair => pair.Key,
+                pair => (ushort)pair.Value);
         }
 
         private static Dictionary<(int Category, int Index), TitleBookSlotDefinition> ParseTitleBookEtc(string text)
@@ -346,6 +382,7 @@ namespace DfoServer.Game.TitleBook
         {
             var lines = SplitLines(text);
             var definition = new TitleQuestDefinition { QuestId = questId };
+            var intData = Array.Empty<int>();
             for (var i = 0; i < lines.Length; i++)
             {
                 var line = NormalizeTokenLine(lines[i]);
@@ -362,10 +399,111 @@ namespace DfoServer.Game.TitleBook
                     var value = FindNextInt(lines, i + 1);
                     if (value > 0)
                         definition.RewardTitleItemId = value;
+                    continue;
+                }
+
+                if (line.Equals("[type]", StringComparison.OrdinalIgnoreCase))
+                {
+                    definition.TriggerType = FindNextText(lines, i + 1);
+                    continue;
+                }
+
+                if (line.Equals("[int data]", StringComparison.OrdinalIgnoreCase))
+                {
+                    intData = FindSectionIntegers(lines, i + 1);
                 }
             }
 
+            if (definition.IsUseItem)
+                ParseUseItemConditions(definition, intData);
+
             return definition;
+        }
+
+        private static Dictionary<int, List<TitleQuestDefinition>> BuildUseItemQuestIndex(
+            IEnumerable<TitleQuestDefinition> quests)
+        {
+            var result = new Dictionary<int, List<TitleQuestDefinition>>();
+            foreach (var quest in quests ?? Enumerable.Empty<TitleQuestDefinition>())
+            {
+                if (quest == null || !quest.IsUseItem)
+                    continue;
+
+                foreach (var condition in quest.UseItemConditions)
+                {
+                    if (condition.ItemId <= 0 || condition.ProgressPerItem <= 0)
+                        continue;
+
+                    if (!result.TryGetValue(condition.ItemId, out var matches))
+                    {
+                        matches = new List<TitleQuestDefinition>();
+                        result[condition.ItemId] = matches;
+                    }
+
+                    if (!matches.Contains(quest))
+                        matches.Add(quest);
+                }
+            }
+
+            return result;
+        }
+
+        private static void ParseUseItemConditions(
+            TitleQuestDefinition definition,
+            IReadOnlyList<int> values)
+        {
+            if (definition == null || values == null || values.Count < 3)
+                return;
+
+            var declaredCount = Math.Max(0, values[0]);
+            var availableCount = (values.Count - 1) / 2;
+            var pairCount = Math.Min(declaredCount, availableCount);
+            for (var index = 0; index < pairCount; index++)
+            {
+                var itemId = values[1 + index * 2];
+                var progressPerItem = values[2 + index * 2];
+                if (itemId <= 0 || progressPerItem <= 0)
+                    continue;
+
+                definition.UseItemConditions.Add(new TitleQuestUseItemCondition
+                {
+                    ItemId = itemId,
+                    ProgressPerItem = progressPerItem,
+                });
+            }
+        }
+
+        private static string FindNextText(string[] lines, int start)
+        {
+            for (var i = start; i < lines.Length; i++)
+            {
+                var line = NormalizeTokenLine(lines[i]);
+                if (line.StartsWith("[/", StringComparison.Ordinal))
+                    return string.Empty;
+                if (line.Length > 0)
+                    return line;
+            }
+
+            return string.Empty;
+        }
+
+        private static int[] FindSectionIntegers(string[] lines, int start)
+        {
+            var result = new List<int>();
+            for (var i = start; i < lines.Length; i++)
+            {
+                var line = NormalizeTokenLine(lines[i]);
+                if (line.StartsWith("[/", StringComparison.Ordinal))
+                    break;
+
+                foreach (Match match in Regex.Matches(line, @"-?\d+"))
+                {
+                    if (int.TryParse(match.Value, out var value))
+                        result.Add(value);
+                }
+            }
+
+            return result.ToArray();
         }
 
         private static int FindNextInt(string[] lines, int start)

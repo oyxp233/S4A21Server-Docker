@@ -25,6 +25,7 @@ namespace DfoServer.Network
     {
         private readonly LoginHandler _loginHandler;
         private readonly CharacterSelectHandler _characterSelectHandler;
+        private readonly GrowupChangeHandler _growupChangeHandler;
         private readonly CharacterSessionLifecycleCoordinator
             _characterSessionLifecycle;
         private readonly InventoryHandler _inventoryHandler;
@@ -168,6 +169,9 @@ namespace DfoServer.Network
             _loginHandler = characterInventoryHandlers.Login;
             _characterSelectHandler = characterInventoryHandlers.CharacterSelect;
             _inventoryRefreshSender = inventory.InventoryRefreshSender;
+            _growupChangeHandler = new GrowupChangeHandler(
+                new GrowupChangeApplicationService(),
+                _inventoryRefreshSender);
             _knightShieldHandler = characterInventoryHandlers.KnightShield;
             _inventoryHandler = characterInventoryHandlers.Inventory;
             _lotteryItemHandler = featureHandlers.LotteryItem;
@@ -312,6 +316,8 @@ namespace DfoServer.Network
             d[0x0008] = _characterSelectHandler.Handle_ENUM_CMDPACKET_GET_USERINFO;
             d[0x01A8] = _characterSelectHandler
                 .Handle_ENUM_CMDPACKET_OTHER_USER_TITLE_BOOK_LIST;
+            d[(ushort)CmdPacketTypeA21.RE_GROWUP_CHANGE] =
+                _growupChangeHandler.Handle;
             d[0x0009] = _staminaHandler.Handle_ENUM_CMDPACKET_RECOVER_STAMINA;
             d[0x02B5] = _characterSelectHandler.Handle_ENUM_CMDPACKET_CHECK_DOUBLE_CHARACTER_NAME;
             d[0x0127] = _characterSelectHandler.Handle_CHANGE_CHARAC_SLOT;
@@ -450,6 +456,8 @@ namespace DfoServer.Network
             d[0x025C] = _inventoryHandler.Handle_UPGRADE_CARD;                     //604 monster card upgrade
             d[0x0207] = _inventoryHandler.Handle_OPEN_AVATAR_PACKAGE;
             d[0x0218] = _inventoryHandler.Handle_USE_BOOSTER_ITEM;
+            d[(ushort)CmdPacketTypeA21.USE_RIGHT_OF_CHANGE_GROW_TYPE] =
+                _inventoryHandler.Handle_USE_RIGHT_OF_CHANGE_GROW_TYPE;
             d[(ushort)CmdPacketTypeA21.CARGO_TRANSPORT_ITEM] =
                 _inventoryHandler.Handle_CARGO_TRANSPORT_ITEM;
             d[(ushort)CmdPacketTypeA21.EPIC_BOOK_MAKE_ITEM] =

@@ -901,12 +901,23 @@ namespace DfoServer.GameWorld
             return result;
         }
 
-        public static HellPartyRoomInfo FindHellMapRoom(int dungeonId, MazeInfo maze, int mazeIndex, byte difficulty)
+        public static HellPartyRoomInfo FindHellMapRoom(
+            int dungeonId,
+            MazeInfo maze,
+            int mazeIndex,
+            byte difficulty,
+            bool preferSeasonSealDoor = false)
         {
             if (maze?.MapSpecifications == null)
                 return new HellPartyRoomInfo();
 
-            var preferSeason = HellPartyData.ShouldUseSeasonSealDoor(difficulty);
+            // Difficulty A/B selects the HellParty wave/reward rule.  It does
+            // not select the seasonal map route.  The seasonal seal door is
+            // an explicit activity route (currently the gorgeous challenge);
+            // ordinary and difficult manual entries must share the PVF
+            // ordinary seal-door coordinate.
+            var preferSeason = preferSeasonSealDoor
+                && HellPartyData.IsSeasonHellPartyEnabled();
             if (preferSeason)
             {
                 if (TryBuildSealDoorHellPartyRoom(
@@ -941,7 +952,8 @@ namespace DfoServer.GameWorld
                         out var ordinaryRoom))
                     return ordinaryRoom;
 
-                if (TryBuildSealDoorHellPartyRoom(
+                if (HellPartyData.IsSeasonHellPartyEnabled()
+                    && TryBuildSealDoorHellPartyRoom(
                         dungeonId,
                         maze,
                         difficulty,
