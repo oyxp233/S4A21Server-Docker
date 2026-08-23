@@ -345,7 +345,8 @@ namespace DfoServer.Infrastructure
                     broadcastGamePacket,
                     world.MercenaryRestrictions,
                     core.Database,
-                    inventory.OverflowRewardSink),
+                    inventory.OverflowRewardSink,
+                    inventory.MailboxService),
                 new KnightShieldHandler(
                     inventory.KnightShieldService,
                     core.CharacterRepository,
