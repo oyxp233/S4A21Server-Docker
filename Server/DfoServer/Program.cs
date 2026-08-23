@@ -27,6 +27,7 @@ namespace DfoServer
             ("--selftest-a21-guild-medal-guardian-gem", SelfTests.A21GuildMedalGuardianGemSelfTest.Run),
             ("--selftest-daily-reset-account", SelfTests.DailyResetAccountSelfTest.Run),
             ("--selftest-a21-daily-challenge", SelfTests.A21DailyChallengeSelfTest.Run),
+            ("--selftest-a21-death-tower-protocol", SelfTests.A21DeathTowerProtocolSelfTest.Run),
             ("--selftest-item-state", SelfTests.ItemStateSelfTest.Run),
             ("--selftest-titlebook-use-item", SelfTests.TitleBookUseItemAchievementSelfTest.Run),
             ("--selftest-growup-change", SelfTests.GrowupChangeSelfTest.Run),
