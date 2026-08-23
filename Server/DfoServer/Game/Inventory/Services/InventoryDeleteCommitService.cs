@@ -1,3 +1,5 @@
+using System;
+
 namespace DfoServer.Game.Inventory
 {
     internal static class InventoryDeleteCommitService
@@ -7,6 +9,25 @@ namespace DfoServer.Game.Inventory
             InventoryListType listType,
             short slotIndex,
             int requestedCount,
+            out InventoryMutationResult mutation)
+        {
+            return TryCommit(
+                lease,
+                listType,
+                slotIndex,
+                requestedCount,
+                "delete-item",
+                afterDelete: null,
+                out mutation);
+        }
+
+        internal static bool TryCommit(
+            InventoryLease lease,
+            InventoryListType listType,
+            short slotIndex,
+            int requestedCount,
+            string operation,
+            Func<InventoryMutationResult, bool> afterDelete,
             out InventoryMutationResult mutation)
         {
             mutation = null;
@@ -28,14 +49,21 @@ namespace DfoServer.Game.Inventory
             InventoryMutationResult committedMutation = null;
             var committed = OnlineInventoryMutationCommitCoordinator.TryCommit(
                 lease,
-                "delete-item",
+                operation,
                 (connection, transaction) =>
-                    InventoryDeleteService.TryDeleteForClient(
+                {
+                    if (!InventoryDeleteService.TryDeleteForClient(
                         lease.Inventory,
                         listType,
                         slotIndex,
                         requestedCount,
-                        out committedMutation));
+                        out committedMutation))
+                    {
+                        return false;
+                    }
+
+                    return afterDelete == null || afterDelete(committedMutation);
+                });
             if (!committed || committedMutation == null)
                 return false;
 

@@ -1,6 +1,7 @@
 using DfoServer.Game.Currency;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Inventory;
+using DfoServer.Game.TitleBook;
 using DfoServer.Network.Builders;
 using System;
 using System.Collections.Generic;
@@ -42,11 +43,13 @@ namespace DfoServer.Network.Handlers
                 var arrayCount = body[1];
                 var offset = 2;
                 var mutations = new List<InventoryMutationResult>();
+                var achievementProgress =
+                    new SortedDictionary<int, AchievementTriggerResult>();
 
                 // Entry (12B): opType(u16) + slotIndex(u16) + itemId(i32) + deleteCount(i32)
                 for (int i = 0; i < arrayCount && offset + 12 <= body.Length; i++)
                 {
-                    var opType = BitConverter.ToInt16(body, offset);
+                    var opType = BitConverter.ToUInt16(body, offset);
                     var slotIndex = BitConverter.ToInt16(body, offset + 2);
                     var itemId = BitConverter.ToInt32(body, offset + 4);
                     var deleteCount = (short)BitConverter.ToInt32(body, offset + 8);
@@ -56,12 +59,48 @@ namespace DfoServer.Network.Handlers
                     var deleted = false;
                     if (hasInventoryLease)
                     {
-                        deleted = InventoryDeleteCommitService.TryCommit(
-                            lease,
-                            listType,
-                            slotIndex,
-                            deleteCount,
-                            out result);
+                        if (IsSkillMaterialDeleteOperation(opType))
+                        {
+                            IReadOnlyList<AchievementTriggerResult> entryProgress =
+                                Array.Empty<AchievementTriggerResult>();
+                            deleted = InventoryDeleteCommitService.TryCommit(
+                                lease,
+                                listType,
+                                slotIndex,
+                                deleteCount,
+                                "delete-skill-material",
+                                committedMutation =>
+                                {
+                                    var actualDeletedCount = Math.Max(
+                                        0,
+                                        (int)(committedMutation?.AppliedCount ?? 0));
+                                    if (actualDeletedCount > 0)
+                                    {
+                                        entryProgress = _sqliteSelectCharacterDataSource
+                                            .TriggerUseItemAchievements(
+                                                lease,
+                                                committedMutation.ItemTemplateId,
+                                                actualDeletedCount);
+                                    }
+
+                                    return true;
+                                },
+                                out result);
+
+                            if (deleted)
+                                MergeAchievementProgress(
+                                    achievementProgress,
+                                    entryProgress);
+                        }
+                        else
+                        {
+                            deleted = InventoryDeleteCommitService.TryCommit(
+                                lease,
+                                listType,
+                                slotIndex,
+                                deleteCount,
+                                out result);
+                        }
                     }
 
                     if (!deleted)
@@ -75,7 +114,7 @@ namespace DfoServer.Network.Handlers
                     result.AppliedCount = deleteCount;
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0012, DeleteItemAckBuilder.Build(result)));
                     mutations.Add(result);
-                    FileLogger.Log($"[{ProtocolName}] DELETE_ITEM(ext): slot={slotIndex} item=0x{itemId:X8} applied={deleteCount} remaining={result.RemainingStackCount}");
+                    FileLogger.Log($"[{ProtocolName}] DELETE_ITEM(ext): op={opType} slot={slotIndex} item=0x{itemId:X8} applied={deleteCount} remaining={result.RemainingStackCount}");
                 }
 
                 if (hasInventoryLease
@@ -86,6 +125,15 @@ namespace DfoServer.Network.Handlers
                         .RecalibrateItemSeekingQuestProgressAfterInventoryMutationsWithoutNotification(
                             lease,
                             mutations);
+                }
+
+                foreach (var progress in achievementProgress.Values)
+                {
+                    await SendAchievementTriggerResult(
+                        session,
+                        cid,
+                        (ushort)CmdPacketTypeA21.ACHIEVEMENT_TRIGGER,
+                        progress);
                 }
                 return;
             }
@@ -150,6 +198,30 @@ namespace DfoServer.Network.Handlers
                     : InventoryListType.Main;
             rejectionBody = DeleteItemAckBuilder.BuildError((byte)listType);
             return true;
+        }
+
+        internal static bool IsSkillMaterialDeleteOperation(ushort operationType)
+            => operationType > 1;
+
+        internal static void MergeAchievementProgress(
+            IDictionary<int, AchievementTriggerResult> target,
+            IEnumerable<AchievementTriggerResult> incoming)
+        {
+            if (target == null || incoming == null)
+                return;
+
+            foreach (var result in incoming)
+            {
+                if (result?.Success != true)
+                    continue;
+
+                if (!target.TryGetValue(result.QuestId, out var current)
+                    || !current.Completed
+                    || result.Completed)
+                {
+                    target[result.QuestId] = result;
+                }
+            }
         }
 
         public async Task Handle_ENUM_CMDPACKET_BUY_ITEM(EnhancedClientSession session, GamePacketHeader header, byte[] body)
@@ -506,13 +578,32 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
-            var w = new GamePacketWriter();
-            w.WriteByte(1);
-            w.WriteInt32(result.QuestId);
-            w.WriteUInt16(result.Remain1);
-            w.WriteUInt16(result.Remain2);
-            w.WriteUInt16(result.Remain3);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, w.ToArray()));
+            await SendAchievementTriggerResult(
+                session,
+                cid,
+                header.type,
+                result);
+        }
+
+        private async Task SendAchievementTriggerResult(
+            EnhancedClientSession session,
+            int characterId,
+            ushort commandType,
+            AchievementTriggerResult result)
+        {
+            if (result?.Success != true)
+                return;
+
+            var progress = new GamePacketWriter();
+            progress.WriteByte(1);
+            progress.WriteInt32(result.QuestId);
+            progress.WriteUInt16(result.Remain1);
+            progress.WriteUInt16(result.Remain2);
+            progress.WriteUInt16(result.Remain3);
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x01,
+                commandType,
+                progress.ToArray()));
 
             if (result.Completed && result.TitleItemId > 0)
             {
@@ -526,7 +617,10 @@ namespace DfoServer.Network.Handlers
                     0x00,
                     (ushort)NotiPacketTypeA21.ACHIEVEMENT_COMPLETE,
                     complete.ToArray()));
-                await SendTitleBookCategoryRefresh(session, cid, result.Category);
+                await SendTitleBookCategoryRefresh(
+                    session,
+                    characterId,
+                    result.Category);
             }
         }
 
