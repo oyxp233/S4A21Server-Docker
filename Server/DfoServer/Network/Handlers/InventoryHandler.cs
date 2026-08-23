@@ -1,6 +1,7 @@
 using DfoServer.Game.Appearance;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Inventory;
+using DfoServer.Game.Mailbox;
 using DfoServer.Game.ExpertJob;
 using DfoServer.Game.Mercenary;
 using DfoServer.Game.SelectCharacter;
@@ -30,6 +31,7 @@ namespace DfoServer.Network.Handlers
         private readonly MonsterCardUpgradeService _monsterCardUpgradeService;
         private readonly IGameDatabase _database;
         private readonly IInventoryOverflowRewardSink _overflowRewardSink;
+        private readonly MailboxService _mailboxService;
 
         public string ProtocolName => "GameProtocol";
 
@@ -45,7 +47,8 @@ namespace DfoServer.Network.Handlers
             Func<byte[], Task> broadcastGamePacket = null,
             IMercenaryRestrictionService mercenaryRestrictions = null,
             IGameDatabase database = null,
-            IInventoryOverflowRewardSink overflowRewardSink = null)
+            IInventoryOverflowRewardSink overflowRewardSink = null,
+            MailboxService mailboxService = null)
         {
             _experienceItemUseService = experienceItemUseService
                 ?? throw new ArgumentNullException(nameof(experienceItemUseService));
@@ -67,6 +70,7 @@ namespace DfoServer.Network.Handlers
             _database = database ?? GameDatabase.CreateDefault();
             _overflowRewardSink = overflowRewardSink
                 ?? RejectingInventoryOverflowRewardSink.Instance;
+            _mailboxService = mailboxService;
         }
 
         public static (int characterId, int accountId) ResolveOwner(EnhancedClientSession session)
