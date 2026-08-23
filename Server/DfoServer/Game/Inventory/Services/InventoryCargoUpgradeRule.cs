@@ -7,7 +7,7 @@ namespace DfoServer.Game.Inventory
     {
         private static readonly ushort[] PersonalCargoCapacityTiers =
         {
-            24, 40, 56, 72, 88, 104, 120, 136, 152
+            24, 40, 56, 72, 88, 104, 120, 136, 152, 168, 184, 200
         };
 
         private static readonly Regex PersonalCargoUpgradePathRegex = new Regex(
