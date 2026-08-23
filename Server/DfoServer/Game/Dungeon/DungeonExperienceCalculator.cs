@@ -87,6 +87,20 @@ namespace DfoServer.Game.Dungeon
 
     internal static class DungeonExperienceCalculator
     {
+        internal static int ResolveStoryModeExperienceDifficulty(
+            int storyModeDifficulty,
+            DungeonExperienceDefinition definition)
+        {
+            var fallback = Math.Max(0, storyModeDifficulty);
+            if (definition == null)
+                return fallback;
+
+            var candidate = fallback + 1;
+            return definition.SupportsDifficulty(candidate)
+                ? candidate
+                : fallback;
+        }
+
         internal static int ResolveMonsterKind(byte actorType)
         {
             return actorType switch
@@ -112,6 +126,12 @@ namespace DfoServer.Game.Dungeon
             var partyRate = definition.GetPartyMemberRate(
                     context.PartyMemberCount)
                 + context.PartyEventBonusRate;
+            // PVF [named monster] is the green-name elite category. It owns
+            // the 3x rate and must not stack with a runtime actor-kind rate
+            // when a client reports both flags for the same actor.
+            var monsterKindRate = context.IsNamedMonster
+                ? definition.GetMonsterKindRate(0)
+                : definition.GetMonsterKindRate(context.MonsterKind);
             var namedRate = context.IsNamedMonster ? 3.0 : 1.0;
             var sharedBase = FloorToUInt32(
                 mobReward
@@ -119,7 +139,7 @@ namespace DfoServer.Game.Dungeon
                 * partyRate
                 * definition.GetDifficultyRate(context.Difficulty)
                 * definition.ExperienceWeight
-                * definition.GetMonsterKindRate(context.MonsterKind)
+                * monsterKindRate
                 * namedRate);
             var participantBase = FloorToUInt32(
                 sharedBase

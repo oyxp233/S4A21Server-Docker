@@ -24,7 +24,8 @@ namespace DfoServer.Game.Dungeon
             int partyMemberCount,
             bool partyHasEquippedAvatar,
             bool hasEquippedCreature,
-            int storyExperienceBonusRatePercent = 0)
+            int storyExperienceBonusRatePercent = 0,
+            int storyExperienceDifficulty = -1)
         {
             IsCaptured = true;
             PartyMemberCount = Math.Max(1, Math.Min(4, partyMemberCount));
@@ -34,6 +35,9 @@ namespace DfoServer.Game.Dungeon
                 storyExperienceBonusRatePercent > 0
                     ? storyExperienceBonusRatePercent
                     : 0;
+            StoryExperienceDifficulty = storyExperienceDifficulty >= 0
+                ? storyExperienceDifficulty
+                : -1;
         }
 
         internal static DungeonParticipantExperienceBonusSnapshot None =>
@@ -47,14 +51,25 @@ namespace DfoServer.Game.Dungeon
         internal bool PartyHasEquippedAvatar { get; }
         internal bool HasEquippedCreature { get; }
         internal int StoryExperienceBonusRatePercent { get; }
+        internal int StoryExperienceDifficulty { get; }
+        internal bool HasStoryExperienceProfile =>
+            StoryExperienceDifficulty >= 0;
+
+        internal int ResolveExperienceDifficulty(int fallbackDifficulty) =>
+            HasStoryExperienceProfile
+                ? StoryExperienceDifficulty
+                : fallbackDifficulty;
 
         internal DungeonParticipantExperienceBonusSnapshot
-            WithStoryExperienceBonusRate(int ratePercent)
+            WithStoryExperienceProfile(
+                int ratePercent,
+                int experienceDifficulty)
             => new DungeonParticipantExperienceBonusSnapshot(
                 PartyMemberCount,
                 PartyHasEquippedAvatar,
                 HasEquippedCreature,
-                ratePercent);
+                ratePercent,
+                experienceDifficulty);
     }
 
     internal readonly struct DungeonClearParticipantBonusResult

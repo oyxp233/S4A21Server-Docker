@@ -855,15 +855,18 @@ namespace DfoServer.Network.Handlers.Dungeon
                 QuestCompletionExperienceBonusPolicy.Capture(
                     run,
                     session.Player.Level);
-            if (storyExperienceBonus.IsEligible)
+            if (storyExperienceBonus.IsStoryRun)
             {
-                run.TryFreezeStoryExperienceBonusRate(
-                    storyExperienceBonus.RatePercent);
+                run.TryFreezeStoryExperienceProfile(
+                    storyExperienceBonus.RatePercent,
+                    storyExperienceBonus.ExperienceDifficulty);
                 FileLogger.Log(
-                    $"[DungeonExperience] story rate frozen: " +
+                    $"[DungeonExperience] story profile frozen: " +
                     $"cid={session.Player.CharacterId} " +
                     $"dungeon={req.DungeonId} " +
                     $"difficulty={req.Difficulty} " +
+                    $"experienceDifficulty=" +
+                    $"{storyExperienceBonus.ExperienceDifficulty} " +
                     $"quest={storyExperienceBonus.QuestId} " +
                     $"rate={storyExperienceBonus.RatePercent}%");
             }
@@ -1446,10 +1449,12 @@ namespace DfoServer.Network.Handlers.Dungeon
                         QuestCompletionExperienceBonusPolicy.Capture(
                             br,
                             bs.Player.Level);
-                    if (memberStoryExperienceBonus.IsEligible)
+                    if (memberStoryExperienceBonus.IsStoryRun)
                     {
-                        br.TryFreezeStoryExperienceBonusRate(
-                            memberStoryExperienceBonus.RatePercent);
+                        br.TryFreezeStoryExperienceProfile(
+                            memberStoryExperienceBonus.RatePercent,
+                            memberStoryExperienceBonus
+                                .ExperienceDifficulty);
                     }
                     br.HellMode = lr.HellMode;
                     br.HellPartyMode = lr.HellPartyMode;

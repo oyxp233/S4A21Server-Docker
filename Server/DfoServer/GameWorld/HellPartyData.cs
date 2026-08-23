@@ -55,22 +55,26 @@ namespace DfoServer.GameWorld
 
         public static byte ResolveManualHellPartyMode()
         {
-            // A21's normal manual hell entry does not send the
-            // VERY_DIFFICULT_HELL_PARTY toggle. Official captures with
-            // SELECT_DUNGEON flag2=0 enter the ordinary seal-door route
-            // and project START_MAP +7=2. Mode 1 is reserved for an
-            // explicit very-difficult/gorgeous challenge selection.
-            return 2;
+            var rules = DifficultyRules.Value;
+            rules.TryGetValue('A', out var veryHard);
+            rules.TryGetValue('B', out var hard);
+
+            // PVF [difficulty] item 4 is the manual A/B selection weight.
+            // Keep the random result in the selection owner so the chosen
+            // HellPartyRoomInfo is frozen once and reused by all projections.
+            var veryHardWeight = Math.Max(0, veryHard?.Probability ?? 0);
+            var hardWeight = Math.Max(0, hard?.Probability ?? 0);
+            var total = veryHardWeight + hardWeight;
+            if (total <= 0)
+                return 1;
+
+            var roll = Infrastructure.ServerRandom.Next(total);
+            return roll < veryHardWeight ? (byte)1 : (byte)2;
         }
 
         public static bool IsSeasonHellPartyEnabled()
         {
             return SeasonHellPartyEnabled.Value;
-        }
-
-        public static bool ShouldUseSeasonSealDoor(byte difficulty)
-        {
-            return difficulty == 1 && SeasonHellPartyEnabled.Value;
         }
 
         private static Dictionary<int, HellPartyMonsterGroup> LoadGroups()

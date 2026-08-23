@@ -90,17 +90,22 @@ namespace DfoServer.Game.Dungeon
         internal DungeonParticipantExperienceBonusSnapshot
             CaptureBonusSnapshot() => _bonusSnapshot;
 
-        internal bool TryFreezeStoryExperienceBonusRate(int ratePercent)
+        internal bool TryFreezeStoryExperienceProfile(
+            int ratePercent,
+            int experienceDifficulty)
         {
             if (!_bonusSnapshotFrozen
-                || _bonusSnapshot.StoryExperienceBonusRatePercent > 0
-                || ratePercent <= 0)
+                || _bonusSnapshot.HasStoryExperienceProfile
+                || ratePercent < 0
+                || experienceDifficulty < 0)
             {
                 return false;
             }
 
             _bonusSnapshot = _bonusSnapshot
-                .WithStoryExperienceBonusRate(ratePercent);
+                .WithStoryExperienceProfile(
+                    ratePercent,
+                    experienceDifficulty);
             return true;
         }
 
