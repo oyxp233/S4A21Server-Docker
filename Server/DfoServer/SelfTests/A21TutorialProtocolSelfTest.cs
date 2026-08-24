@@ -1749,6 +1749,42 @@ namespace DfoServer.SelfTests
                     clearedQuestIds: new HashSet<int> { 13099 },
                     clearedFlags: new Dictionary<int, int> { [13099] = 1 },
                     allowedCreatureKinds: new HashSet<int>());
+            var demonicLancerGiftAfterDuelist = QuestRelationIndex
+                .ComputeAcceptableQuests(
+                    characterLevel: 15,
+                    characterJob: 13,
+                    growType: 0,
+                    clearedQuestIds: new HashSet<int> { 13099, 2633 },
+                    clearedFlags: new Dictionary<int, int>
+                    {
+                        [13099] = 1,
+                        [2633] = 1,
+                    },
+                    allowedCreatureKinds: new HashSet<int>());
+            var demonicLancerGiftAfterVanguard = QuestRelationIndex
+                .ComputeAcceptableQuests(
+                    characterLevel: 15,
+                    characterJob: 13,
+                    growType: 0,
+                    clearedQuestIds: new HashSet<int> { 13099, 2634 },
+                    clearedFlags: new Dictionary<int, int>
+                    {
+                        [13099] = 1,
+                        [2634] = 1,
+                    },
+                    allowedCreatureKinds: new HashSet<int>());
+            var demonicLancerAfterTransfer = QuestRelationIndex
+                .ComputeAcceptableQuests(
+                    characterLevel: 15,
+                    characterJob: 13,
+                    growType: 1,
+                    clearedQuestIds: new HashSet<int> { 13099, 2633 },
+                    clearedFlags: new Dictionary<int, int>
+                    {
+                        [13099] = 1,
+                        [2633] = 1,
+                    },
+                    allowedCreatureKinds: new HashSet<int>());
             var darkKnightChoice = QuestRelationIndex.ComputeAcceptableQuests(
                 characterLevel: 15,
                 characterJob: 9,
@@ -1769,10 +1805,19 @@ namespace DfoServer.SelfTests
                 demonicLancerChoice.Contains(13099)
                 && demonicLancerTransfers.Contains(2633)
                 && demonicLancerTransfers.Contains(2634)
+                && demonicLancerGiftAfterDuelist.Contains(2637)
+                && demonicLancerGiftAfterVanguard.Contains(2637)
+                && !demonicLancerAfterTransfer.Contains(2634)
+                && demonicLancerAfterTransfer.Contains(2637)
                 && !darkKnightChoice.Contains(13099)
                 && !creatorChoice.Contains(13099)
                 && QuestRelationIndex.MeetsCharacterRestrictions(
                     2633,
+                    characterLevel: 15,
+                    characterJob: 13,
+                    growType: 0)
+                && QuestRelationIndex.MeetsCharacterRestrictions(
+                    2637,
                     characterLevel: 15,
                     characterJob: 13,
                     growType: 0)
@@ -1786,6 +1831,52 @@ namespace DfoServer.SelfTests
                     characterLevel: 15,
                     characterJob: 10,
                     growType: 0),
+                ref failures);
+
+            var firstAwakeningSample = QuestCatalog.OrderedIds
+                .Select(questId => new
+                {
+                    QuestId = questId,
+                    Quest = QuestData.GetQuestFile(questId),
+                })
+                .FirstOrDefault(entry => entry.Quest != null
+                    && entry.Quest.JobChangeQuestValue == 2
+                    && entry.Quest.GrowType >= 0
+                    && entry.Quest.Job == "[fighter]");
+            var secondAwakeningSample = QuestCatalog.OrderedIds
+                .Select(questId => new
+                {
+                    QuestId = questId,
+                    Quest = QuestData.GetQuestFile(questId),
+                })
+                .FirstOrDefault(entry => entry.Quest != null
+                    && entry.Quest.JobChangeQuestValue == 3
+                    && entry.Quest.GrowType >= 0
+                    && entry.Quest.Job == "[swordman]");
+            Check(
+                "PVF awakening quest stages follow persisted grow-type high nibble",
+                firstAwakeningSample != null
+                && secondAwakeningSample != null
+                && QuestRelationIndex.MeetsCharacterRestrictions(
+                    firstAwakeningSample.QuestId,
+                    characterLevel: 50,
+                    characterJob: 1,
+                    growType: firstAwakeningSample.Quest.GrowType)
+                && !QuestRelationIndex.MeetsCharacterRestrictions(
+                    firstAwakeningSample.QuestId,
+                    characterLevel: 50,
+                    characterJob: 1,
+                    growType: firstAwakeningSample.Quest.GrowType | 0x10)
+                && QuestRelationIndex.MeetsCharacterRestrictions(
+                    secondAwakeningSample.QuestId,
+                    characterLevel: 75,
+                    characterJob: 0,
+                    growType: secondAwakeningSample.Quest.GrowType | 0x10)
+                && !QuestRelationIndex.MeetsCharacterRestrictions(
+                    secondAwakeningSample.QuestId,
+                    characterLevel: 75,
+                    characterJob: 0,
+                    growType: secondAwakeningSample.Quest.GrowType | 0x20),
                 ref failures);
 
             var xilanQuest = QuestData.GetQuestFile(2404);

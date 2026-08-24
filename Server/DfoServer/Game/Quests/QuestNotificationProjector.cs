@@ -297,9 +297,26 @@ namespace DfoServer.Game.Quests
                 return;
 
             var character = _sender.Player;
-            var level = character != null ? character.Level : 1;
-            var job = character != null ? character.Job : 0;
-            var growType = character != null ? character.GrowType : -1;
+            var record = _characterRepository.GetById(characterId);
+            int level = record != null
+                ? record.Level
+                : character != null ? character.Level : 1;
+            int job = record != null
+                ? record.Job
+                : character != null ? character.Job : -1;
+            int growType = record != null
+                ? record.GrowType
+                : character != null ? character.GrowType : -1;
+            if (record != null && character != null)
+            {
+                // GM tools may update characters directly in SQLite while the
+                // session remains online. Keep the projection and all later
+                // task refreshes on the same persisted identity snapshot.
+                character.Level = record.Level;
+                character.Job = record.Job;
+                character.GrowType = record.GrowType;
+                character.GrowupChangeCount = record.GrowupChangeCount;
+            }
             var clearedFlags = new QuestRepository(_connectionString)
                 .LoadClearedFlags(characterId);
             var allowedCreatureKinds = InventoryContext.TryGetLease(characterId, out var lease)
