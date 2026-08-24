@@ -32,6 +32,8 @@ namespace DfoServer.Game.Inventory
 
         public List<BoosterRewardResult> Rewards { get; } = new List<BoosterRewardResult>();
 
+        internal List<short> MainReplacementRefreshSlots { get; } = new List<short>();
+
         public string RecipeType { get; set; } = string.Empty;
 
         public string PvfPath { get; set; } = string.Empty;
@@ -67,7 +69,11 @@ namespace DfoServer.Game.Inventory
 
         public int Count { get; set; }
 
+        public int RemainingCount { get; set; }
+
         public int ItemTemplateId { get; set; }
+
+        internal ItemCore SourceSnapshot { get; set; }
     }
 
     internal sealed class CompoundItemRecipeDefinition

@@ -58,6 +58,9 @@ namespace DfoServer.Network.Handlers
             var ackBody = CompoundItemAckBuilder.Build(result);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, ackBody));
 
+            foreach (var slot in result.MainReplacementRefreshSlots)
+                await _refresh.SendEmptyUpdateItemList(session, InventoryListType.Main, slot);
+
             var refreshSlots = result.GetMainRefreshSlots();
             if (refreshSlots.Count > 0)
                 await _refresh.SendUpdateItemList(session, InventoryListType.Main, refreshSlots);

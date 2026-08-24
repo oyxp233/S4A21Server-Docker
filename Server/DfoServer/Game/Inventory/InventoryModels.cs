@@ -307,6 +307,8 @@ namespace DfoServer.Game.Inventory
 
         public int ExpireTime { get; set; }
 
+        internal ItemCore CoreSnapshot { get; set; }
+
         public SpecialRewardOutcome SpecialOutcome { get; set; }
 
         internal static BoosterRewardResult FromSpecialOutcome(SpecialRewardOutcome outcome)
