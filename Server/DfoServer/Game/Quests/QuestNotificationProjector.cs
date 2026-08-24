@@ -7,6 +7,7 @@ using DfoServer.Game.CharacterData;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.ExpertJob;
+using DfoServer.Game.Friends;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.Session;
@@ -34,6 +35,7 @@ namespace DfoServer.Game.Quests
         private readonly SqliteSubtype1Repository _subtype1Repository;
         private readonly SqliteSelectCharacterDataSource
             _selectCharacterDataSource;
+        private readonly ISessionDirectory _sessionDirectory;
 
         internal QuestNotificationProjector(
             ISessionPacketSender sender,
@@ -45,7 +47,8 @@ namespace DfoServer.Game.Quests
             GrowthCapsuleProgressRepository growthCapsuleRepository,
             IExpertJobStateRepository expertJobStateRepository,
             SqliteSubtype1Repository subtype1Repository,
-            SqliteSelectCharacterDataSource selectCharacterDataSource)
+            SqliteSelectCharacterDataSource selectCharacterDataSource,
+            ISessionDirectory sessionDirectory = null)
         {
             _sender = sender ?? throw new ArgumentNullException(nameof(sender));
             _connectionString = (database
@@ -66,6 +69,7 @@ namespace DfoServer.Game.Quests
                 ?? throw new ArgumentNullException(nameof(subtype1Repository));
             _selectCharacterDataSource = selectCharacterDataSource
                 ?? throw new ArgumentNullException(nameof(selectCharacterDataSource));
+            _sessionDirectory = sessionDirectory;
         }
 
         // Chain 1/2 在 ACK 前刷新 SKILLINFO；chain 20 在 ACK 前发 USERINFO0
@@ -242,6 +246,16 @@ namespace DfoServer.Game.Quests
                 await PetCreatureRuntimeService.SendPetCreatureEvolutionAsync(
                     _sender,
                     result.PetCreatureEvolution);
+            }
+
+            // 等级/职业变化 → 向把 self 加为好友的人重推好友列表（节点数据，跨频道
+            // 不分频道，见设计文档 §4.7）。leveledUp 含副本内任务升级；副本结算升级
+            // 由 SendInDungeonLevelUpFollowups 覆盖，两者路径互斥不重复推。
+            if ((leveledUp || result.ChainType == 1 || result.ChainType == 2)
+                && _sessionDirectory != null)
+            {
+                await UnitedFriendSystem.NotifyFriendListInfoChanged(
+                    player, _sessionDirectory);
             }
 
             if (sendAcceptableQuestList)
