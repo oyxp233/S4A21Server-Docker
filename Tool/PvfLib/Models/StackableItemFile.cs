@@ -172,6 +172,9 @@ namespace PvfLib
         public List<AvatarSelectAbilityChangeEntry> AvatarSelectAbilityChanges { get; set; } = new List<AvatarSelectAbilityChangeEntry>();
         public bool HasAvatarSelectAbilityChange => AvatarSelectAbilityChanges.Count > 0;
         public byte AvatarEmblemSocketType { get; set; }
+        public List<int> DyeInfo { get; set; } = new List<int>();
+        public int DyeId { get; set; } = -1;
+        public bool HasDyeInfo => DyeId > 0;
         public int SubType { get; set; } = -1;
         public string AttachType { get; set; }
         public string ItemGroupName { get; set; }
@@ -333,6 +336,7 @@ namespace PvfLib
                         stk.AvatarEmblemTargetTypes = ParseStringList(node, content);
                         stk.AvatarEmblemSocketType = ResolveAvatarEmblemSocketType(stk.AvatarEmblemTargetTypes);
                         break;
+                    case "dye info": ParseDyeInfo(node, content, stk); break;
                     case "usable equip type": stk.UsableEquipTypes = ParseStringList(node, content); break;
                     case "avatar select ability change": stk.AvatarSelectAbilityChanges = ParseAvatarSelectAbilityChanges(node, content); break;
                     case "sub type": stk.SubType = ParseInt(data); break;
@@ -461,8 +465,40 @@ namespace PvfLib
             var randomBox = root.GetChild("RANDOMBOX");
             stk.RandomBoxRewards = ParseRandomBoxRewards(randomBox, content);
             stk.RandomBoxRemovalItems = ParseRandomBoxRemovalItems(randomBox != null ? randomBox.GetChild("sealing removal item") : null, content);
+            if (stk.DyeInfo.Count == 0)
+                ApplyDyeInfo(ParseInlineTagInts(content, "dye info"), stk);
 
             return stk;
+        }
+
+        private static void ParseDyeInfo(ScriptNode node, string content, StackableItemFile stackable)
+        {
+            ApplyDyeInfo(ParseIntList(node, content), stackable);
+        }
+
+        private static void ApplyDyeInfo(List<int> values, StackableItemFile stackable)
+        {
+            if (stackable == null || values == null || values.Count == 0)
+                return;
+
+            stackable.DyeInfo = values;
+            stackable.DyeId = values[0];
+        }
+
+        private static List<int> ParseInlineTagInts(string content, string tag)
+        {
+            if (string.IsNullOrWhiteSpace(content) || string.IsNullOrWhiteSpace(tag))
+                return new List<int>();
+
+            var pattern = @"\[" + Regex.Escape(tag) + @"\](?<body>.*?)\[/"
+                + Regex.Escape(tag) + @"\]";
+            var match = Regex.Match(
+                content,
+                pattern,
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            return match.Success
+                ? ParseInts(match.Groups["body"].Value)
+                : new List<int>();
         }
 
         private static void ParseStatChangeDuration(string data, StackableItemFile stackable)

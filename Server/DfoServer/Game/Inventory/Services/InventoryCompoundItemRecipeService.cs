@@ -47,6 +47,26 @@ namespace DfoServer.Game.Inventory
             if (!HasEnoughMaterials(inventory, materials))
                 return Fail(result, 21);
 
+            if (!TryPrepareEquipmentTransform(
+                    inventory,
+                    recipe,
+                    request,
+                    out var equipmentTransform,
+                    out var transformError))
+            {
+                return Fail(result, transformError);
+            }
+
+            if (equipmentTransform != null
+                && !TryRemoveTransformedOutput(
+                    outputs,
+                    equipmentTransform.OutputItemTemplateId,
+                    equipmentTransform.OutputCount,
+                    out outputs))
+            {
+                return Fail(result, 17);
+            }
+
             var rewardRequests = BuildRewardRequests(outputs);
             var totalGoldCost = (long)recipe.GoldCost * request.RequestedCount;
             if (totalGoldCost < 0 || totalGoldCost > int.MaxValue)
@@ -65,6 +85,11 @@ namespace DfoServer.Game.Inventory
                         request.RequestedCount,
                         out var planningSourceDelete)
                     || !planningSourceDelete.Success))
+            {
+                return Fail(result, 17);
+            }
+            if (equipmentTransform != null
+                && !TryApplyEquipmentTransform(planningInventory, equipmentTransform, out _))
             {
                 return Fail(result, 17);
             }
@@ -106,14 +131,28 @@ namespace DfoServer.Game.Inventory
                     return Fail(result, 17);
                 }
 
-                deleted.Insert(0, new CompoundItemDeletedEntry
+                deleted.Add(new CompoundItemDeletedEntry
                 {
                     ListType = InventoryListType.Main,
                     SlotIndex = sourceSlotIndex,
                     Count = sourceDelete.DeletedCount,
+                    RemainingCount = sourceDelete.RemainingCount,
                     ItemTemplateId = source.ItemId,
+                    SourceSnapshot = sourceDelete.SourceSnapshot?.Copy(),
                 });
                 result.SourceConsumed = true;
+            }
+
+            BoosterRewardResult transformReward = null;
+            if (equipmentTransform != null
+                && !TryApplyEquipmentTransform(inventory, equipmentTransform, out transformReward))
+            {
+                return Fail(result, 17);
+            }
+            if (transformReward != null
+                && !result.MainReplacementRefreshSlots.Contains(transformReward.SlotIndex))
+            {
+                result.MainReplacementRefreshSlots.Add(transformReward.SlotIndex);
             }
 
             InventoryRewardGrantBatchResult grantBatch = null;
@@ -129,10 +168,25 @@ namespace DfoServer.Game.Inventory
             }
 
             result.DeletedEntries.AddRange(deleted);
+            if (transformReward != null)
+                result.Rewards.Add(transformReward);
             if (grantBatch != null)
                 AddRewardResults(inventory, grantBatch.Results, result.Rewards);
             result.ErrorCode = 0;
             return true;
+        }
+
+        private sealed class EquipmentTransformPlan
+        {
+            internal short SourceSlotIndex { get; set; }
+
+            internal ItemCore SourceSnapshot { get; set; }
+
+            internal int OutputItemTemplateId { get; set; }
+
+            internal byte OutputItemKind { get; set; }
+
+            internal int OutputCount { get; set; }
         }
 
         private static bool TryResolveSource(
@@ -162,6 +216,138 @@ namespace DfoServer.Game.Inventory
             if (InventoryStackRuleService.IsStackable(source) && source.Count < request.RequestedCount)
                 return Fail(result, 17);
 
+            return true;
+        }
+
+        private static bool TryPrepareEquipmentTransform(
+            InventoryService inventory,
+            CompoundItemRecipeDefinition recipe,
+            CompoundItemRecipeRequest request,
+            out EquipmentTransformPlan plan,
+            out byte errorCode)
+        {
+            plan = null;
+            errorCode = 0;
+            if (inventory == null || recipe == null || request == null)
+            {
+                errorCode = 17;
+                return false;
+            }
+
+            if (recipe.Materials == null
+                || recipe.Materials.Count == 0
+                || recipe.Outputs == null
+                || recipe.Outputs.Count == 0)
+            {
+                return true;
+            }
+
+            var input = recipe.Materials[0];
+            var output = recipe.Outputs[0];
+            if (!ItemMetadataResolver.TryResolveItemKind(input.ItemTemplateId, out var inputKind)
+                || !ItemMetadataResolver.TryResolveItemKind(output.ItemTemplateId, out var outputKind)
+                || inputKind != ItemCore.KindEquipment
+                || outputKind != ItemCore.KindEquipment)
+            {
+                return true;
+            }
+
+            var inputCount = (long)input.Count * request.RequestedCount;
+            var outputCount = (long)output.Count * (request.OutputCount ?? request.RequestedCount);
+            if (inputCount != 1 || outputCount != 1)
+            {
+                errorCode = 17;
+                return false;
+            }
+
+            foreach (var pair in inventory.GetItems(InventoryListType.Main)
+                         .Where(candidate => candidate.Value.ItemId == input.ItemTemplateId)
+                         .OrderBy(candidate => candidate.Key))
+            {
+                if (pair.Value.ItemKind != ItemCore.KindEquipment)
+                    continue;
+
+                plan = new EquipmentTransformPlan
+                {
+                    SourceSlotIndex = pair.Key,
+                    SourceSnapshot = pair.Value.Copy(),
+                    OutputItemTemplateId = output.ItemTemplateId,
+                    OutputItemKind = outputKind,
+                    OutputCount = (int)outputCount,
+                };
+                return true;
+            }
+
+            errorCode = 21;
+            return false;
+        }
+
+        private static bool TryRemoveTransformedOutput(
+            IReadOnlyList<CompoundItemRecipeEntry> outputs,
+            int outputItemTemplateId,
+            int outputCount,
+            out List<CompoundItemRecipeEntry> remainingOutputs)
+        {
+            remainingOutputs = new List<CompoundItemRecipeEntry>();
+            if (outputs == null || outputItemTemplateId <= 0 || outputCount <= 0)
+                return false;
+
+            var remainingTransformCount = outputCount;
+            foreach (var output in outputs)
+            {
+                if (output == null)
+                    continue;
+
+                var count = output.Count;
+                if (output.ItemTemplateId == outputItemTemplateId && remainingTransformCount > 0)
+                {
+                    var remove = Math.Min(count, remainingTransformCount);
+                    count -= remove;
+                    remainingTransformCount -= remove;
+                }
+
+                if (count > 0)
+                    remainingOutputs.Add(new CompoundItemRecipeEntry(output.ItemTemplateId, count));
+            }
+
+            return remainingTransformCount == 0;
+        }
+
+        private static bool TryApplyEquipmentTransform(
+            InventoryService inventory,
+            EquipmentTransformPlan plan,
+            out BoosterRewardResult reward)
+        {
+            reward = null;
+            if (inventory == null
+                || plan == null
+                || plan.SourceSnapshot == null
+                || plan.OutputItemTemplateId <= 0)
+            {
+                return false;
+            }
+
+            if (inventory.GetItem(InventoryListType.Main, plan.SourceSlotIndex) != null)
+                return false;
+
+            var transformed = plan.SourceSnapshot.Copy();
+            transformed.ItemId = plan.OutputItemTemplateId;
+            transformed.ItemKind = plan.OutputItemKind;
+            if (!inventory.SetItem(InventoryListType.Main, plan.SourceSlotIndex, transformed))
+                return false;
+
+            reward = new BoosterRewardResult
+            {
+                ListType = InventoryListType.Main,
+                SlotIndex = plan.SourceSlotIndex,
+                ItemTemplateId = transformed.ItemId,
+                StackCount = 1,
+                GrantedCount = 1,
+                Durability = transformed.Durability,
+                Attr = transformed.Attr,
+                ExpireTime = transformed.ExpireTime,
+                CoreSnapshot = transformed.Copy(),
+            };
             return true;
         }
 
@@ -266,7 +452,9 @@ namespace DfoServer.Game.Inventory
                         ListType = InventoryListType.Main,
                         SlotIndex = entry.SlotIndex,
                         Count = entry.Count,
+                        RemainingCount = entry.RemainingCount,
                         ItemTemplateId = entry.ItemTemplateId,
+                        SourceSnapshot = entry.SourceSnapshot?.Copy(),
                     });
                 }
             }
@@ -352,6 +540,10 @@ namespace DfoServer.Game.Inventory
                     ItemTemplateId = itemTemplateId,
                     GrantedCount = reward.GrantedCount,
                     StackCount = stackCount,
+                    Durability = core != null ? core.Durability : (ushort)0,
+                    Attr = core != null ? core.Attr : (byte)0,
+                    ExpireTime = core != null ? core.ExpireTime : 0,
+                    CoreSnapshot = core?.Copy(),
                 });
             }
         }

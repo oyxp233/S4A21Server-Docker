@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace PvfLib
 {
@@ -112,6 +113,8 @@ namespace PvfLib
         public int OutputIndex { get; set; } = -1;
         public int[] ForceResultItemRule { get; set; }
         public int ClearAvatar { get; set; }
+        public List<int> EnableDye { get; set; } = new List<int>();
+        public bool IsDyeEnabled => EnableDye.Count > 0 && EnableDye[0] == 1;
         
         public string UsableJob { get; set; }
         public string ImpossibleContents { get; set; }
@@ -206,6 +209,7 @@ namespace PvfLib
                     case "output index": equ.OutputIndex = ParseInt(data); break;
                     case "force result item rule": equ.ForceResultItemRule = ParseIntArray(data); break;
                     case "clear avatar": equ.ClearAvatar = ParseInt(data); break;
+                    case "enable dye": equ.EnableDye = ParseIntList(node, content); break;
                     case "usable job": equ.UsableJob = StripBacktick(data); break;
                     case "impossible contents":
                         equ.ImpossibleContents = data;
@@ -214,6 +218,9 @@ namespace PvfLib
                     case "item category": equ.ItemCategory = StripBacktick(data); break;
                 }
             }
+
+            if (equ.EnableDye.Count == 0)
+                equ.EnableDye = ParseInlineTagInts(content, "enable dye");
 
             return equ;
         }
@@ -233,6 +240,29 @@ namespace PvfLib
             }
 
             return result;
+        }
+
+        private static List<int> ParseIntList(ScriptNode node, string content)
+        {
+            return PvfScriptValueReader.ReadIntegers(node, content);
+        }
+
+        private static List<int> ParseInlineTagInts(string content, string tag)
+        {
+            if (string.IsNullOrWhiteSpace(content) || string.IsNullOrWhiteSpace(tag))
+                return new List<int>();
+
+            var pattern = @"\[" + Regex.Escape(tag) + @"\](?<body>.*?)\[/"
+                + Regex.Escape(tag) + @"\]";
+            var match = Regex.Match(
+                content,
+                pattern,
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (!match.Success)
+                return new List<int>();
+
+            var values = ParseIntArray(match.Groups["body"].Value);
+            return values != null ? new List<int>(values) : new List<int>();
         }
 
         private static EquipmentEmancipateInfo ParseEmancipate(ScriptNode node, string content)

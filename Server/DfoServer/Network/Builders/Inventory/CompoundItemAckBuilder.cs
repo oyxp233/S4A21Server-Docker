@@ -7,6 +7,8 @@ namespace DfoServer.Network.Builders
 {
     public static class CompoundItemAckBuilder
     {
+        private const int A21CompoundAckReservedTailSize = 12;
+
         public static byte[] Build(CompoundItemRecipeResult result)
         {
             if (result == null || !result.Success)
@@ -16,6 +18,7 @@ namespace DfoServer.Network.Builders
             writer.WriteByte(1);
             WriteDeletedEntries(writer, result.DeletedEntries);
             WriteRewardEntries(writer, result.Rewards);
+            writer.WriteZeroBytes(A21CompoundAckReservedTailSize);
             return writer.ToArray();
         }
 
@@ -31,9 +34,9 @@ namespace DfoServer.Network.Builders
             for (var index = 0; index < count; index++)
             {
                 var entry = entries[index];
-                writer.WriteByte((byte)entry.ListType);
+                writer.WriteByte(ResolveChangedEntryKind(entry));
                 writer.WriteInt16(entry.SlotIndex);
-                writer.WriteInt32(Math.Max(1, entry.Count));
+                writer.WriteInt32(ResolveChangedEntryValue(entry));
             }
         }
 
@@ -44,24 +47,77 @@ namespace DfoServer.Network.Builders
             for (var index = 0; index < count; index++)
             {
                 var reward = rewards[index];
-                var stackCount = Math.Max(1, reward.GrantedCount);
-                writer.WriteByte((byte)reward.ListType);
+                var core = reward.CoreSnapshot;
+                writer.WriteByte(ResolveRewardKind(reward, core));
                 writer.WriteInt16(reward.SlotIndex);
                 writer.WriteInt32(reward.ItemTemplateId);
-                writer.WriteInt32(stackCount);
-                writer.WriteByte(0);
-                writer.WriteUInt16(0);
-                writer.WriteByte(0);
-                writer.WriteUInt16(0);
-                writer.WriteByte(0);
-                writer.WriteBytes(BuildEmptyInvenItemPacketTail());
+                writer.WriteInt32(ResolveRewardValue(reward, core));
+                writer.WriteByte(core != null ? core.Attr : reward.Attr);
+                writer.WriteUInt16(core != null ? core.Durability : reward.Durability);
+                writer.WriteByte(core != null ? core.SealFlag : (byte)0);
+                writer.WriteUInt16(core != null ? core.AmplifyValue : (ushort)0);
+                writer.WriteByte(core != null ? core.AmplifyType : (byte)0);
+                writer.WriteInt32(ResolveRewardMarker(core));
+                writer.WriteByte(core != null ? core.GenuineUpgrade : (byte)0);
+                writer.WriteByte(core != null ? core.EmancipateEquipmentLevel : (byte)0);
+                writer.WriteByte(core != null ? core.TradeRestriction : (byte)0);
+                writer.WriteUInt16(core != null ? core.TailUnknown0 : (ushort)0);
+                writer.WriteByte(core != null ? core.TailUnknown1 : (byte)0);
+                writer.WriteByte(core != null ? core.TailUnknown2 : (byte)0);
+                writer.WriteByte(core != null ? core.TailUnknown3 : (byte)0);
+                writer.WriteByte(core != null ? core.RemainUseCount : (byte)0);
+                writer.WriteByte(core != null ? core.SortLockFlag : (byte)0);
+                writer.WriteByte(core != null ? core.EquipmentLockId : (byte)0);
             }
         }
 
-        private static byte[] BuildEmptyInvenItemPacketTail()
+        private static byte ResolveChangedEntryKind(CompoundItemDeletedEntry entry)
         {
-            // Client CMD 0x0019 ACK handler (0x00CE7E80) reads 32B per reward entry.
-            return new byte[14];
+            if (entry?.SourceSnapshot != null
+                && entry.RemainingCount <= 0
+                && !InventoryStackRuleService.IsStackable(entry.SourceSnapshot))
+            {
+                return 1;
+            }
+
+            return entry != null ? (byte)entry.ListType : (byte)0;
+        }
+
+        private static int ResolveChangedEntryValue(CompoundItemDeletedEntry entry)
+        {
+            if (entry == null)
+                return 0;
+
+            return entry.RemainingCount > 0
+                ? entry.RemainingCount
+                : Math.Max(1, entry.Count);
+        }
+
+        private static byte ResolveRewardKind(BoosterRewardResult reward, ItemCore core)
+        {
+            if (core != null && core.ItemKind == ItemCore.KindEquipment)
+                return ItemCore.KindEquipment;
+
+            return reward != null ? (byte)reward.ListType : (byte)0;
+        }
+
+        private static int ResolveRewardValue(BoosterRewardResult reward, ItemCore core)
+        {
+            if (core != null && !InventoryStackRuleService.IsStackable(core))
+                return core.Value;
+
+            if (reward == null)
+                return 1;
+
+            return Math.Max(1, reward.GrantedCount);
+        }
+
+        private static int ResolveRewardMarker(ItemCore core)
+        {
+            if (core == null || core.Marker16 == ItemCore.Marker16Default)
+                return 0;
+
+            return core.Marker16;
         }
     }
 }

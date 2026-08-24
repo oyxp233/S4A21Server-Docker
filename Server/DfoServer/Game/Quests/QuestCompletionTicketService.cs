@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.TitleBook;
 using DfoServer.GameWorld;
@@ -16,6 +17,8 @@ namespace DfoServer.Game.Quests
         AchievementQuestClear,
         FirstAwakenClear,
         SecondAwakenClear,
+        SideQuestClear,
+        EpicQuestClear,
     }
 
     internal enum QuestCompletionTicketUseStatus
@@ -24,6 +27,7 @@ namespace DfoServer.Game.Quests
         Success,
         InvalidOwner,
         MissingSource,
+        LevelRestricted,
         NoEligibleQuest,
         ConsumeFailed,
         PersistenceFailed,
@@ -155,6 +159,15 @@ namespace DfoServer.Game.Quests
                                 return result;
                             }
 
+                            if (!IsUsableByLevel(stackable, character.Level))
+                            {
+                                result.Status =
+                                    QuestCompletionTicketUseStatus.LevelRestricted;
+                                result.Detail =
+                                    $"level={character.Level} allowed={stackable.MinimumLevel}..{stackable.MaximumLevel}";
+                                return result;
+                            }
+
                             if (!InventoryDeleteService
                                     .CanUseStackableForClient(
                                         lease.Inventory,
@@ -166,6 +179,45 @@ namespace DfoServer.Game.Quests
                                 result.Status =
                                     QuestCompletionTicketUseStatus.MissingSource;
                                 result.Detail = "source stackable unavailable";
+                                return result;
+                            }
+
+                            var lifecyclePlan = InventoryItemLifecycleService
+                                .PrepareUseWithDefinition(
+                                    lease.Inventory,
+                                    request.ListType,
+                                    request.SlotIndex,
+                                    sourceItemTemplateId,
+                                    InventoryItemLifecycleService.UtcNowUnixSeconds(),
+                                    1,
+                                    stackable);
+                            if (lifecyclePlan.SourceExpiredDeleted)
+                            {
+                                result.Status =
+                                    QuestCompletionTicketUseStatus.ConsumeFailed;
+                                result.Detail = lifecyclePlan.Detail;
+                                result.ConsumedItem = lifecyclePlan.SourceMutation;
+                                inventoryMutated = true;
+                                if (!InventoryPersistenceService
+                                        .SaveDirtyInTransaction(
+                                            connection,
+                                            transaction,
+                                            lease))
+                                {
+                                    throw new InvalidOperationException(
+                                        "expired source persistence returned false");
+                                }
+
+                                transaction.Commit();
+                                lease.Inventory.ClearDirtyState();
+                                return result;
+                            }
+
+                            if (!lifecyclePlan.Success)
+                            {
+                                result.Status =
+                                    QuestCompletionTicketUseStatus.ConsumeFailed;
+                                result.Detail = lifecyclePlan.Detail;
                                 return result;
                             }
 
@@ -219,6 +271,9 @@ namespace DfoServer.Game.Quests
                             consumed.UsableCountState = usableCountState;
                             result.ConsumedItem = consumed;
                             inventoryMutated = true;
+                            InventoryItemLifecycleService.ApplyUseSuccess(
+                                lease.Inventory,
+                                lifecyclePlan);
 
                             var completedCount = CompleteTargets(
                                 connection,
@@ -316,7 +371,7 @@ namespace DfoServer.Game.Quests
             stackable = StackableItemProvider.Load(sourceItemTemplateId);
             actionName = StackableItemProvider.NormalizeType(
                 stackable?.ActionTypeName);
-            if (!TryResolveActionKind(actionName, out actionKind))
+            if (!TryResolveActionKind(actionName, stackable, out actionKind))
                 return false;
 
             result = new QuestCompletionTicketUseResult
@@ -331,6 +386,7 @@ namespace DfoServer.Game.Quests
 
         private static bool TryResolveActionKind(
             string actionName,
+            StackableItemFile stackable,
             out QuestCompletionTicketActionKind kind)
         {
             switch ((actionName ?? string.Empty).Trim().ToLowerInvariant())
@@ -349,6 +405,26 @@ namespace DfoServer.Game.Quests
                 case "[second awakening clear]":
                     kind = QuestCompletionTicketActionKind.SecondAwakenClear;
                     return true;
+                case "[quest clear]":
+                    return TryResolveQuestClearKind(stackable, out kind);
+                default:
+                    kind = QuestCompletionTicketActionKind.None;
+                    return false;
+            }
+        }
+
+        private static bool TryResolveQuestClearKind(
+            StackableItemFile stackable,
+            out QuestCompletionTicketActionKind kind)
+        {
+            switch (ResolveIconFrame(stackable?.Icon))
+            {
+                case 1639:
+                    kind = QuestCompletionTicketActionKind.SideQuestClear;
+                    return true;
+                case 1288:
+                    kind = QuestCompletionTicketActionKind.EpicQuestClear;
+                    return true;
                 default:
                     kind = QuestCompletionTicketActionKind.None;
                     return false;
@@ -357,6 +433,22 @@ namespace DfoServer.Game.Quests
 
         private static bool LooksLikeItemTemplateId(int value)
             => value >= 100000;
+
+        internal static int ResolveIconFrame(string icon)
+        {
+            if (string.IsNullOrWhiteSpace(icon))
+                return -1;
+
+            var matches = Regex.Matches(icon, @"(?<!\d)\d+(?!\d)");
+            if (matches.Count == 0)
+                return -1;
+
+            return int.TryParse(
+                matches[matches.Count - 1].Value,
+                out var frame)
+                ? frame
+                : -1;
+        }
 
         private static bool TryLoadCharacterState(
             SqliteConnection connection,
@@ -396,6 +488,19 @@ WHERE character_id = @cid AND delete_flag = 0;";
             }
         }
 
+        internal static bool IsUsableByLevel(
+            StackableItemFile stackable,
+            int characterLevel)
+        {
+            if (stackable == null)
+                return false;
+
+            return (stackable.MinimumLevel < 0
+                    || characterLevel >= stackable.MinimumLevel)
+                && (stackable.MaximumLevel < 0
+                    || characterLevel <= stackable.MaximumLevel);
+        }
+
         private static bool HasEligibleTarget(
             SqliteConnection connection,
             SqliteTransaction transaction,
@@ -410,6 +515,18 @@ WHERE character_id = @cid AND delete_flag = 0;";
                     connection,
                     transaction,
                     characterId,
+                    context,
+                    out _);
+            }
+
+            if (actionKind == QuestCompletionTicketActionKind.SideQuestClear
+                || actionKind == QuestCompletionTicketActionKind.EpicQuestClear)
+            {
+                return TryFindNextGradeQuest(
+                    connection,
+                    transaction,
+                    characterId,
+                    actionKind,
                     context,
                     out _);
             }
@@ -472,6 +589,14 @@ WHERE character_id = @cid AND delete_flag = 0;";
                         lease,
                         actionKind,
                         context);
+                case QuestCompletionTicketActionKind.SideQuestClear:
+                case QuestCompletionTicketActionKind.EpicQuestClear:
+                    return CompleteGradeQuestTargets(
+                        connection,
+                        transaction,
+                        characterId,
+                        actionKind,
+                        context);
                 default:
                     return 0;
             }
@@ -528,7 +653,9 @@ WHERE character_id = @cid AND delete_flag = 0;";
             {
                 if (context.CompletedThisTicket.Contains(questId)
                     || clearedFlags.ContainsKey(questId)
-                    || !IsCompletableAchievementQuest(questId))
+                    || !IsCompletableAchievementQuest(
+                        questId,
+                        context.Character.Level))
                 {
                     continue;
                 }
@@ -642,7 +769,9 @@ WHERE character_id = @cid AND delete_flag = 0;";
             {
                 if (context.CompletedThisTicket.Contains(candidateQuestId)
                     || clearedFlags.ContainsKey(candidateQuestId)
-                    || !IsCompletableAchievementQuest(candidateQuestId))
+                    || !IsCompletableAchievementQuest(
+                        candidateQuestId,
+                        context.Character.Level))
                 {
                     continue;
                 }
@@ -677,7 +806,9 @@ WHERE character_id = @cid AND delete_flag = 0;";
             }
         }
 
-        private static bool IsCompletableAchievementQuest(ushort questId)
+        private static bool IsCompletableAchievementQuest(
+            ushort questId,
+            int characterLevel)
         {
             var quest = QuestData.GetQuestFile(questId);
             if (quest == null)
@@ -687,6 +818,7 @@ WHERE character_id = @cid AND delete_flag = 0;";
                     QuestData.NormalizeQuestTag(quest.Grade),
                     "achievement",
                     StringComparison.OrdinalIgnoreCase)
+                && IsQuestMinimumLevelSatisfied(quest, characterLevel)
                 && string.Equals(
                     QuestData.NormalizeQuestTag(quest.RewardType),
                     "title",
@@ -695,6 +827,166 @@ WHERE character_id = @cid AND delete_flag = 0;";
                     questId,
                     out _,
                     out _);
+        }
+
+        private static bool TryFindNextGradeQuest(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            QuestCompletionTicketActionKind actionKind,
+            TicketCompletionContext context,
+            out ushort questId)
+        {
+            questId = 0;
+            var clearedFlags = QuestRepository.LoadClearedFlags(
+                connection,
+                transaction,
+                characterId);
+            foreach (var candidateQuestId in EnumerateGradeQuestIds(
+                         actionKind,
+                         context.Character.Level))
+            {
+                if (context.CompletedThisTicket.Contains(candidateQuestId)
+                    || clearedFlags.ContainsKey(candidateQuestId))
+                {
+                    continue;
+                }
+
+                questId = candidateQuestId;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static int CompleteGradeQuestTargets(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            QuestCompletionTicketActionKind actionKind,
+            TicketCompletionContext context)
+        {
+            var completed = 0;
+            var clearedFlags = QuestRepository.LoadClearedFlags(
+                connection,
+                transaction,
+                characterId);
+            foreach (var questId in EnumerateGradeQuestIds(
+                         actionKind,
+                         context.Character.Level))
+            {
+                if (context.CompletedThisTicket.Contains(questId)
+                    || clearedFlags.ContainsKey(questId))
+                {
+                    continue;
+                }
+
+                MarkQuestClearedWithoutReward(
+                    connection,
+                    transaction,
+                    characterId,
+                    questId,
+                    context);
+                clearedFlags[questId] = 1;
+                completed++;
+            }
+
+            if (completed > 0)
+            {
+                QuestClearProgressRules.SynchronizeActiveParents(
+                    connection,
+                    transaction,
+                    characterId);
+            }
+
+            return completed;
+        }
+
+        private static IEnumerable<ushort> EnumerateGradeQuestIds(
+            QuestCompletionTicketActionKind actionKind,
+            int characterLevel)
+        {
+            var targetGrade = ResolveTargetQuestGrade(actionKind);
+            if (string.IsNullOrEmpty(targetGrade))
+                yield break;
+
+            foreach (var rawQuestId in QuestCatalog.OrderedIds)
+            {
+                if (rawQuestId <= 0 || rawQuestId > ushort.MaxValue)
+                    continue;
+
+                var quest = QuestData.GetQuestFile(rawQuestId);
+                if (quest == null
+                    || !string.Equals(
+                        QuestData.NormalizeQuestTag(quest.Grade),
+                        targetGrade,
+                        StringComparison.OrdinalIgnoreCase)
+                    || IsPlayOnlyQuest(quest)
+                    || !IsQuestMinimumLevelSatisfied(quest, characterLevel))
+                {
+                    continue;
+                }
+
+                yield return (ushort)rawQuestId;
+            }
+        }
+
+        private static string ResolveTargetQuestGrade(
+            QuestCompletionTicketActionKind actionKind)
+        {
+            switch (actionKind)
+            {
+                case QuestCompletionTicketActionKind.SideQuestClear:
+                    return "side";
+                case QuestCompletionTicketActionKind.EpicQuestClear:
+                    return "epic";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        internal static bool IsQuestMinimumLevelSatisfied(
+            QuestFile quest,
+            int characterLevel)
+        {
+            if (quest?.Level == null || quest.Level.Length == 0)
+                return true;
+
+            var minimumLevel = quest.Level[0];
+            return minimumLevel <= 0 || minimumLevel <= characterLevel;
+        }
+
+        internal static bool IsPlayOnlyQuest(QuestFile quest)
+        {
+            return string.Equals(
+                QuestData.NormalizeQuestTag(quest?.Type),
+                "play only",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void MarkQuestClearedWithoutReward(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            ushort questId,
+            TicketCompletionContext context)
+        {
+            if (context.CompletedThisTicket.Contains(questId))
+                return;
+
+            QuestRepository.DeleteActiveQuestsByQuestId(
+                connection,
+                transaction,
+                characterId,
+                questId);
+            QuestRepository.MarkQuestCleared(
+                connection,
+                transaction,
+                characterId,
+                questId,
+                flagValue: 1);
+            context.CompletedThisTicket.Add(questId);
+            context.Result.CompletedQuestIds.Add(questId);
         }
 
         private static void CompleteQuest(

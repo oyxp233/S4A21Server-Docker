@@ -478,6 +478,7 @@ namespace DfoServer.Network
             d[0x0134] = _inventoryHandler.Handle_WITHDRAW_MONEY;                   //308 金库取金币
             d[0x0198] = _inventoryHandler.Handle_UPGRADE_CARGO;                    //408 扩容个人仓库
             d[0x01CC] = _inventoryHandler.Handle_AVATAR_OPTION_CHANGE;             //460 时装属性调整箱
+            d[(ushort)CmdPacketTypeA21.USE_DYE] = _inventoryHandler.Handle_USE_DYE; //499 时装染色剂
             d[(ushort)CmdPacketType.USE_LIMIT_CUBE] =
                 _inventoryHandler.Handle_USE_LIMIT_CUBE;
             d[(ushort)CmdPacketType.USE_TITLE_CHANGE_ITEM] =
