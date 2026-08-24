@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using PvfLib;
 
 namespace DfoServer.GameWorld
@@ -98,8 +100,74 @@ namespace DfoServer.GameWorld
                 return result;
             });
 
+        private static readonly Lazy<Dictionary<int, string>> MonsterPaths =
+            new Lazy<Dictionary<int, string>>(() =>
+            {
+                var result = new Dictionary<int, string>();
+                var list = DungeonCatalog.LoadListFile(
+                    Path.Combine("monster", "monster.lst"));
+                foreach (var entry in list.Entries)
+                {
+                    if (entry.Id > 0 && !string.IsNullOrWhiteSpace(entry.FilePath))
+                        result[entry.Id] = entry.FilePath;
+                }
+
+                return result;
+            });
+
+        private static readonly ConcurrentDictionary<int, int> CollisionModes =
+            new ConcurrentDictionary<int, int>();
+
         internal static int ResolveSpawnMode(int templateId)
-            => templateId > 0 && PassiveObjectIds.Value.Contains(templateId) ? 1 : 0;
+        {
+            if (templateId <= 0 || !PassiveObjectIds.Value.Contains(templateId))
+                return 0;
+
+            if (!MonsterPaths.Value.TryGetValue(templateId, out var monsterPath))
+                return 1;
+
+            // Monster and passive-object lists use independent numeric namespaces.
+            // When an id exists in both, the monster's PVF object type is the
+            // authoritative discriminator for randomized ridable objects.
+            return CollisionModes.GetOrAdd(
+                templateId,
+                _ => IsRidableMonsterTemplate(monsterPath) ? 0 : 1);
+        }
+
+        private static bool IsRidableMonsterTemplate(string monsterPath)
+        {
+            if (string.IsNullOrWhiteSpace(monsterPath))
+                return false;
+
+            try
+            {
+                var content = PvfArchiveAccessor.ReadText(
+                    Path.Combine("monster", monsterPath));
+                var root = new ScriptParser().Parse(content);
+                var objectType = root.GetChild("monster object type");
+                if (objectType?.DataItems == null)
+                    return false;
+
+                foreach (var dataItem in objectType.DataItems)
+                {
+                    var value = dataItem.GetContent(content);
+                    if (value?.IndexOf(
+                            "ridable object",
+                            StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[DungeonRandomizedObjectTemplateCatalog] failed to inspect " +
+                    $"monster/{monsterPath}: {ex.Message}");
+            }
+
+            return false;
+        }
     }
     internal static class DungeonRandomizedObjectDefinitionProjector
     {
