@@ -1258,6 +1258,7 @@ namespace DfoServer.Game.Inventory
                 Durability = core != null ? core.Durability : (ushort)0,
                 Attr = core != null ? core.Attr : (byte)0,
                 ExpireTime = core != null ? core.ExpireTime : 0,
+                CoreSnapshot = core?.Copy(),
             };
         }
 

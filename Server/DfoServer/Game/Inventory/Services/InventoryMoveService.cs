@@ -947,12 +947,13 @@ namespace DfoServer.Game.Inventory
                 && request.DestinationInstanceValue == 0;
         }
 
-        private static void SyncAvatarClearAvatarId(
+        internal static void SyncAvatarClearAvatarId(
             InventoryService inventory,
             ItemCore item,
             InventoryListType listType,
             short slotIndex,
-            ItemCore previousItemAtSlot)
+            ItemCore previousItemAtSlot,
+            Func<int, bool> cloneAvatarResolver = null)
         {
             if (inventory == null || item == null || item.ItemKind != ItemCore.KindAvatar || item.AvatarUid <= 0)
                 return;
@@ -961,20 +962,45 @@ namespace DfoServer.Game.Inventory
             if (detail == null)
                 return;
 
+            cloneAvatarResolver = cloneAvatarResolver ?? ItemMetadataResolver.IsCloneAvatarItem;
+            var isCloneAvatar = cloneAvatarResolver(item.ItemId);
             var clearAvatarId = 0;
-            if (IsEquippedAvatarSlot(listType, slotIndex) && ItemMetadataResolver.IsCloneAvatarItem(item.ItemId))
+            var color1 = detail.Color1;
+            var color2 = detail.Color2;
+
+            if (isCloneAvatar)
+            {
+                color1 = 0;
+                color2 = 0;
+            }
+
+            if (IsEquippedAvatarSlot(listType, slotIndex) && isCloneAvatar)
             {
                 if (previousItemAtSlot != null
                     && previousItemAtSlot.ItemKind == ItemCore.KindAvatar
                     && previousItemAtSlot.ItemId > 0
-                    && !ItemMetadataResolver.IsCloneAvatarItem(previousItemAtSlot.ItemId))
+                    && !cloneAvatarResolver(previousItemAtSlot.ItemId))
+                {
                     clearAvatarId = previousItemAtSlot.ItemId;
+
+                    var previousDetail = previousItemAtSlot.AvatarUid > 0
+                        ? inventory.AvatarDetails.GetDetail(previousItemAtSlot.AvatarUid)
+                        : null;
+                    color1 = previousDetail?.Color1 ?? 0;
+                    color2 = previousDetail?.Color2 ?? 0;
+                }
             }
 
-            if (detail.ClearAvatarId == clearAvatarId)
+            if (detail.ClearAvatarId == clearAvatarId
+                && (!isCloneAvatar || (detail.Color1 == color1 && detail.Color2 == color2)))
                 return;
 
             detail.ClearAvatarId = clearAvatarId;
+            if (isCloneAvatar)
+            {
+                detail.Color1 = color1;
+                detail.Color2 = color2;
+            }
             inventory.AvatarDetails.MarkDirty(detail.AvatarUid);
         }
 

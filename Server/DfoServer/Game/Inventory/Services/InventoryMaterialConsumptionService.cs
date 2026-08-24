@@ -24,6 +24,10 @@ namespace DfoServer.Game.Inventory
         internal int ItemTemplateId { get; set; }
 
         internal int Count { get; set; }
+
+        internal int RemainingCount { get; set; }
+
+        internal ItemCore SourceSnapshot { get; set; }
     }
 
     internal static class InventoryMaterialConsumptionService
@@ -76,6 +80,7 @@ namespace DfoServer.Game.Inventory
                         SlotIndex = virtualSlot,
                         ItemTemplateId = requirement.ItemTemplateId,
                         Count = virtualConsume.ConsumedCount,
+                        RemainingCount = virtualConsume.RemainingCount,
                     });
                     continue;
                 }
@@ -114,6 +119,8 @@ namespace DfoServer.Game.Inventory
                         SlotIndex = pair.Key,
                         ItemTemplateId = itemTemplateId,
                         Count = delete.DeletedCount,
+                        RemainingCount = delete.RemainingCount,
+                        SourceSnapshot = delete.SourceSnapshot?.Copy(),
                     });
                     remaining -= delete.DeletedCount;
                 }
