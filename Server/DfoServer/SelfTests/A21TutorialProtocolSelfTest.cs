@@ -1984,7 +1984,7 @@ namespace DfoServer.SelfTests
                 ref failures);
 
             var pickupItem = DropItemBuilder.BuildPickupItem(
-                srcSlot: 0x67,
+                sceneSlot: 0x67,
                 pickerActorId: 1081,
                 dstInvSlot: 0x79,
                 moveFlag: 7);
@@ -1998,7 +1998,7 @@ namespace DfoServer.SelfTests
                 ref failures);
 
             var pickupEpicPiece = DropItemBuilder.BuildPickupEpicPiece(
-                srcSlot: 0x71,
+                sceneSlot: 0x71,
                 pickerActorId: 0x0BEB);
             Check(
                 "A21 GET_ITEM epic piece notification has no destination slot",
@@ -2011,7 +2011,7 @@ namespace DfoServer.SelfTests
                 ref failures);
 
             var pickupGold = DropItemBuilder.BuildPickupGold(
-                srcSlot: 0x66,
+                sceneSlot: 0x66,
                 pickerActorId: 1081,
                 goldAmount: 8);
             Check(
@@ -2056,6 +2056,7 @@ namespace DfoServer.SelfTests
                 oneGoldDropDie.Length == 55
                 && oneGoldDropDie[2] == 1
                 && BitConverter.ToUInt16(oneGoldDropDie, 3) == 11
+                && BitConverter.ToUInt32(oneGoldDropDie, 10) == 1
                 && BitConverter.ToUInt16(oneGoldDropDie, 3 + 44) == 9,
                 ref failures);
 
@@ -2064,6 +2065,9 @@ namespace DfoServer.SelfTests
                 ItemKind = DfoServer.Game.Inventory.ItemCore.KindEquipment,
                 ItemId = 35004,
                 Value = unchecked((int)0x343863C0),
+                Durability = 0x1234,
+                AmplifyType = 0x05,
+                AmplifyValue = 0x6789,
             };
             var equipmentDropDie = DungeonNotificationBuilder.BuildMonsterDie(
                 monsterSeqId: 0x66E6,
@@ -2080,10 +2084,13 @@ namespace DfoServer.SelfTests
                 },
                 ownerActorId: 1);
             Check(
-                "A21 DIE_MONSTER equipment drop writes quantity, not ItemCore instance UID",
+                "A21 DIE_MONSTER equipment drop writes ItemCore value and durability fields",
                 equipmentDropDie.Length == 55
                 && BitConverter.ToUInt32(equipmentDropDie, 5) == 35004
-                && BitConverter.ToUInt32(equipmentDropDie, 10) == 1
+                && BitConverter.ToUInt32(equipmentDropDie, 10) == unchecked((uint)equipmentCore.Value)
+                && BitConverter.ToUInt16(equipmentDropDie, 14) == 0x1234
+                && equipmentDropDie[16] == 0x05
+                && BitConverter.ToUInt16(equipmentDropDie, 17) == 0x6789
                 && BitConverter.ToUInt32(equipmentDropDie, 19) == 0x6A7DE18E,
                 ref failures);
 
