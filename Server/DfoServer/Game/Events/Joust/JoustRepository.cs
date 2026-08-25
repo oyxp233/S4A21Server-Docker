@@ -16,7 +16,7 @@ namespace DfoServer.Game.Events.Joust
         private const string JoustDescription =
             "               [骑士马战大竞猜]              "
             + "*骑士马战大竞猜活动规则：                  "
-            + "-活动期间每晚20：00一期。                    "
+            + "-活动时间每天10：00开始，共7期。             "
             + "-倍率随动。                                   "
             + "-所有骑士均分胜负率。(取消胜负率加成项) 。                                            ";
         private static readonly TimeSpan BeijingOffset = TimeSpan.FromHours(8);

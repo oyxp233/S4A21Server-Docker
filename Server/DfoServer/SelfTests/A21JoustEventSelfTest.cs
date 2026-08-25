@@ -25,7 +25,6 @@ namespace DfoServer.SelfTests
         public static int Run()
         {
             Console.WriteLine("=== A21_JOUST_EVENT selftest ===");
-            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
             var failures = 0;
             var tempDirectory = Path.Combine(
@@ -446,7 +445,8 @@ INSERT INTO event_joust_rules (
                 && entry.ShortName == "骑士马战大竞猜"
                 && entry.StartNotice.Contains("正在进行[骑士马战大竞猜]")
                 && entry.EndNotice.Contains("[骑士马战大竞猜]活动已结束")
-                && entry.Description.Contains("每晚20：00一期")
+                && entry.Description.Contains("活动时间每天10：00开始，共7期")
+                && !entry.Description.Contains("每晚20：00一期")
                 && entry.Description.IndexOf('\r') < 0
                 && entry.Description.IndexOf('\n') < 0
                 && start.Month == 1
@@ -471,10 +471,16 @@ INSERT INTO event_joust_rules (
             }
 
             var body = EventInfoBodyBuilder.Build(snapshot);
-            var titleBytes = Encoding.GetEncoding(936).GetBytes("骑士马战大竞猜");
+            var titleBytes = Encoding.UTF8.GetBytes("骑士马战大竞猜");
+            var descriptionBytes =
+                Encoding.UTF8.GetBytes("活动时间每天10：00开始，共7期");
             Check(
-                "joust EVENT_INFO body contains GBK title bytes",
+                "joust EVENT_INFO body contains UTF-8 title bytes",
                 Contains(body, titleBytes),
+                ref failures);
+            Check(
+                "joust EVENT_INFO body contains UTF-8 description bytes",
+                Contains(body, descriptionBytes),
                 ref failures);
         }
 
