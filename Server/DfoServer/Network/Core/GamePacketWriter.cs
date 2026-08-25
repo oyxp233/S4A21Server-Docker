@@ -41,6 +41,11 @@ namespace DfoServer.Network
             _buffer.AddRange(BitConverter.GetBytes(value));
         }
 
+        public void WriteSingle(float value)
+        {
+            _buffer.AddRange(BitConverter.GetBytes(value));
+        }
+
         public void WriteZeroBytes(int count)
         {
             if (count <= 0)
