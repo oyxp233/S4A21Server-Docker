@@ -1,5 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Text.Json;
+using DfoServer.Infrastructure;
 using Microsoft.Data.Sqlite;
 
 namespace DfoServer.Sqlite
@@ -24,6 +28,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(8, "add_growup_change_count", ApplyGrowupChangeCount),
                 new MigrationStep(9, "add_united_friend_relations", ApplyUnitedFriendRelations),
                 new MigrationStep(10, "add_game_events_and_joust", ApplyGameEventsAndJoust),
+                new MigrationStep(11, "convert_client_text_blobs_to_gbk", ApplyConvertClientTextBlobsToGbk),
             };
 
         internal static int CurrentVersion =>
@@ -387,6 +392,289 @@ CREATE TABLE IF NOT EXISTS event_joust_history (
     odds_x10 INTEGER NOT NULL DEFAULT 80,
     settled_at_unix INTEGER NOT NULL DEFAULT 0
 );");
+        }
+
+        // schema v11：v11 以下旧库一次性把旧 UTF-8 线上名字节改成 GBK。新库直接标当前版本，不跑本步。
+        private static void ApplyConvertClientTextBlobsToGbk(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            var converted = 0;
+            if (TableExists(connection, transaction, "characters"))
+                converted += ConvertCharacterNames(connection, transaction);
+            if (TableExists(connection, transaction, "character_creatures"))
+                converted += ConvertCreatureText(connection, transaction);
+            if (TableExists(connection, transaction, "mailbox_attachments"))
+                converted += ConvertMailboxCreatureNames(connection, transaction);
+
+            FileLogger.Log(
+                $"[Db] migration v11 converted {converted} client text blob(s) from legacy UTF-8 to GBK");
+        }
+
+        private static int ConvertCharacterNames(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            var pending = new List<(int Id, byte[] Gbk)>();
+            using (var select = connection.CreateCommand())
+            {
+                select.Transaction = transaction;
+                select.CommandText = "SELECT character_id, name FROM characters;";
+                using (var reader = select.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        if (!TryReadStoredBytes(reader, 1, out var stored)
+                            || !ClientTextEncoding.TryConvertLegacyUtf8WireToGbk(stored, out var gbk))
+                        {
+                            continue;
+                        }
+
+                        pending.Add((reader.GetInt32(0), gbk));
+                    }
+                }
+            }
+
+            if (pending.Count == 0)
+                return 0;
+
+            using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = "UPDATE characters SET name = @name WHERE character_id = @id;";
+                var idParam = update.Parameters.Add("@id", SqliteType.Integer);
+                var nameParam = update.Parameters.Add("@name", SqliteType.Blob);
+                foreach (var row in pending)
+                {
+                    idParam.Value = row.Id;
+                    nameParam.Value = row.Gbk;
+                    try
+                    {
+                        update.ExecuteNonQuery();
+                    }
+                    catch (SqliteException ex)
+                    {
+                        throw new InvalidOperationException(
+                            $"schema v11: characters.name unique conflict converting character_id={row.Id}",
+                            ex);
+                    }
+                }
+            }
+
+            return pending.Count;
+        }
+
+        private static int ConvertCreatureText(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            var pending = new List<(int CharacterId, int SortOrder, byte[] Gbk)>();
+            using (var select = connection.CreateCommand())
+            {
+                select.Transaction = transaction;
+                select.CommandText =
+                    "SELECT character_id, sort_order, creature_text FROM character_creatures;";
+                using (var reader = select.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        if (!TryReadStoredBytes(reader, 2, out var stored)
+                            || !ClientTextEncoding.TryConvertLegacyUtf8WireToGbk(stored, out var gbk))
+                        {
+                            continue;
+                        }
+
+                        pending.Add((reader.GetInt32(0), reader.GetInt32(1), gbk));
+                    }
+                }
+            }
+
+            if (pending.Count == 0)
+                return 0;
+
+            using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText =
+                    "UPDATE character_creatures SET creature_text = @text " +
+                    "WHERE character_id = @id AND sort_order = @ord;";
+                var idParam = update.Parameters.Add("@id", SqliteType.Integer);
+                var ordParam = update.Parameters.Add("@ord", SqliteType.Integer);
+                var textParam = update.Parameters.Add("@text", SqliteType.Blob);
+                foreach (var row in pending)
+                {
+                    idParam.Value = row.CharacterId;
+                    ordParam.Value = row.SortOrder;
+                    textParam.Value = row.Gbk;
+                    update.ExecuteNonQuery();
+                }
+            }
+
+            return pending.Count;
+        }
+
+        private static int ConvertMailboxCreatureNames(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            var pending = new List<(int Id, string Json)>();
+            using (var select = connection.CreateCommand())
+            {
+                select.Transaction = transaction;
+                select.CommandText =
+                    "SELECT attachment_id, detail_json FROM mailbox_attachments " +
+                    "WHERE detail_json IS NOT NULL AND length(detail_json) > 0;";
+                using (var reader = select.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        var json = reader.IsDBNull(1) ? null : reader.GetString(1);
+                        if (!TryConvertMailboxDetailJson(json, out var rewritten))
+                            continue;
+
+                        pending.Add((reader.GetInt32(0), rewritten));
+                    }
+                }
+            }
+
+            if (pending.Count == 0)
+                return 0;
+
+            using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText =
+                    "UPDATE mailbox_attachments SET detail_json = @json WHERE attachment_id = @id;";
+                var idParam = update.Parameters.Add("@id", SqliteType.Integer);
+                var jsonParam = update.Parameters.Add("@json", SqliteType.Text);
+                foreach (var row in pending)
+                {
+                    idParam.Value = row.Id;
+                    jsonParam.Value = row.Json;
+                    update.ExecuteNonQuery();
+                }
+            }
+
+            return pending.Count;
+        }
+
+        private static bool TryReadStoredBytes(SqliteDataReader reader, int ordinal, out byte[] stored)
+        {
+            stored = null;
+            if (reader.IsDBNull(ordinal))
+                return false;
+
+            var value = reader.GetValue(ordinal);
+            if (value is byte[] bytes)
+            {
+                stored = bytes;
+                return stored.Length > 0;
+            }
+
+            if (value is string text && text.Length > 0)
+            {
+                stored = Encoding.UTF8.GetBytes(text);
+                return stored.Length > 0;
+            }
+
+            return false;
+        }
+
+        private static bool TryConvertMailboxDetailJson(string json, out string rewritten)
+        {
+            rewritten = json;
+            if (string.IsNullOrWhiteSpace(json))
+                return false;
+
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                if (!TryGetProperty(root, "Creature", "creature", out var creature)
+                    || !TryGetProperty(creature, "NameBytes", "nameBytes", out var nameNode)
+                    || nameNode.ValueKind != JsonValueKind.String)
+                {
+                    return false;
+                }
+
+                byte[] stored;
+                try
+                {
+                    stored = nameNode.GetBytesFromBase64();
+                }
+                catch
+                {
+                    return false;
+                }
+
+                if (!ClientTextEncoding.TryConvertLegacyUtf8WireToGbk(stored, out var gbk))
+                    return false;
+
+                rewritten = RewriteMailboxNameBytes(root, gbk);
+                return rewritten != json;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+
+        private static string RewriteMailboxNameBytes(JsonElement root, byte[] gbk)
+        {
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                WriteJsonReplacingNameBytes(root, writer, gbk);
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+
+        private static void WriteJsonReplacingNameBytes(
+            JsonElement element,
+            Utf8JsonWriter writer,
+            byte[] gbk)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    writer.WriteStartObject();
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        writer.WritePropertyName(property.Name);
+                        if ((property.Name == "NameBytes" || property.Name == "nameBytes")
+                            && property.Value.ValueKind == JsonValueKind.String)
+                        {
+                            writer.WriteBase64StringValue(gbk);
+                        }
+                        else
+                        {
+                            WriteJsonReplacingNameBytes(property.Value, writer, gbk);
+                        }
+                    }
+
+                    writer.WriteEndObject();
+                    break;
+                case JsonValueKind.Array:
+                    writer.WriteStartArray();
+                    foreach (var item in element.EnumerateArray())
+                        WriteJsonReplacingNameBytes(item, writer, gbk);
+                    writer.WriteEndArray();
+                    break;
+                default:
+                    element.WriteTo(writer);
+                    break;
+            }
+        }
+
+        private static bool TryGetProperty(
+            JsonElement element,
+            string pascal,
+            string camel,
+            out JsonElement value)
+        {
+            return element.TryGetProperty(pascal, out value)
+                || element.TryGetProperty(camel, out value);
         }
 
         private static void ApplyPurchaseLimitTracking(

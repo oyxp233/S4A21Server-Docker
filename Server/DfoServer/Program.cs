@@ -133,6 +133,7 @@ namespace DfoServer
 
         static void Main(string[] args)
         {
+            Infrastructure.ClientTextEncoding.EnsureInitialized();
             args ??= Array.Empty<string>();
 
             if (Array.IndexOf(args, "--selftest-all") >= 0)
