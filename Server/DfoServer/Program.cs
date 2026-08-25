@@ -45,6 +45,7 @@ namespace DfoServer
             ("--selftest-magic-box-protocol", SelfTests.MagicBoxProtocolSelfTest.Run),
             ("--selftest-gold-limit", SelfTests.GoldLimitSelfTest.Run),
             ("--selftest-friends", SelfTests.UnitedFriendSystemSelfTest.Run),
+            ("--selftest-pvf-map-monster-parsing", SelfTests.PvfMapMonsterParsingSelfTest.Run),
         };
 
         // 顺序跑全部自测, 输出汇总表; 任一失败(或抛异常)退出码为 1。
