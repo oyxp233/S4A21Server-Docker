@@ -1,0 +1,62 @@
+ services:
+  s4a21server:
+    image: ghcr.io/oyxp233/s4a21server-docker:latest
+    container_name: s4a21server
+    restart: unless-stopped
+    ports:
+      # ---------- TCP 端口 ----------
+      - "7000:7000"                 # 频道服务
+      - "7001:7001"                 # 频道服务
+      - "10011:10011"               # 游戏服务
+      - "10161:10161"               # 频道100
+      - "10068:10068"               # 自由决斗
+      - "10200:10200"               # TCP
+      # ---------- UDP 端口 ----------
+      - "7001:7001/udp"             # 频道 (UDP)
+      - "11011:11011/udp"           # 游戏 (UDP)
+      - "11161:11161/udp"           # 频道100 (UDP)
+      - "11068:11068/udp"           # 自由决斗 (UDP)
+      # ---------- UDP 中继端口范围 ----------
+      - "2311-2313:2311-2313/udp"   # UDP 中继初始端口
+      - "30000-30255:30000-30255/udp"  # 组队中继
+      - "30256-30511:30256-30511/udp"  # PvP 中继
+    volumes:
+      - ./faketime:/usr/local/lib/faketime
+      - ./data:/app/Data            # 数据库位置
+      - ./pvf:/app/Data/Pvf         # PVF文件位置
+    environment:
+      - LD_PRELOAD=/usr/local/lib/faketime/libfaketime.so.1
+      - FAKETIME=@2010-01-01 00:00:00
+      - FAKETIME_NO_CACHE=1
+      - DONT_FAKE_MONOTONIC=1
+      - SERVER_IP=127.0.0.1                       # IP需要修改
+      - DFO_FREE_DUEL_CHANNEL_LISTENER=true
+      - DFO_UDP_RELAY=true
+      - DFO_PVP_UDP_RELAY=true
+      - DFO_UDP_RELAY_PUBLIC_IP=127.0.0.1        # IP需要修改
+    command: ["--server-ip", "127.0.0.1"]        # IP需要修改
+    healthcheck:
+      test: ["CMD", "pgrep", "DfoServer"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+ # ============ DNF GM 管理工具 ============
+  s4a21gmtool:
+    image: ghcr.io/oyxp233/s4a21gmtool-docker:latest
+    container_name: s4a21gmtool
+    restart: unless-stopped
+    ports:
+      - "5051:5051"     #GM工具端口
+    volumes:
+      # GM 工具配置文件（可选）
+      - ./config.ini:/app/config.ini
+      # 共享服务端数据目录（注意路径与 dnf-server 保持一致）
+      - ./data:/data/Data
+      - ./pvf:/data/Data/Pvf
+      - "E:/DOF文件整理/客户端/S4A21_CN/ImagePacks2:/app/ImagePacks2:ro"   # ImagePacks2文件位置，GM工具显示图标
+    environment:
+      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+    command: ["--server-bin", "/data"]
+    # 依赖服务端先启动（可选）
+    depends_on:
+      - s4a21server
