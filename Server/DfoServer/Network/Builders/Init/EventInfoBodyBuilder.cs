@@ -8,7 +8,9 @@ namespace DfoServer.Network.Builders
 {
     public sealed class EventInfoBodyBuilder : IInitPacketBuilder
     {
-        private static readonly Encoding DstrEncoding = CreateDstrEncoding();
+        // Keep database TEXT readable; encode only at the EVENT_INFO wire edge.
+        private static readonly Encoding DstrEncoding =
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         private readonly GameEventRepository _repository;
 
         public EventInfoBodyBuilder()
@@ -84,12 +86,6 @@ namespace DfoServer.Network.Builders
         private static void WriteDstr(GamePacketWriter writer, string value)
         {
             writer.WriteDstr(DstrEncoding.GetBytes(value ?? string.Empty));
-        }
-
-        private static Encoding CreateDstrEncoding()
-        {
-            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-            return Encoding.GetEncoding(936);
         }
     }
 }
