@@ -263,6 +263,9 @@ namespace DfoServer.Network.Handlers.Dungeon
                 }
                 await _svc.GrowthCapsuleSync.SendExpProgressAsync(
                     session, "enter-select-dungeon", honor: honorSummary);
+                // 进本过图后客户端重置结婚属性 UI：USERINFO subtype1/USER_STATE 投影之后
+                // 补发婚礼回放三包（与选角序列同包体）。仅覆盖进/出本触发点，不挂城镇内每次过图。
+                await InventoryRefreshSender.SendWeddingReplayRefresh(session);
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] ENTER_SELECT_DUNGEON: state packets and account EXP progress sent OK");
             }
             catch (Exception ex)
