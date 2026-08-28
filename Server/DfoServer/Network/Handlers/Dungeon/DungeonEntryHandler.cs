@@ -104,6 +104,50 @@ namespace DfoServer.Network.Handlers.Dungeon
                 responseBody));
         }
 
+        // A21: 客户端进入副本选择界面后会用 CMD SEQUENTIAL_DUNGEON_INFO(0x035D)
+        // 询问当前区域的连续副本序列进度(抓包: body = int32 configKey,
+        // 镇魂/远古区域 key=26)。之前服务端未注册该 CMD, 客户端拿不到应答会
+        // 反复重发并卡死选择界面。这里始终按请求的 key 应答
+        // NOTI SEQUENTIAL_DUNGEON_INFO(0x025B, int32 key + byte progress +
+        // int32 routeMask, 与既有主动推送同布局); 无对应序列或无进度记录时
+        // progress 按 0(未开始)应答。
+        internal async Task HandleSequentialDungeonInfo(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            byte[] body)
+        {
+            if (body == null || body.Length < sizeof(int))
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"SEQUENTIAL_DUNGEON_INFO rejected: invalid body " +
+                    $"length={body?.Length ?? 0} expected={sizeof(int)}");
+                return;
+            }
+            var player = session?.Player;
+            if (player == null || player.CharacterId <= 0)
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    "SEQUENTIAL_DUNGEON_INFO rejected: missing active character");
+                return;
+            }
+
+            var configKey = BitConverter.ToInt32(body, 0);
+            var progress = _svc.PersistentMechanisms.ResolveSequentialProgress(
+                player.CharacterId,
+                configKey);
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                (ushort)NotiPacketTypeA21.SEQUENTIAL_DUNGEON_INFO,
+                DungeonNotificationBuilder.BuildSequentialDungeonInfo(
+                    configKey, progress, 0)));
+            FileLogger.Log(
+                $"[{DungeonSharedServices.ProtocolLogName}] " +
+                $"SEQUENTIAL_DUNGEON_INFO answered: " +
+                $"cid={player.CharacterId} key={configKey} progress={progress}");
+        }
+
         internal async Task HandleEnterSelectDungeon(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
             if (!EnterSelectDungeonRequest.TryParse(body, out var request))
