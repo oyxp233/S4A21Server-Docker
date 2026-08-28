@@ -1,6 +1,8 @@
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Events.DailyAttendanceAnytime;
+using DfoServer.Game.Events.RecommendedDungeons;
+using DfoServer.Game.Events.TotalAttendance;
 using DfoServer.Game.Mercenary;
 using DfoServer.Game.Quests;
 using DfoServer.Game.SelectCharacter;
@@ -55,6 +57,8 @@ namespace DfoServer.Network.Handlers
                 null,
                 null,
                 null,
+                null,
+                null,
                 database)
         {
         }
@@ -72,7 +76,9 @@ namespace DfoServer.Network.Handlers
             Game.Quests.QuestDropService questDropService = null,
             Game.Accounts.AccountExperienceProgressService accountExperience = null,
             IMercenaryRestrictionService mercenaryRestrictions = null,
+            RecommendDungeonClearStatsService recommendDungeonClears = null,
             DailyAttendanceAnytimeService dailyAttendanceAnytime = null,
+            TotalAttendanceService totalAttendance = null,
             Game.Dungeon.DungeonInstanceRegistry instanceRegistry = null,
             Game.Raid.RaidManager raidManager = null,
             IGameDatabase database = null)
@@ -89,7 +95,9 @@ namespace DfoServer.Network.Handlers
                 questDropService,
                 accountExperience,
                 mercenaryRestrictions,
+                recommendDungeonClears,
                 dailyAttendanceAnytime,
+                totalAttendance,
                 persistentEffects,
                 instanceRegistry,
                 raidManager,

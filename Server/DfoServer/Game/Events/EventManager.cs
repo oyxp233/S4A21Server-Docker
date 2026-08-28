@@ -2,6 +2,7 @@ using System;
 using DfoServer.Game.Events.DailyAttendanceAnytime;
 using DfoServer.Game.Events.Joust;
 using DfoServer.Game.Events.PcRoomTimePoint;
+using DfoServer.Game.Events.TotalAttendance;
 using DfoServer.Infrastructure;
 
 namespace DfoServer.Game.Events
@@ -35,6 +36,11 @@ namespace DfoServer.Game.Events
             dailyAttendanceConfig.Warmup();
             new DailyAttendanceAnytimeRepository(Database)
                 .EnsureStaticConfigRows(dailyAttendanceConfig.Current);
+
+            var totalAttendanceConfig = TotalAttendanceConfigProvider.Instance;
+            totalAttendanceConfig.Warmup();
+            new TotalAttendanceRepository(Database)
+                .EnsureStaticConfigRows(totalAttendanceConfig.Current);
         }
 
         internal GameEventInfoSnapshot LoadEventInfoSnapshot()

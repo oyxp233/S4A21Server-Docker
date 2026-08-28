@@ -531,16 +531,16 @@ namespace DfoServer.Network.Handlers.Dungeon
                         run,
                         identity,
                         DungeonPersistentEffectKinds
-                            .SuitableDungeonDailyAttendanceAnytime,
+                            .SuitableDungeonAttendanceEvents,
                         async () =>
                         {
-                            if (!await ApplySuitableDungeonDailyAttendanceAnytime(
+                            if (!await ApplySuitableDungeonAttendanceEvents(
                                     session,
                                     run,
                                     settlement.PreviousLevel))
                             {
                                 throw new InvalidOperationException(
-                                    "Suitable-dungeon daily attendance persistence failed.");
+                                    "Suitable-dungeon attendance event persistence failed.");
                             }
                         }))
                 {
@@ -2765,7 +2765,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
         }
 
-        private async Task<bool> ApplySuitableDungeonDailyAttendanceAnytime(
+        private async Task<bool> ApplySuitableDungeonAttendanceEvents(
             EnhancedClientSession session,
             DungeonRun run,
             int clearLevel)
@@ -2776,8 +2776,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return false;
             }
 
-            if (_svc.DailyAttendanceAnytime == null)
-                return true;
             if (!DungeonData.IsSuitableLevelDungeon(run.DungeonId, clearLevel))
                 return true;
 
@@ -2789,36 +2787,74 @@ namespace DfoServer.Network.Handlers.Dungeon
             try
             {
                 var sourceEventId = run.GetSettlementSourceEventId();
-                var result = _svc.DailyAttendanceAnytime
-                    .ApplyRecommendedDungeonClear(
-                        accountId,
-                        characterId,
-                        DecodeCharacterName(session),
-                        clearLevel,
-                        run.DungeonId,
-                        sourceEventId);
-                if (!result.Success)
+                var stats = _svc.RecommendDungeonClears.RecordClear(accountId);
+                var characterName = DecodeCharacterName(session);
+
+                if (_svc.DailyAttendanceAnytime != null)
                 {
-                    FileLogger.Log(
-                        "[DungeonHandler] DAILY_ATTENDANCE_ANYTIME "
-                        + "suitable clear rejected "
-                        + $"account_id={accountId} cid={characterId} "
-                        + $"dungeon={run.DungeonId} status={result.Status}");
-                    return false;
+                    var result = _svc.DailyAttendanceAnytime
+                        .ApplyRecommendedDungeonClear(
+                            accountId,
+                            characterId,
+                            characterName,
+                            clearLevel,
+                            run.DungeonId,
+                            stats.DailyClearCount,
+                            sourceEventId);
+                    if (!result.Success)
+                    {
+                        FileLogger.Log(
+                            "[DungeonHandler] DAILY_ATTENDANCE_ANYTIME "
+                            + "suitable clear rejected "
+                            + $"account_id={accountId} cid={characterId} "
+                            + $"dungeon={run.DungeonId} status={result.Status}");
+                        return false;
+                    }
+
+                    if (!session.Player.IsCurrentDungeonRun(run.CaptureIdentity()))
+                        return false;
+
+                    if (result.MailDelivered)
+                        await EventDailyAttendanceAnytimeHandler
+                            .SendMailboxAlarmAsync(session);
+                    if (result.Snapshot != null)
+                    {
+                        await EventDailyAttendanceAnytimeHandler.SendStateAsync(
+                            session,
+                            result.Snapshot,
+                            "dungeon-clear");
+                    }
                 }
 
-                if (!session.Player.IsCurrentDungeonRun(run.CaptureIdentity()))
-                    return false;
-
-                if (result.MailDelivered)
-                    await EventDailyAttendanceAnytimeHandler
-                        .SendMailboxAlarmAsync(session);
-                if (result.Snapshot != null)
+                if (_svc.TotalAttendance != null)
                 {
-                    await EventDailyAttendanceAnytimeHandler.SendStateAsync(
-                        session,
-                        result.Snapshot,
-                        "dungeon-clear");
+                    var result = _svc.TotalAttendance
+                        .ApplyRecommendedDungeonClear(
+                            accountId,
+                            characterId,
+                            run.DungeonId,
+                            stats.WeeklyClearCount,
+                            sourceEventId);
+                    if (!result.Success)
+                    {
+                        FileLogger.Log(
+                            "[DungeonHandler] TOTAL_ATTENDANCE "
+                            + "suitable clear rejected "
+                            + $"account_id={accountId} cid={characterId} "
+                            + $"dungeon={run.DungeonId} status={result.Status}");
+                        return false;
+                    }
+
+                    if (!session.Player.IsCurrentDungeonRun(run.CaptureIdentity()))
+                        return false;
+
+                    if (result.Snapshot != null)
+                    {
+                        await EventTotalAttendanceHandler.SendStateAsync(
+                            session,
+                            result.Snapshot,
+                            "dungeon-clear");
+                    }
                 }
 
                 return true;
@@ -2826,7 +2862,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             catch (Exception ex)
             {
                 FileLogger.Log(
-                    "[DungeonHandler] DAILY_ATTENDANCE_ANYTIME "
+                    "[DungeonHandler] ATTENDANCE_EVENTS "
                     + "suitable clear ERROR: "
                     + $"account_id={accountId} cid={characterId} "
                     + $"dungeon={run.DungeonId} level={clearLevel} "

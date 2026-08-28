@@ -38,6 +38,7 @@ namespace DfoServer.Network.Handlers
         private readonly EventPcRoomTimePointHandler _eventPcRoomTimePointHandler;
         private readonly EventDailyAttendanceAnytimeHandler
             _eventDailyAttendanceAnytimeHandler;
+        private readonly EventTotalAttendanceHandler _eventTotalAttendanceHandler;
         private readonly PvpRoomHandler _pvpRoomHandler;
         private readonly InventoryRefreshSender _inventoryRefreshSender;
         private readonly IGameDatabase _database;
@@ -59,6 +60,7 @@ namespace DfoServer.Network.Handlers
             EventJoustHandler eventJoustHandler,
             EventPcRoomTimePointHandler eventPcRoomTimePointHandler,
             EventDailyAttendanceAnytimeHandler eventDailyAttendanceAnytimeHandler,
+            EventTotalAttendanceHandler eventTotalAttendanceHandler,
             PvpRoomHandler pvpRoomHandler,
             InventoryRefreshSender inventoryRefreshSender,
             IGameDatabase database,
@@ -80,6 +82,7 @@ namespace DfoServer.Network.Handlers
             _eventPcRoomTimePointHandler = eventPcRoomTimePointHandler;
             _eventDailyAttendanceAnytimeHandler =
                 eventDailyAttendanceAnytimeHandler;
+            _eventTotalAttendanceHandler = eventTotalAttendanceHandler;
             _pvpRoomHandler = pvpRoomHandler;
             _inventoryRefreshSender = inventoryRefreshSender;
             _database = database ?? throw new ArgumentNullException(nameof(database));
@@ -471,6 +474,9 @@ namespace DfoServer.Network.Handlers
                             .NotifyStateOnLoginAsync(session);
                     if (_eventDailyAttendanceAnytimeHandler != null)
                         await _eventDailyAttendanceAnytimeHandler
+                            .NotifyStateOnLoginAsync(session);
+                    if (_eventTotalAttendanceHandler != null)
+                        await _eventTotalAttendanceHandler
                             .NotifyStateOnLoginAsync(session);
                     // 上线 hook：初始好友列表已由 init 包流下发
                     // （UnitedServerFriendInfoBodyBuilder），这里只做单向推送——

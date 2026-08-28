@@ -55,6 +55,7 @@ namespace DfoServer.Network
         private readonly EventPcRoomTimePointHandler _eventPcRoomTimePointHandler;
         private readonly EventDailyAttendanceAnytimeHandler
             _eventDailyAttendanceAnytimeHandler;
+        private readonly EventTotalAttendanceHandler _eventTotalAttendanceHandler;
         private readonly ExpertJobStoreHandler _expertJobStoreHandler;
         private readonly ExpertJobExtractionHandler _expertJobExtractionHandler;
         private readonly ExpertJobCompoundHandler _expertJobCompoundHandler;
@@ -213,6 +214,7 @@ namespace DfoServer.Network
             _eventPcRoomTimePointHandler = featureHandlers.EventPcRoomTimePoint;
             _eventDailyAttendanceAnytimeHandler =
                 featureHandlers.EventDailyAttendanceAnytime;
+            _eventTotalAttendanceHandler = featureHandlers.EventTotalAttendance;
             _pvpChannelInfoHandler = socialHandlers.PvpChannelInfo;
             _pvpRoomHandler = socialHandlers.PvpRoom;
             _characterSessionLifecycle = characterSessionLifecycle;
@@ -738,6 +740,8 @@ namespace DfoServer.Network
                 _eventPcRoomTimePointHandler.HandleAsync;
             d[(ushort)CmdPacketTypeA21.AT_DAILY_ATTENDANCE] =
                 _eventDailyAttendanceAnytimeHandler.HandleClaimAsync;
+            d[(ushort)CmdPacketTypeA21.EVENT_TOTAL_ATTENDANCE_CHECK_THISWEEK] =
+                _eventTotalAttendanceHandler.HandleCheckThisWeekAsync;
             d[(ushort)CmdPacketType.PARTY_TELEPORT] =
                 _townHandler.Handle_ENUM_CMDPACKET_PARTY_TELEPORT;
         }

@@ -242,43 +242,6 @@ WHERE account_id=@accountId
             }
         }
 
-        internal bool TryRecordClearEvent(
-            SqliteConnection connection,
-            SqliteTransaction transaction,
-            int accountId,
-            int characterId,
-            DailyAttendanceAnytimeConfig config,
-            int dayId,
-            Guid sourceEventId,
-            int dungeonId,
-            long nowUnix)
-        {
-            if (sourceEventId == Guid.Empty)
-                throw new ArgumentException(
-                    "source event id is required.",
-                    nameof(sourceEventId));
-
-            return ExecuteNonQuery(
-                connection,
-                transaction,
-                @"
-INSERT OR IGNORE INTO event_daily_attendance_anytime_clear_events (
-    account_id, event_id, season_id, day_id,
-    source_event_id, dungeon_id, character_id, created_at_unix
-) VALUES (
-    @accountId, @eventId, @seasonId, @dayId,
-    @sourceEventId, @dungeonId, @characterId, @nowUnix
-);",
-                ("@accountId", accountId),
-                ("@eventId", DailyAttendanceAnytimeConfig.EventId),
-                ("@seasonId", config.SeasonId),
-                ("@dayId", dayId),
-                ("@sourceEventId", sourceEventId.ToString("N")),
-                ("@dungeonId", dungeonId),
-                ("@characterId", characterId),
-                ("@nowUnix", nowUnix)) == 1;
-        }
-
         internal bool TrySetRecommendClearCount(
             SqliteConnection connection,
             SqliteTransaction transaction,
@@ -413,6 +376,7 @@ WHERE account_id=@accountId
             int characterId,
             DailyAttendanceAnytimeConfig config,
             int dayId,
+            int todayRecommendClearCount,
             long nowUnix,
             bool eventEnabled)
         {
@@ -429,12 +393,6 @@ WHERE account_id=@accountId
                 transaction,
                 accountId,
                 config);
-            var daily = LoadDailyProgress(
-                connection,
-                transaction,
-                accountId,
-                config,
-                dayId);
             var snapshot = new DailyAttendanceAnytimeSnapshot
             {
                 AccountId = accountId,
@@ -446,7 +404,7 @@ WHERE account_id=@accountId
                     Math.Max(0, account.TotalAttendanceCount),
                     config.MaxAttendanceDays),
                 TodayRecommendClearCount = Math.Min(
-                    Math.Max(0, daily.RecommendClearCount),
+                    Math.Max(0, todayRecommendClearCount),
                     target),
                 RecommendClearTarget = target,
                 AccumulateClaimedMask = account.AccumulateClaimedMask & 0x07,

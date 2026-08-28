@@ -1336,6 +1336,48 @@ CREATE TABLE IF NOT EXISTS event_daily_attendance_anytime_clear_events (
     FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS account_recommend_dungeon_clear_stats (
+    account_id INTEGER NOT NULL,
+    period_type INTEGER NOT NULL,
+    period_id INTEGER NOT NULL,
+    clear_count INTEGER NOT NULL DEFAULT 0
+        CHECK(clear_count >= 0),
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, period_type, period_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_recommend_dungeon_clear_stats_period
+    ON account_recommend_dungeon_clear_stats(period_type, period_id);
+
+CREATE TABLE IF NOT EXISTS event_total_attendance_account (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    total_attendance_week_count INTEGER NOT NULL DEFAULT 0
+        CHECK(total_attendance_week_count >= 0),
+    total_reward_sent_mask INTEGER NOT NULL DEFAULT 0
+        CHECK(total_reward_sent_mask >= 0 AND total_reward_sent_mask <= 7),
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, event_id, season_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS event_total_attendance_weekly (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    week_id INTEGER NOT NULL,
+    checked INTEGER NOT NULL DEFAULT 0 CHECK(checked IN (0, 1)),
+    weekly_reward_index INTEGER NOT NULL DEFAULT -1,
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, event_id, season_id, week_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_total_attendance_weekly_week
+    ON event_total_attendance_weekly(event_id, season_id, week_id);
+
 -- 服务端协议默认配置，不包含玩家账号或角色数据。
 INSERT OR IGNORE INTO get_userinfo_template (
     id,

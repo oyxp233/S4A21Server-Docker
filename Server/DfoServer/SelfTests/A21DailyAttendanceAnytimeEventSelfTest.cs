@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using DfoServer.Game.Events.DailyAttendanceAnytime;
+using DfoServer.Game.Events.RecommendedDungeons;
 using DfoServer.Game.Mailbox;
 using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
@@ -178,6 +179,10 @@ namespace DfoServer.SelfTests
 DROP TABLE IF EXISTS event_daily_attendance_anytime_clear_events;
 DROP TABLE IF EXISTS event_daily_attendance_anytime_daily;
 DROP TABLE IF EXISTS event_daily_attendance_anytime_account;
+DROP TABLE IF EXISTS event_total_attendance_weekly;
+DROP TABLE IF EXISTS event_total_attendance_account;
+DROP TABLE IF EXISTS account_recommend_dungeon_clear_stats;
+DELETE FROM game_event_state WHERE event_id=2208;
 DELETE FROM game_event_state WHERE event_id=2370;
 UPDATE schema_metadata SET schema_version=15 WHERE singleton_id=1;
 PRAGMA user_version=15;";
@@ -198,10 +203,23 @@ PRAGMA user_version=15;";
                     && TableExists(
                         connection,
                         "event_daily_attendance_anytime_clear_events")
+                    && TableExists(
+                        connection,
+                        "account_recommend_dungeon_clear_stats")
+                    && TableExists(
+                        connection,
+                        "event_total_attendance_account")
+                    && TableExists(
+                        connection,
+                        "event_total_attendance_weekly")
                     && CountRows(
                         connection,
                         "game_event_state",
-                        "event_id=2370") == 1,
+                        "event_id=2370") == 1
+                    && CountRows(
+                        connection,
+                        "game_event_state",
+                        "event_id=2208") == 1,
                     ref failures);
             }
         }
@@ -219,6 +237,10 @@ PRAGMA user_version=15;";
             Seed(database);
             var config = DailyAttendanceAnytimeConfigParser.CreateFallback();
             DateTimeOffset now = LocalDay(0);
+            var statsService = new RecommendDungeonClearStatsService(
+                database,
+                nowProvider: () => now);
+            statsService.Initialize();
             var service = new DailyAttendanceAnytimeService(
                 database,
                 new MailboxService(new MailboxRepository(database)),
@@ -229,12 +251,14 @@ PRAGMA user_version=15;";
 
             var firstClear = Guid.Parse("23700000-0000-0000-0000-000000000001");
             var secondClear = Guid.Parse("23700000-0000-0000-0000-000000000002");
+            var firstStats = statsService.RecordClear(AccountId);
             var first = service.ApplyRecommendedDungeonClear(
                 AccountId,
                 CharacterId,
                 "daily-attendance",
                 86,
                 1,
+                firstStats.DailyClearCount,
                 firstClear);
             Check(
                 "first suitable clear progresses recommended dungeon count to 1/2",
@@ -245,32 +269,17 @@ PRAGMA user_version=15;";
                 && CountRows(database, "mailbox_messages") == 0,
                 ref failures);
 
-            var replay = service.ApplyRecommendedDungeonClear(
-                AccountId,
-                CharacterId,
-                "daily-attendance",
-                86,
-                1,
-                firstClear);
-            Check(
-                "replayed clear event does not increment recommended count twice",
-                replay.Snapshot.TodayRecommendClearCount == 1
-                && replay.Snapshot.TotalAttendanceCount == 0
-                && CountRows(
-                    database,
-                    "event_daily_attendance_anytime_clear_events") == 1
-                && CountRows(database, "mailbox_messages") == 0,
-                ref failures);
-
+            var secondStats = statsService.RecordClear(AccountId);
             var second = service.ApplyRecommendedDungeonClear(
                 AccountId,
                 CharacterId,
                 "daily-attendance",
                 86,
                 1,
+                secondStats.DailyClearCount,
                 secondClear);
             Check(
-                "second suitable clear signs attendance and mails daily reward",
+                "same suitable dungeon cleared again signs attendance and mails daily reward",
                 second.Status == DailyAttendanceAnytimeClearStatus.Attended
                 && second.MailDelivered
                 && second.Snapshot.TodayRecommendClearCount == 2
@@ -288,6 +297,7 @@ PRAGMA user_version=15;";
                 "daily-attendance",
                 86,
                 1,
+                statsService.RecordClear(AccountId).DailyClearCount,
                 Guid.Parse("23700000-0000-0000-0000-000000000003"));
             Check(
                 "same day after attendance does not send another reward",
@@ -299,19 +309,23 @@ PRAGMA user_version=15;";
             for (var dayOffset = 1; dayOffset < config.MaxAttendanceDays; dayOffset++)
             {
                 now = LocalDay(dayOffset);
+                var dailyFirstStats = statsService.RecordClear(AccountId);
                 service.ApplyRecommendedDungeonClear(
                     AccountId,
                     CharacterId,
                     "daily-attendance",
                     86,
                     1,
+                    dailyFirstStats.DailyClearCount,
                     Guid.NewGuid());
+                var dailySecondStats = statsService.RecordClear(AccountId);
                 service.ApplyRecommendedDungeonClear(
                     AccountId,
                     CharacterId,
                     "daily-attendance",
                     86,
                     1,
+                    dailySecondStats.DailyClearCount,
                     Guid.NewGuid());
             }
 
@@ -323,12 +337,14 @@ PRAGMA user_version=15;";
                 ref failures);
 
             now = LocalDay(config.MaxAttendanceDays);
+            var overflowStats = statsService.RecordClear(AccountId);
             var overflow = service.ApplyRecommendedDungeonClear(
                 AccountId,
                 CharacterId,
                 "daily-attendance",
                 86,
                 1,
+                overflowStats.DailyClearCount,
                 Guid.NewGuid());
             Check(
                 "after 28 days further clears no longer sign or mail rewards",
@@ -353,20 +369,25 @@ PRAGMA user_version=15;";
                 ref failures);
 
             SetAccountProgress(database, totalAttendanceCount: 4, claimedMask: 0);
+            now = LocalDay(config.MaxAttendanceDays + 1);
             var dailyUnlockMailsBefore = CountRows(database, "mailbox_messages");
+            var dailyUnlockFirstStats = statsService.RecordClear(AccountId);
             service.ApplyRecommendedDungeonClear(
                 AccountId,
                 CharacterId,
                 "daily-attendance",
                 86,
                 1,
+                dailyUnlockFirstStats.DailyClearCount,
                 Guid.NewGuid());
+            var dailyUnlockSecondStats = statsService.RecordClear(AccountId);
             var dailyUnlock = service.ApplyRecommendedDungeonClear(
                 AccountId,
                 CharacterId,
                 "daily-attendance",
                 86,
                 1,
+                dailyUnlockSecondStats.DailyClearCount,
                 Guid.NewGuid());
             Check(
                 "natural 4 to 5 attendance unlocks first accumulate claim bit",

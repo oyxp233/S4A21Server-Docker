@@ -1,5 +1,6 @@
 using System;
 using DfoServer.Game.DailyReset;
+using DfoServer.Game.Events.RecommendedDungeons;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Mailbox;
 using DfoServer.Infrastructure;
@@ -13,6 +14,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
         private readonly DailyAttendanceAnytimeConfigProvider _configProvider;
         private readonly DailyAttendanceAnytimeConfig _configOverride;
         private readonly DailyAttendanceAnytimeRepository _repository;
+        private readonly RecommendDungeonClearStatsRepository _recommendStats;
         private readonly Func<DateTimeOffset> _nowProvider;
 
         internal DailyAttendanceAnytimeService(
@@ -20,7 +22,8 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
             MailboxService mailbox,
             DailyAttendanceAnytimeConfigProvider configProvider = null,
             DailyAttendanceAnytimeConfig config = null,
-            Func<DateTimeOffset> nowProvider = null)
+            Func<DateTimeOffset> nowProvider = null,
+            RecommendDungeonClearStatsRepository recommendStats = null)
         {
             _database = database ?? throw new ArgumentNullException(nameof(database));
             _mailbox = mailbox ?? throw new ArgumentNullException(nameof(mailbox));
@@ -28,6 +31,8 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                 ?? DailyAttendanceAnytimeConfigProvider.Instance;
             _configOverride = config;
             _repository = new DailyAttendanceAnytimeRepository(_database);
+            _recommendStats = recommendStats
+                ?? new RecommendDungeonClearStatsRepository(_database);
             _nowProvider = nowProvider ?? (() => DateTimeOffset.UtcNow);
         }
 
@@ -36,6 +41,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
 
         internal void Initialize()
         {
+            _recommendStats.EnsureSchema();
             _repository.EnsureStaticConfigRows(CurrentConfig);
         }
 
@@ -61,6 +67,12 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                     if (!_repository.IsEnabled(connection, transaction))
                         return;
 
+                    var todayRecommendClearCount =
+                        _recommendStats.LoadDailyCount(
+                            connection,
+                            transaction,
+                            accountId,
+                            dayId);
                     local = _repository.LoadSnapshot(
                         connection,
                         transaction,
@@ -68,6 +80,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                         characterId,
                         config,
                         dayId,
+                        todayRecommendClearCount,
                         nowUnix,
                         eventEnabled: true);
                 });
@@ -90,6 +103,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
             string characterName,
             int characterLevel,
             int dungeonId,
+            int todayRecommendClearCount,
             Guid sourceEventId)
         {
             if (accountId <= 0 || characterId <= 0)
@@ -101,9 +115,6 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                 };
             }
 
-            var clearEventId = sourceEventId == Guid.Empty
-                ? Guid.NewGuid()
-                : sourceEventId;
             try
             {
                 var now = _nowProvider();
@@ -146,6 +157,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                             characterId,
                             config,
                             dayId,
+                            todayRecommendClearCount,
                             nowUnix,
                             DailyAttendanceAnytimeClearStatus
                                 .AttendanceLimitReached);
@@ -155,6 +167,9 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                     var target = _repository.LoadRecommendClearTarget(
                         connection,
                         transaction);
+                    var visibleRecommendClearCount = Math.Min(
+                        target,
+                        Math.Max(0, todayRecommendClearCount));
                     var daily = _repository.LoadDailyProgress(
                         connection,
                         transaction,
@@ -170,38 +185,13 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                             characterId,
                             config,
                             dayId,
+                            visibleRecommendClearCount,
                             nowUnix,
                             DailyAttendanceAnytimeClearStatus.AlreadyAttended);
                         return;
                     }
 
-                    if (!_repository.TryRecordClearEvent(
-                            connection,
-                            transaction,
-                            accountId,
-                            characterId,
-                            config,
-                            dayId,
-                            clearEventId,
-                            dungeonId,
-                            nowUnix))
-                    {
-                        result = WithSnapshot(
-                            connection,
-                            transaction,
-                            accountId,
-                            characterId,
-                            config,
-                            dayId,
-                            nowUnix,
-                            DailyAttendanceAnytimeClearStatus.Progressed);
-                        return;
-                    }
-
-                    var nextCount = Math.Min(
-                        target,
-                        Math.Max(0, daily.RecommendClearCount) + 1);
-                    if (nextCount < target)
+                    if (visibleRecommendClearCount < target)
                     {
                         _repository.TrySetRecommendClearCount(
                             connection,
@@ -209,7 +199,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                             accountId,
                             config,
                             dayId,
-                            nextCount,
+                            visibleRecommendClearCount,
                             nowUnix);
                         result = WithSnapshot(
                             connection,
@@ -218,6 +208,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                             characterId,
                             config,
                             dayId,
+                            visibleRecommendClearCount,
                             nowUnix,
                             DailyAttendanceAnytimeClearStatus.Progressed);
                         return;
@@ -235,6 +226,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                                 characterId,
                                 config,
                                 dayId,
+                                visibleRecommendClearCount,
                                 nowUnix,
                                 DailyAttendanceAnytimeClearStatus
                                     .RewardUnavailable));
@@ -264,6 +256,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                                 characterId,
                                 config,
                                 dayId,
+                                visibleRecommendClearCount,
                                 nowUnix,
                                 DailyAttendanceAnytimeClearStatus.MailFailed));
                     }
@@ -293,12 +286,13 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                         characterId,
                         config,
                         dayId,
+                        visibleRecommendClearCount,
                         nowUnix,
                         DailyAttendanceAnytimeClearStatus.Attended,
                         mailDelivered: true);
                 });
 
-                LogClearResult(result, accountId, characterId, dungeonId, clearEventId);
+                LogClearResult(result, accountId, characterId, dungeonId, sourceEventId);
                 return result ?? new DailyAttendanceAnytimeClearResult
                 {
                     Status = DailyAttendanceAnytimeClearStatus
@@ -491,6 +485,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
             int characterId,
             DailyAttendanceAnytimeConfig config,
             int dayId,
+            int todayRecommendClearCount,
             long nowUnix,
             DailyAttendanceAnytimeClearStatus status,
             bool mailDelivered = false)
@@ -505,6 +500,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                     characterId,
                     config,
                     dayId,
+                    todayRecommendClearCount,
                     nowUnix,
                     eventEnabled: true),
                 MailDelivered = mailDelivered,
@@ -523,6 +519,11 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
             DailyAttendanceAnytimeReward reward = null,
             bool mailDelivered = false)
         {
+            var todayRecommendClearCount = _recommendStats.LoadDailyCount(
+                connection,
+                transaction,
+                accountId,
+                dayId);
             return new DailyAttendanceAnytimeClaimResult
             {
                 Status = status,
@@ -533,6 +534,7 @@ namespace DfoServer.Game.Events.DailyAttendanceAnytime
                     characterId,
                     config,
                     dayId,
+                    todayRecommendClearCount,
                     nowUnix,
                     eventEnabled: true),
                 MailDelivered = mailDelivered,

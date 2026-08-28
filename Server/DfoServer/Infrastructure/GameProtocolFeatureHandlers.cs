@@ -28,7 +28,8 @@ namespace DfoServer.Infrastructure
             CraneMiniGameHandler craneMiniGame,
             EventJoustHandler eventJoust,
             EventPcRoomTimePointHandler eventPcRoomTimePoint,
-            EventDailyAttendanceAnytimeHandler eventDailyAttendanceAnytime)
+            EventDailyAttendanceAnytimeHandler eventDailyAttendanceAnytime,
+            EventTotalAttendanceHandler eventTotalAttendance)
         {
             LotteryItem = lotteryItem
                 ?? throw new ArgumentNullException(nameof(lotteryItem));
@@ -65,6 +66,8 @@ namespace DfoServer.Infrastructure
             EventDailyAttendanceAnytime = eventDailyAttendanceAnytime
                 ?? throw new ArgumentNullException(
                     nameof(eventDailyAttendanceAnytime));
+            EventTotalAttendance = eventTotalAttendance
+                ?? throw new ArgumentNullException(nameof(eventTotalAttendance));
         }
 
         internal LotteryItemHandler LotteryItem { get; }
@@ -107,5 +110,7 @@ namespace DfoServer.Infrastructure
 
         internal EventDailyAttendanceAnytimeHandler
             EventDailyAttendanceAnytime { get; }
+
+        internal EventTotalAttendanceHandler EventTotalAttendance { get; }
     }
 }
