@@ -1291,6 +1291,51 @@ CREATE TABLE IF NOT EXISTS event_pcroom_timepoint_period (
     FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS event_daily_attendance_anytime_account (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    total_attendance_count INTEGER NOT NULL DEFAULT 0
+        CHECK(total_attendance_count >= 0),
+    accumulate_claimed_mask INTEGER NOT NULL DEFAULT 0
+        CHECK(accumulate_claimed_mask >= 0 AND accumulate_claimed_mask <= 7),
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, event_id, season_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS event_daily_attendance_anytime_daily (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    day_id INTEGER NOT NULL,
+    recommend_clear_count INTEGER NOT NULL DEFAULT 0
+        CHECK(recommend_clear_count >= 0),
+    attended INTEGER NOT NULL DEFAULT 0 CHECK(attended IN (0, 1)),
+    daily_reward_day_index INTEGER NOT NULL DEFAULT -1,
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, event_id, season_id, day_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_daily_attendance_anytime_daily_day
+    ON event_daily_attendance_anytime_daily(event_id, season_id, day_id);
+
+CREATE TABLE IF NOT EXISTS event_daily_attendance_anytime_clear_events (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    day_id INTEGER NOT NULL,
+    source_event_id TEXT NOT NULL,
+    dungeon_id INTEGER NOT NULL DEFAULT 0,
+    character_id INTEGER NOT NULL DEFAULT 0,
+    created_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (
+        account_id, event_id, season_id, day_id, source_event_id
+    ),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
 -- 服务端协议默认配置，不包含玩家账号或角色数据。
 INSERT OR IGNORE INTO get_userinfo_template (
     id,

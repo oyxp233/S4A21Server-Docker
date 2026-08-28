@@ -22,6 +22,8 @@ namespace DfoServer.Game.Dungeon
             "suitable-dungeon-lucky-star";
         internal const string SuitableDungeonDailyChallenge =
             "suitable-dungeon-daily-challenge";
+        internal const string SuitableDungeonDailyAttendanceAnytime =
+            "suitable-dungeon-daily-attendance-anytime";
         internal const string TowerOfDespairSettlementCommit =
             "tower-of-despair-settlement-commit";
         internal const string CardRewardFreeCommit =

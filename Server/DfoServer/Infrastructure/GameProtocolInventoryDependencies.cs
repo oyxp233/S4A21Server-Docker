@@ -1,5 +1,6 @@
 using DfoServer.Game.Accounts;
 using DfoServer.Game.CharacterData;
+using DfoServer.Game.Events.DailyAttendanceAnytime;
 using DfoServer.Game.ExpertJob;
 using DfoServer.Game.KnightShield;
 using DfoServer.Game.Mailbox;
@@ -22,6 +23,7 @@ namespace DfoServer.Infrastructure
             SqliteSubtype0FieldsRepository subtype0Repository,
             HonorLevelSyncService honorLevel,
             MailboxService mailboxService,
+            DailyAttendanceAnytimeService dailyAttendanceAnytime,
             MailboxInventoryOverflowRewardSink overflowRewardSink)
         {
             InventoryRefreshSender = inventoryRefreshSender
@@ -44,6 +46,9 @@ namespace DfoServer.Infrastructure
                 ?? throw new ArgumentNullException(nameof(honorLevel));
             MailboxService = mailboxService
                 ?? throw new ArgumentNullException(nameof(mailboxService));
+            DailyAttendanceAnytime = dailyAttendanceAnytime
+                ?? throw new ArgumentNullException(
+                    nameof(dailyAttendanceAnytime));
             OverflowRewardSink = overflowRewardSink
                 ?? throw new ArgumentNullException(nameof(overflowRewardSink));
         }
@@ -67,6 +72,8 @@ namespace DfoServer.Infrastructure
         internal HonorLevelSyncService HonorLevel { get; }
 
         internal MailboxService MailboxService { get; }
+
+        internal DailyAttendanceAnytimeService DailyAttendanceAnytime { get; }
 
         internal MailboxInventoryOverflowRewardSink OverflowRewardSink { get; }
     }

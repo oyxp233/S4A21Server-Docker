@@ -36,6 +36,7 @@ namespace DfoServer
             ("--selftest-a21-daily-challenge", SelfTests.A21DailyChallengeSelfTest.Run),
             ("--selftest-a21-joust-event", SelfTests.A21JoustEventSelfTest.Run),
             ("--selftest-a21-pcroom-timepoint-event", SelfTests.A21PcRoomTimePointEventSelfTest.Run),
+            ("--selftest-a21-daily-attendance-anytime-event", SelfTests.A21DailyAttendanceAnytimeEventSelfTest.Run),
             ("--selftest-a21-death-tower-protocol", SelfTests.A21DeathTowerProtocolSelfTest.Run),
             ("--selftest-a21-special-dungeon-protocol", SelfTests.A21SpecialDungeonProtocolSelfTest.Run),
             ("--selftest-dungeon-entry-limit", SelfTests.DungeonEntryLimitServiceSelfTest.Run),
