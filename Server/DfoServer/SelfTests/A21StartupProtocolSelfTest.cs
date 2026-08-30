@@ -109,7 +109,10 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToUInt32(dimensionGateBody, 4) == 2,
                 ref failures);
 
-            var hiddenAvatar = Copy(AccountSettings.DefaultMainGameOption);
+            // 模拟一条已保存的账号主选项（idx55 FullAvatar 关闭，应被强制修补）。
+            var hiddenAvatar = new byte[(AccountSettings.FullAvatarOptionIndex + 12) * 2];
+            for (var i = 0; i + 1 < hiddenAvatar.Length; i += 2)
+                hiddenAvatar[i] = 1;
             var fullAvatarOffset = AccountSettings.FullAvatarOptionIndex * 2;
             hiddenAvatar[fullAvatarOffset] = 0;
             hiddenAvatar[fullAvatarOffset + 1] = 0;
@@ -129,6 +132,14 @@ namespace DfoServer.SelfTests
                 persistedMain != null
                 && persistedMain[fullAvatarOffset] == 1
                 && persistedMain[fullAvatarOffset + 1] == 0,
+                ref failures);
+
+            var emptyOption = AccountSettingsPacketBuilder.BuildSelectScreenGameOption(
+                new AccountSettings(),
+                out var emptyPersistedMain);
+            Check(
+                "A21 select-screen 00AD is omitted when no settings saved",
+                emptyOption == null && emptyPersistedMain == null,
                 ref failures);
 
             var channelHandler = new ChannelProtocolHandler();
@@ -439,13 +450,6 @@ namespace DfoServer.SelfTests
                     ? "A21_STARTUP_PROTOCOL selftest passed."
                     : $"A21_STARTUP_PROTOCOL selftest failed: {failures}");
             return failures == 0 ? 0 : 1;
-        }
-
-        private static byte[] Copy(byte[] source)
-        {
-            var result = new byte[source.Length];
-            Buffer.BlockCopy(source, 0, result, 0, source.Length);
-            return result;
         }
 
         private static bool HasValidInitialLoginNoticeLayout(
