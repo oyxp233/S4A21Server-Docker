@@ -1879,6 +1879,29 @@ namespace DfoServer.Network.Handlers.Dungeon
                     }
                 }
 
+                if (ShouldProjectSoulRechallengeReady(
+                        standardPresentation,
+                        DfoServer.GameWorld.DungeonCatalog.IsSoulDungeon(
+                            run.DungeonId))
+                    && !await ExecuteClearEffectAsync(
+                        session,
+                        run,
+                        identity,
+                        clearFact,
+                        "soul-eplp-rechallenge-ready",
+                        async () => await session.SendPacketAsync(
+                            GamePacketEnvelopeBuilder.Build(
+                                0x00,
+                                (ushort)NotiPacketTypeA21.EPLP_RECHALLENGE,
+                                DungeonNotificationBuilder
+                                    .BuildEplpRechallengeReady()))))
+                {
+                    run.Effects.TryFail(clearReservation);
+                    run.Instance.ParticipantEffects.TryFail(
+                        participantReservation);
+                    return false;
+                }
+
                 if (!await ExecuteClearEffectAsync(
                         session,
                         run,
@@ -2434,6 +2457,11 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             return 0;
         }
+
+        internal static bool ShouldProjectSoulRechallengeReady(
+            bool standardPresentation,
+            bool isSoulDungeon)
+            => standardPresentation && isSoulDungeon;
 
         private static bool ShouldSyncQuestConnectedStartMapOnDungeonClear(
             DungeonRun run,

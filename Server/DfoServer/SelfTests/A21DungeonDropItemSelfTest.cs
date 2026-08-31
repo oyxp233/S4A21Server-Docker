@@ -1,7 +1,10 @@
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Inventory;
 using DfoServer.GameWorld;
+using DfoServer.Network;
 using DfoServer.Network.Builders;
+using DfoServer.Network.Handlers.Dungeon;
+using PvfLib;
 using System;
 using System.IO;
 using System.Linq;
@@ -59,6 +62,7 @@ namespace DfoServer.SelfTests
             VerifyDimensionGateParser(ref failures);
             VerifyEpicBuffPotionRarityReroll(ref failures);
             VerifyRealPvfDimensionDrop(ref failures);
+            VerifySoulRechallengeContract(ref failures);
 
             Console.WriteLine(
                 failures == 0
@@ -96,6 +100,48 @@ namespace DfoServer.SelfTests
 
         private static int ReadInt32(byte[] data, int offset)
             => BitConverter.ToInt32(data, offset);
+
+        private static void VerifySoulRechallengeContract(ref int failures)
+        {
+            var body = DungeonNotificationBuilder.BuildEplpRechallengeReady();
+            Check(
+                "Soul rechallenge uses the exact native A21 one-byte success result",
+                (ushort)NotiPacketTypeA21.EPLP_RECHALLENGE == 0x0105
+                && body.Length == 1
+                && body[0] == 9,
+                ref failures);
+
+            Check(
+                "Soul classification requires both PVF ancient and risk flags",
+                DungeonCatalog.IsSoulDungeon(new DungeonFile
+                {
+                    AncientDungeon = true,
+                    RiskDungeon = true,
+                })
+                && !DungeonCatalog.IsSoulDungeon(new DungeonFile
+                {
+                    AncientDungeon = true,
+                })
+                && !DungeonCatalog.IsSoulDungeon(new DungeonFile
+                {
+                    RiskDungeon = true,
+                })
+                && !DungeonCatalog.IsSoulDungeon((DungeonFile)null),
+                ref failures);
+
+            Check(
+                "Soul rechallenge notification does not widen nonstandard or non-Soul clears",
+                DungeonSettlementHandler.ShouldProjectSoulRechallengeReady(
+                    standardPresentation: true,
+                    isSoulDungeon: true)
+                && !DungeonSettlementHandler.ShouldProjectSoulRechallengeReady(
+                    standardPresentation: false,
+                    isSoulDungeon: true)
+                && !DungeonSettlementHandler.ShouldProjectSoulRechallengeReady(
+                    standardPresentation: true,
+                    isSoulDungeon: false),
+                ref failures);
+        }
 
         private static void VerifyRealPvfIndependentDrop(ref int failures)
         {
