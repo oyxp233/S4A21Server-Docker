@@ -637,7 +637,7 @@ CREATE TABLE IF NOT EXISTS character_subtype0_fields (
     channel_display_mode INTEGER NOT NULL DEFAULT 0,    -- +74 u16
     channel_type INTEGER NOT NULL DEFAULT 0,            -- +76 u8
     channel_id INTEGER NOT NULL DEFAULT 2,              -- 历史快照字段，不再序列化到 subtype0 +77
-    mood_value INTEGER NOT NULL DEFAULT 0,              -- +77 u16 mood popup default; 0=normal
+    mood_value INTEGER NOT NULL DEFAULT 0,              -- +77 u16 mood popup default; 0=normal; A21 无工会 64B 尾 +59
     is_return_user INTEGER NOT NULL DEFAULT 0,          -- +80 u8
     link_slot_enabled INTEGER NOT NULL DEFAULT 0,       -- +81 u8
     link_type_a INTEGER NOT NULL DEFAULT 0,             -- +82 u8 (sub_F50410)
