@@ -57,6 +57,7 @@ namespace DfoServer.SelfTests
 
             VerifyRealPvfIndependentDrop(ref failures);
             VerifyDimensionGateParser(ref failures);
+            VerifyEpicBuffPotionRarityReroll(ref failures);
             VerifyRealPvfDimensionDrop(ref failures);
 
             Console.WriteLine(
@@ -166,6 +167,53 @@ namespace DfoServer.SelfTests
                     new[] { 1001, 1002, 1003 })
                 && definition.SetItems.SequenceEqual(
                     new[] { 2001, 2002, 2003 }),
+                ref failures);
+        }
+
+        private static void VerifyEpicBuffPotionRarityReroll(ref int failures)
+        {
+            var inactiveCalls = 0;
+            Check(
+                "epic buff potion rarity reroll is skipped while inactive",
+                HellMonsterDropConfig.ApplyEpicBuffPotionRarityRerollForSelfTest(
+                    2,
+                    false,
+                    () =>
+                    {
+                        inactiveCalls++;
+                        return 4;
+                    }) == 2
+                && inactiveCalls == 0,
+                ref failures);
+
+            var alreadyEpicCalls = 0;
+            Check(
+                "epic buff potion rarity reroll is skipped for initial epic",
+                HellMonsterDropConfig.ApplyEpicBuffPotionRarityRerollForSelfTest(
+                    4,
+                    true,
+                    () =>
+                    {
+                        alreadyEpicCalls++;
+                        return 0;
+                    }) == 4
+                && alreadyEpicCalls == 0,
+                ref failures);
+
+            Check(
+                "epic buff potion rarity reroll keeps first non-epic miss",
+                HellMonsterDropConfig.ApplyEpicBuffPotionRarityRerollForSelfTest(
+                    2,
+                    true,
+                    () => 3) == 2,
+                ref failures);
+
+            Check(
+                "epic buff potion rarity reroll promotes only second epic roll",
+                HellMonsterDropConfig.ApplyEpicBuffPotionRarityRerollForSelfTest(
+                    2,
+                    true,
+                    () => 4) == 4,
                 ref failures);
         }
 
