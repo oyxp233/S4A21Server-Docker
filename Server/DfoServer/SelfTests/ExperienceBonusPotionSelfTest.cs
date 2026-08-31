@@ -234,7 +234,9 @@ namespace DfoServer.SelfTests
                     effectItems.Count == 1,
                     ref failures);
 
-                // 登录 0x00AC 共享冷却组展开（依赖 PVF 组索引）。
+                // 登录 0x00AC 只下发实际记录的冷却条目，不做 [cooltime group] 展开：
+                // 同组冷却是使用时按组校验拦截（IsCooltimeBlocked），
+                // 客户端收到单条冷却后自行按 PVF 组数据联动显示。
                 InsertItemState(
                     database,
                     CharacterId,
@@ -251,15 +253,13 @@ namespace DfoServer.SelfTests
                     CharacterId,
                     snapshot,
                     now);
-                Check("login cooltime list expands same-group members",
+                Check("login cooltime list contains only actually recorded entries",
                     snapshot.CooltimeItemStates.Any(
                         entry => entry.ItemId == PotionItemId && entry.ExpireTime == 600)
-                        && snapshot.CooltimeItemStates.Any(
-                            entry => entry.ItemId == SiblingPotionItemId && entry.ExpireTime == 600)
-                        && snapshot.CooltimeItemStates.Count
-                            == snapshot.CooltimeItemStates.Select(entry => entry.ItemId).Distinct().Count(),
+                        && snapshot.CooltimeItemStates.All(
+                            entry => entry.ItemId != SiblingPotionItemId),
                     ref failures);
-                Check("expired cooltime rows are dropped before group expansion",
+                Check("expired cooltime rows are dropped on login",
                     snapshot.CooltimeItemStates.All(entry => entry.ExpireTime > 0),
                     ref failures);
             }

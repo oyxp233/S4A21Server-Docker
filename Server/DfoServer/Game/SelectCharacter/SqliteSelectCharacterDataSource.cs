@@ -503,7 +503,6 @@ namespace DfoServer.Game.SelectCharacter
             {
                 ProjectLoadedItemStateSnapshots(initSnapshot.CooltimeItemStates, now);
                 ProjectLoadedItemStateSnapshots(initSnapshot.EffectItemStates, now);
-                ExpandCooltimeGroups(initSnapshot.CooltimeItemStates);
                 return;
             }
 
@@ -517,43 +516,10 @@ namespace DfoServer.Game.SelectCharacter
                 initSnapshot.EffectItemStates.Clear();
                 initSnapshot.EffectItemStates.AddRange(
                     lease.Inventory.ItemStates.BuildActiveSnapshots(ItemStateKinds.Effect, now));
-                ExpandCooltimeGroups(initSnapshot.CooltimeItemStates);
             }
 
             if (removedExpired)
                 InventoryPersistenceService.SaveDirty(lease);
-        }
-
-        // 共享冷却 [cooltime group]：同组任一道具冷却中，登录下发时同组成员
-        // 一并展开（相同剩余秒），客户端整组进入冷却。
-        private static void ExpandCooltimeGroups(List<ItemStateEntrySnapshot> items)
-        {
-            if (items == null || items.Count == 0)
-                return;
-
-            var known = new HashSet<int>();
-            foreach (var item in items)
-            {
-                if (item != null)
-                    known.Add(item.ItemId);
-            }
-
-            for (var index = 0; index < items.Count; index++)
-            {
-                var entry = items[index];
-                if (entry == null)
-                    continue;
-                foreach (var memberId in StackableItemProvider.ResolveCooltimeGroupMembers(entry.ItemId))
-                {
-                    if (memberId <= 0 || !known.Add(memberId))
-                        continue;
-                    items.Add(new ItemStateEntrySnapshot
-                    {
-                        ItemId = memberId,
-                        ExpireTime = entry.ExpireTime,
-                    });
-                }
-            }
         }
 
         // 秘药效果（0x00AE）从未到期的 character_experience_bonus_effects 生成，
