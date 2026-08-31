@@ -26,7 +26,8 @@ namespace DfoServer.Infrastructure
             GrowthCapsuleHandler growthCapsule,
             GoldLimitHandler goldLimit,
             CraneMiniGameHandler craneMiniGame,
-            EventJoustHandler eventJoust)
+            EventJoustHandler eventJoust,
+            EventPcRoomTimePointHandler eventPcRoomTimePoint)
         {
             LotteryItem = lotteryItem
                 ?? throw new ArgumentNullException(nameof(lotteryItem));
@@ -58,6 +59,8 @@ namespace DfoServer.Infrastructure
                 ?? throw new ArgumentNullException(nameof(craneMiniGame));
             EventJoust = eventJoust
                 ?? throw new ArgumentNullException(nameof(eventJoust));
+            EventPcRoomTimePoint = eventPcRoomTimePoint
+                ?? throw new ArgumentNullException(nameof(eventPcRoomTimePoint));
         }
 
         internal LotteryItemHandler LotteryItem { get; }
@@ -95,5 +98,7 @@ namespace DfoServer.Infrastructure
         internal CraneMiniGameHandler CraneMiniGame { get; }
 
         internal EventJoustHandler EventJoust { get; }
+
+        internal EventPcRoomTimePointHandler EventPcRoomTimePoint { get; }
     }
 }

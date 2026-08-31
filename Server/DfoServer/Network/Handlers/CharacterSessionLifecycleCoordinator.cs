@@ -35,6 +35,7 @@ namespace DfoServer.Network.Handlers
         private readonly LotteryItemHandler _lotteryItemHandler;
         private readonly CraneMiniGameHandler _craneMiniGameHandler;
         private readonly EventJoustHandler _eventJoustHandler;
+        private readonly EventPcRoomTimePointHandler _eventPcRoomTimePointHandler;
         private readonly PvpRoomHandler _pvpRoomHandler;
         private readonly InventoryRefreshSender _inventoryRefreshSender;
         private readonly IGameDatabase _database;
@@ -54,6 +55,7 @@ namespace DfoServer.Network.Handlers
             LotteryItemHandler lotteryItemHandler,
             CraneMiniGameHandler craneMiniGameHandler,
             EventJoustHandler eventJoustHandler,
+            EventPcRoomTimePointHandler eventPcRoomTimePointHandler,
             PvpRoomHandler pvpRoomHandler,
             InventoryRefreshSender inventoryRefreshSender,
             IGameDatabase database,
@@ -72,6 +74,7 @@ namespace DfoServer.Network.Handlers
             _lotteryItemHandler = lotteryItemHandler;
             _craneMiniGameHandler = craneMiniGameHandler;
             _eventJoustHandler = eventJoustHandler;
+            _eventPcRoomTimePointHandler = eventPcRoomTimePointHandler;
             _pvpRoomHandler = pvpRoomHandler;
             _inventoryRefreshSender = inventoryRefreshSender;
             _database = database ?? throw new ArgumentNullException(nameof(database));
@@ -121,6 +124,9 @@ namespace DfoServer.Network.Handlers
                         {
                             // 下线 hook：必须在 unregister 前执行，此时目录仍含本会话，
                             // 好友推送（0x0112 退出频道 + 同频道 USER_LEAVE）才能判定在线集合。
+                            await NotifyPcRoomSessionEndingSafeAsync(
+                                session,
+                                "disconnect");
                             await UnitedFriendSystem.NotifyPlayerDisconnected(
                                 session, _sessionDirectory);
                             ownsGeneration = await _sessionDirectory
@@ -455,6 +461,9 @@ namespace DfoServer.Network.Handlers
                     await _dungeonRejoin.ProjectCandidateAsync(session);
                     if (_eventJoustHandler != null)
                         await _eventJoustHandler.NotifyStateOnLoginAsync(session);
+                    if (_eventPcRoomTimePointHandler != null)
+                        await _eventPcRoomTimePointHandler
+                            .NotifyStateOnLoginAsync(session);
                     // 上线 hook：初始好友列表已由 init 包流下发
                     // （UnitedServerFriendInfoBodyBuilder），这里只做单向推送——
                     // 0x0112 进入频道 + 同频道补发 0x0111 归零频道文字 + USERINFO 实体。
@@ -526,6 +535,9 @@ namespace DfoServer.Network.Handlers
                 await _expertJobStoreHandler.CloseSessionAsync(
                     session,
                     includeOwner: true);
+                await NotifyPcRoomSessionEndingSafeAsync(
+                    session,
+                    "return_select");
                 await _townHandler.NotifyLeaveAsync(session);
                 _townHandler.PersistPosition(
                     session,
@@ -676,6 +688,9 @@ namespace DfoServer.Network.Handlers
                 await _expertJobStoreHandler.CloseSessionAsync(
                     session,
                     includeOwner: true);
+                await NotifyPcRoomSessionEndingSafeAsync(
+                    session,
+                    "select_character");
                 await _townHandler.NotifyLeaveAsync(session);
                 _townHandler.PersistPosition(
                     session,
@@ -783,6 +798,27 @@ namespace DfoServer.Network.Handlers
             }
         }
 
+        private async Task NotifyPcRoomSessionEndingSafeAsync(
+            EnhancedClientSession session,
+            string source)
+        {
+            if (_eventPcRoomTimePointHandler == null)
+                return;
+
+            try
+            {
+                await _eventPcRoomTimePointHandler.NotifySessionEndingAsync(
+                    session,
+                    source);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] {source} pcroomtimepoint cleanup " +
+                    $"failed cid={session?.Player?.CharacterId ?? 0}: {ex}");
+            }
+        }
+
         private void RecordAccountLogout(
             EnhancedClientSession session,
             string source)
@@ -829,6 +865,9 @@ namespace DfoServer.Network.Handlers
                 await _expertJobStoreHandler.CloseSessionAsync(
                     displaced,
                     includeOwner: false);
+                await NotifyPcRoomSessionEndingSafeAsync(
+                    displaced,
+                    "select-displaced");
             }
             catch (Exception ex)
             {
@@ -948,6 +987,9 @@ namespace DfoServer.Network.Handlers
             if (removed
                 && session.Player?.CharacterId == characterId)
             {
+                await NotifyPcRoomSessionEndingSafeAsync(
+                    session,
+                    "select-rollback");
                 try
                 {
                     await _townHandler.NotifyLeaveAsync(session);

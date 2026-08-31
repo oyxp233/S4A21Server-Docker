@@ -52,6 +52,7 @@ namespace DfoServer.Network
         private readonly GoldLimitHandler _goldLimitHandler;
         private readonly CraneMiniGameHandler _craneMiniGameHandler;
         private readonly EventJoustHandler _eventJoustHandler;
+        private readonly EventPcRoomTimePointHandler _eventPcRoomTimePointHandler;
         private readonly ExpertJobStoreHandler _expertJobStoreHandler;
         private readonly ExpertJobExtractionHandler _expertJobExtractionHandler;
         private readonly ExpertJobCompoundHandler _expertJobCompoundHandler;
@@ -207,6 +208,7 @@ namespace DfoServer.Network
             _goldLimitHandler = featureHandlers.GoldLimit;
             _craneMiniGameHandler = featureHandlers.CraneMiniGame;
             _eventJoustHandler = featureHandlers.EventJoust;
+            _eventPcRoomTimePointHandler = featureHandlers.EventPcRoomTimePoint;
             _pvpChannelInfoHandler = socialHandlers.PvpChannelInfo;
             _pvpRoomHandler = socialHandlers.PvpRoom;
             _characterSessionLifecycle = characterSessionLifecycle;
@@ -729,7 +731,7 @@ namespace DfoServer.Network
             d[0x0084] = (s, h, b) => HandleRaidAwareDungeonExit(s, h, b, _townHandler.Handle_ENUM_CMDPACKET_GIVEUP_GAME, "back-to-village");
             d[0x00ED] = _townHandler.Handle_ENUM_CMDPACKET_TELEPORT;
             d[(ushort)CmdPacketTypeA21.GET_PCROOM_TIME_POINT_ITEM] =
-                _townHandler.Handle_ENUM_CMDPACKET_GET_PCROOM_TIME_POINT_ITEM;
+                _eventPcRoomTimePointHandler.HandleAsync;
             d[(ushort)CmdPacketType.PARTY_TELEPORT] =
                 _townHandler.Handle_ENUM_CMDPACKET_PARTY_TELEPORT;
         }

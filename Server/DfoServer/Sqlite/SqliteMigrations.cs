@@ -37,6 +37,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(12, "compress_character_slot_holes", ApplyCompressCharacterSlotHoles),
                 new MigrationStep(13, "add_dungeon_entry_limits", ApplyDungeonEntryLimits),
                 new MigrationStep(14, "remove_dungeon_limit_noti2_entry_flag", ApplyRemoveDungeonLimitNoti2EntryFlag),
+                new MigrationStep(15, "add_pcroom_timepoint_event", ApplyPcRoomTimePointEvent),
             };
 
         internal static int CurrentVersion =>
@@ -892,6 +893,47 @@ INSERT OR IGNORE INTO dungeon_limit_config (
     (4127, 'charac', 1, 1, 23),
     (4128, 'charac', 1, 1, 24),
     (4123, 'charac', 3, 1, 25);");
+        }
+
+        private static void ApplyPcRoomTimePointEvent(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            ExecuteSql(connection, transaction, @"
+CREATE TABLE IF NOT EXISTS event_pcroom_timepoint_daily (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    day_id INTEGER NOT NULL,
+    online_millis INTEGER NOT NULL DEFAULT 0 CHECK(online_millis >= 0),
+    daily_claim_mask INTEGER NOT NULL DEFAULT 0
+        CHECK(daily_claim_mask >= 0 AND daily_claim_mask <= 15),
+    cycle_recorded INTEGER NOT NULL DEFAULT 0
+        CHECK(cycle_recorded IN (0, 1)),
+    last_flushed_at_unix INTEGER NOT NULL DEFAULT 0,
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, event_id, season_id, day_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_pcroom_timepoint_daily_day
+    ON event_pcroom_timepoint_daily(event_id, season_id, day_id);
+
+CREATE TABLE IF NOT EXISTS event_pcroom_timepoint_period (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    completed_cycle_count INTEGER NOT NULL DEFAULT 0
+        CHECK(completed_cycle_count >= 0),
+    period_claim_mask INTEGER NOT NULL DEFAULT 0
+        CHECK(period_claim_mask >= 0 AND period_claim_mask <= 15),
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, event_id, season_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+INSERT OR IGNORE INTO game_event_state(event_id, state)
+VALUES(228, 0);");
         }
 
         private static void ImportCharacterNewItems(

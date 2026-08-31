@@ -1,5 +1,6 @@
 using System;
 using DfoServer.Game.Events.Joust;
+using DfoServer.Game.Events.PcRoomTimePoint;
 using DfoServer.Infrastructure;
 
 namespace DfoServer.Game.Events
@@ -22,6 +23,11 @@ namespace DfoServer.Game.Events
             joustConfig.Warmup();
             new JoustRepository(Database)
                 .EnsureStaticConfigRows(joustConfig.Current);
+
+            var pcRoomConfig = PcRoomTimePointConfigProvider.Instance;
+            pcRoomConfig.Warmup();
+            new PcRoomTimePointRepository(Database)
+                .EnsureStaticConfigRows(pcRoomConfig.Current);
         }
 
         internal GameEventInfoSnapshot LoadEventInfoSnapshot()

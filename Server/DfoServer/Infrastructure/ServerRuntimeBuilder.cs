@@ -5,6 +5,7 @@ using DfoServer.Game.DailyReset;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Events;
 using DfoServer.Game.Events.Joust;
+using DfoServer.Game.Events.PcRoomTimePoint;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.ExpertJob;
 using DfoServer.Game.KnightShield;
@@ -707,6 +708,15 @@ namespace DfoServer.Infrastructure
                 inventory.InventoryRefreshSender,
                 world.Sessions);
             eventJoustHandler.RegisterClock(ClockService.Instance);
+            var pcRoomTimePointService = new PcRoomTimePointService(
+                core.Database,
+                inventory.MailboxService);
+            pcRoomTimePointService.Initialize();
+            var eventPcRoomTimePointHandler =
+                new EventPcRoomTimePointHandler(
+                    pcRoomTimePointService,
+                    world.Sessions);
+            eventPcRoomTimePointHandler.RegisterClock(ClockService.Instance);
 
             return new GameProtocolFeatureHandlers(
                 lotteryItem,
@@ -762,7 +772,8 @@ namespace DfoServer.Infrastructure
                 new CraneMiniGameHandler(
                     inventory.InventoryRefreshSender,
                     inventory.OverflowRewardSink),
-                eventJoustHandler);
+                eventJoustHandler,
+                eventPcRoomTimePointHandler);
         }
 
         internal CharacterSessionLifecycleCoordinator
@@ -872,6 +883,7 @@ namespace DfoServer.Infrastructure
                 featureHandlers.LotteryItem,
                 featureHandlers.CraneMiniGame,
                 featureHandlers.EventJoust,
+                featureHandlers.EventPcRoomTimePoint,
                 socialHandlers.PvpRoom,
                 inventory.InventoryRefreshSender,
                 core.Database,

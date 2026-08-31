@@ -1259,6 +1259,38 @@ CREATE TABLE IF NOT EXISTS event_joust_history (
     settled_at_unix INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS event_pcroom_timepoint_daily (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    day_id INTEGER NOT NULL,
+    online_millis INTEGER NOT NULL DEFAULT 0 CHECK(online_millis >= 0),
+    daily_claim_mask INTEGER NOT NULL DEFAULT 0
+        CHECK(daily_claim_mask >= 0 AND daily_claim_mask <= 15),
+    cycle_recorded INTEGER NOT NULL DEFAULT 0
+        CHECK(cycle_recorded IN (0, 1)),
+    last_flushed_at_unix INTEGER NOT NULL DEFAULT 0,
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, event_id, season_id, day_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_pcroom_timepoint_daily_day
+    ON event_pcroom_timepoint_daily(event_id, season_id, day_id);
+
+CREATE TABLE IF NOT EXISTS event_pcroom_timepoint_period (
+    account_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL DEFAULT 1,
+    completed_cycle_count INTEGER NOT NULL DEFAULT 0
+        CHECK(completed_cycle_count >= 0),
+    period_claim_mask INTEGER NOT NULL DEFAULT 0
+        CHECK(period_claim_mask >= 0 AND period_claim_mask <= 15),
+    updated_at_unix INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, event_id, season_id),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE
+);
+
 -- 服务端协议默认配置，不包含玩家账号或角色数据。
 INSERT OR IGNORE INTO get_userinfo_template (
     id,
