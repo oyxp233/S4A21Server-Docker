@@ -61,6 +61,7 @@ namespace DfoServer.Game.SelectCharacter
             Raw(0x00, 0x015F);                      
             Raw(0x00, 0x00AC);                      
             Raw(0x00, 0x00AE);                      
+            Raw(0x00, (ushort)NotiPacketTypeA21.CHARACTER_ADD_BUFF);
             Raw(0x00, 0x017B);                      
             Raw(0x00, 0x03EB, 0);
             Raw(0x00, 0x03EB, 1);

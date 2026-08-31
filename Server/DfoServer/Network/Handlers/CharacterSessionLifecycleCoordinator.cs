@@ -444,6 +444,9 @@ namespace DfoServer.Network.Handlers
                     await _pvpRoomHandler.HandleLobbyReadyAsync(session);
                     await _inventoryRefreshSender
                         .SendAllEquipmentItemLockListRefresh(session);
+                    EpicBuffPotionBuffNotifier.ScheduleRemoveForCurrentEffect(
+                        session,
+                        selectedCharacterId);
                     await session.GameSession.QuestManager
                         .SyncItemSeekingQuestProgressAsync(null);
                     await PetCreatureRuntimeService.BeginTownAsync(
