@@ -2,6 +2,7 @@ using PvfLib;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace DfoServer.Game.Inventory
 {
@@ -10,8 +11,10 @@ namespace DfoServer.Game.Inventory
         internal const string LegacyType = "[legacy]";
         internal const string UpgradableLegacyType = "[upgradable legacy]";
         internal const string RandomUpgradableLegacyType = "[random upgradable legacy]";
+
         private static readonly object CacheLock = new object();
-        private static readonly Dictionary<int, StackableItemFile> Cache = new Dictionary<int, StackableItemFile>();
+        private static readonly Dictionary<int, StackableItemFile> Cache =
+            new Dictionary<int, StackableItemFile>();
 
         internal static StackableItemFile Load(int itemTemplateId)
         {
@@ -30,16 +33,38 @@ namespace DfoServer.Game.Inventory
                 if (entry == null)
                     return null;
 
-                var parsed = StackableItemFile.Parse(GameWorld.PvfArchiveAccessor.ReadText(Path.Combine("stackable", entry.FilePath)));
+                var parsed = StackableItemFile.Parse(
+                    GameWorld.PvfArchiveAccessor.ReadText(
+                        Path.Combine("stackable", entry.FilePath)));
                 lock (CacheLock)
                     Cache[itemTemplateId] = parsed;
                 return parsed;
             }
             catch (Exception ex)
             {
-                FileLogger.Log($"  [StackableItemProvider] failed to load item=0x{itemTemplateId:X8}: {ex.Message}");
+                FileLogger.Log(
+                    $"  [StackableItemProvider] failed to load item=0x{itemTemplateId:X8}: {ex.Message}");
                 return null;
             }
+        }
+
+        internal static int ResolveCooltimeGroup(int itemTemplateId)
+        {
+            var item = Load(itemTemplateId);
+            return TryParsePositiveInt(item?.CooltimeGroup, out var group) ? group : 0;
+        }
+
+        private static bool TryParsePositiveInt(string raw, out int value)
+        {
+            value = 0;
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            var text = raw.Trim().Trim('`').Trim();
+            var match = Regex.Match(text, @"(?<!\d)\d+");
+            return match.Success
+                && int.TryParse(match.Value, out value)
+                && value > 0;
         }
 
         internal static bool IsLegacyContainer(int itemTemplateId)

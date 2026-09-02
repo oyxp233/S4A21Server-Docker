@@ -98,14 +98,17 @@ namespace DfoServer.Game.Inventory
                 return Fail(result, InventoryTitleChangeError.TargetNotFound);
             if (target.ItemId != request.TargetItemId)
                 return Fail(result, InventoryTitleChangeError.TargetItemMismatch);
-            if (target.ItemKind != ItemCore.KindEquipment
-                || !ItemMetadataResolver.IsTitleEquipment(target.ItemId))
+            if ((!resolution.IsLimitedCube
+                    && target.ItemKind != ItemCore.KindEquipment)
+                || (!resolution.IsLimitedCube
+                    && !ItemMetadataResolver.IsTitleEquipment(target.ItemId)))
             {
                 return Fail(result, InventoryTitleChangeError.TargetNotTitle);
             }
             if (InventoryLockService.IsEquipmentItemLocked(inventory, target))
                 return Fail(result, InventoryTitleChangeError.TargetLocked);
-            if (!ItemMetadataResolver.IsTitleEquipment(resolution.ResultItemId))
+            if (!resolution.IsLimitedCube
+                && !ItemMetadataResolver.IsTitleEquipment(resolution.ResultItemId))
                 return Fail(result, InventoryTitleChangeError.ResultNotTitle);
 
             var additionalMaterials = resolution.AdditionalMaterials
@@ -149,7 +152,32 @@ namespace DfoServer.Game.Inventory
 
             var updatedTarget = target.Copy();
             updatedTarget.ItemId = resolution.ResultItemId;
-            if (updatedTarget.ItemId != target.ItemId
+            InventoryRewardGrantResult resultGrant = null;
+            if (ShouldSplitStackedTarget(resolution, target))
+            {
+                // A stacked orb change consumes one orb, not the whole stack.
+                var remainingTarget = target.Copy();
+                remainingTarget.Count--;
+                if (!inventory.SetItem(
+                        InventoryListType.Main,
+                        request.TargetSlotIndex,
+                        remainingTarget)
+                    || !InventoryRewardGrantService.TryInsertExisting(
+                        inventory,
+                        updatedTarget,
+                        1,
+                        ItemCreateReason.Unknown,
+                        null,
+                        out resultGrant)
+                    || resultGrant == null
+                    || !resultGrant.Success
+                    || resultGrant.GrantedCount != 1)
+                {
+                    rollback.Restore(inventory);
+                    return Fail(result, InventoryTitleChangeError.UpdateFailed);
+                }
+            }
+            else if (updatedTarget.ItemId != target.ItemId
                 && !inventory.SetItem(
                     InventoryListType.Main,
                     request.TargetSlotIndex,
@@ -170,6 +198,16 @@ namespace DfoServer.Game.Inventory
             result.SourceRemainingCount = inventory
                 .GetItem(InventoryListType.Main, request.SourceSlotIndex)?.Count ?? 0;
             return true;
+        }
+
+        internal static bool ShouldSplitStackedTarget(
+            InventoryTitleChangeResolution resolution,
+            ItemCore target)
+        {
+            return resolution != null
+                && resolution.IsLimitedCube
+                && InventoryStackRuleService.IsStackable(target)
+                && target.Count > 1;
         }
 
         private static InventoryTitleChangeResult CreateResult(

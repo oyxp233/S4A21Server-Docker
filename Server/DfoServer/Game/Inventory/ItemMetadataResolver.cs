@@ -371,6 +371,16 @@ namespace DfoServer.Game.Inventory
                     == EquipmentType.TitleName;
         }
 
+        // 快捷栏纹章 [exp advantage] 杀怪经验加成(百分比)。非纹章/无该字段返回 0。
+        public static int ResolveExpAdvantage(int itemTemplateId)
+        {
+            if (itemTemplateId <= 0)
+                return 0;
+            return TryLoadEquipmentFile(itemTemplateId, out var equipment)
+                ? Math.Max(0, equipment.ExpAdvantage)
+                : 0;
+        }
+
         internal static bool IsEquipmentUsableByJob(int itemTemplateId, byte characterJob)
         {
             if (!TryLoadEquipmentFile(itemTemplateId, out var equipment)
@@ -1058,14 +1068,45 @@ namespace DfoServer.Game.Inventory
 
         /// <summary>
         /// 判断物品是否为克隆装扮。克隆装扮的 PVF [item category] 段值为 "clear avatar"。
+        /// 转职光环也是 clear avatar，但它用虚拟动作替代光环外观，不能借用原光环 ID。
         /// </summary>
         public static bool IsCloneAvatarItem(int itemTemplateId)
         {
-            if (!TryLoadEquipmentFile(itemTemplateId, out var equipment))
-                return false;
+            return TryLoadEquipmentFile(itemTemplateId, out var equipment)
+                && IsClearAvatarCategory(equipment);
+        }
 
+        public static bool ShouldApplyCloneAppearance(int itemTemplateId)
+        {
+            return IsCloneAvatarItem(itemTemplateId)
+                && !IsAuroraLookReplaceAvatar(itemTemplateId);
+        }
+
+        public static bool IsAuroraLookReplaceAvatar(int itemTemplateId)
+        {
+            return TryLoadEquipmentFile(itemTemplateId, out var equipment)
+                && IsAuroraLookReplaceAvatar(equipment);
+        }
+
+        internal static bool IsAuroraLookReplaceAvatar(EquipmentFile equipment)
+        {
+            if (equipment == null)
+                return false;
+            if (EquipmentTypeInfo.ParseOrUnknown(equipment.EquipmentType) != EquipmentType.AuroraAvatar)
+                return false;
+            return IsClearAvatarCategory(equipment) || HasAuroraVirtualMotion(equipment);
+        }
+
+        private static bool IsClearAvatarCategory(EquipmentFile equipment)
+        {
             return equipment.ClearAvatar == 1
                 || string.Equals(equipment.ItemCategory, "clear avatar", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasAuroraVirtualMotion(EquipmentFile equipment)
+        {
+            return equipment.Root != null
+                && equipment.Root.GetChildren("aurora virtual motion").Count > 0;
         }
 
         public static bool IsNameTagItem(int itemTemplateId)
