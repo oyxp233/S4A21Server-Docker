@@ -20,6 +20,7 @@ namespace DfoServer
             ("--selftest-packet-framing-bounds", SelfTests.PacketFramingBoundsSelfTest.Run),
             ("--selftest-a21-channel-protocol", SelfTests.A21ChannelProtocolSelfTest.Run),
             ("--selftest-a21-create-character-protocol", SelfTests.A21CreateCharacterProtocolSelfTest.Run),
+            ("--selftest-a21-knight-shield-deck", SelfTests.A21KnightShieldDeckSelfTest.Run),
             ("--selftest-a21-tutorial-protocol", SelfTests.A21TutorialProtocolSelfTest.Run),
             ("--selftest-story-book-info-replay", SelfTests.StoryBookInfoReplaySelfTest.Run),
             ("--selftest-a21-adventure-group-protocol", SelfTests.A21AdventureGroupProtocolSelfTest.Run),
@@ -47,6 +48,7 @@ namespace DfoServer
             ("--selftest-titlebook-use-item", SelfTests.TitleBookUseItemAchievementSelfTest.Run),
             ("--selftest-limited-cube-rule", SelfTests.LimitedCubeRuleSelfTest.Run),
             ("--selftest-fixed-daily-ticket", SelfTests.FixedDailyTicketSelfTest.Run),
+            ("--selftest-stacked-orb-conversion", SelfTests.StackedOrbConversionSelfTest.Run),
             ("--selftest-quest-completion-ticket", SelfTests.QuestCompletionTicketSelfTest.Run),
             ("--selftest-growup-change", SelfTests.GrowupChangeSelfTest.Run),
             ("--selftest-cargo-transport-stone", SelfTests.CargoTransportStoneSelfTest.Run),
@@ -172,11 +174,6 @@ namespace DfoServer
             }
             GameNetworkConfig.Configure(args);
             GameNetworkConfig.ValidateRelayConfiguration();
-            Infrastructure.GatewayAdmission.ConfigureFromEnvironment();
-            if (Infrastructure.GatewayAdmission.Enabled)
-                Console.WriteLine("[Gateway] LOGIN ticket admission enabled");
-            else if (Infrastructure.GatewayAdmission.DirectLoginDevEnabled)
-                Console.WriteLine("[Gateway] DIRECT LOGIN DEV mode enabled");
 
             // 频道目录驱动监听集合: 每频道一个独立 TCP 端口(10000+频道号),
             // 客户端连哪个端口, CHANNELINFO 就带哪个频道身份。
@@ -289,7 +286,6 @@ namespace DfoServer
             }
 
             server.Start(portConfigs);
-            Infrastructure.GatewayAdmin.Start(server);
 
             Game.Inventory.InventoryPersistenceService.RegisterClock(Infrastructure.ClockService.Instance);
             Infrastructure.ClockService.Instance.Start();
@@ -353,7 +349,6 @@ namespace DfoServer
                 }
             }
 
-            Infrastructure.GatewayAdmin.Stop();
             server.Stop();
             Game.Inventory.InventoryPersistenceService.SaveAllDirty();
             // 服务停止后不再产生常规业务日志，此时完成队列并等待后台写入结束，避免退出时丢失尾部日志。
