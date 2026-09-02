@@ -65,6 +65,7 @@ namespace DfoServer.SelfTests
                 && ReadUInt16(body, 110) == 0,
                 ref failures);
 
+            VerifyIndependentDropParser(ref failures);
             VerifyRealPvfIndependentDrop(ref failures);
             VerifyDimensionGateParser(ref failures);
             VerifyEpicBuffPotionRarityReroll(ref failures);
@@ -116,6 +117,119 @@ namespace DfoServer.SelfTests
             && packet.Length >= 15
             && packet[0] == command
             && BitConverter.ToUInt16(packet, 1) == type;
+
+        private static void VerifyIndependentDropParser(ref int failures)
+        {
+            const string existingRow =
+                "0 61424 3015 1000000 1000000 1000000 1000000 1000000 1 1 1 1 1 0 0 -1 0";
+            const string newMonsterRow =
+                "0 999001 0 1000000 1000000 1000000 1000000 1000000 1 1 1 1 1 0 0 -1 1";
+
+            var arrows = IndependentDropDefinitionCatalog.ParseMonsterEntriesFromText(
+                "#PVF_File\n" +
+                "[independent drop]\n" +
+                "0 → 61424 → 3015 → 1000000 → 1000000 → 1000000 → 1000000 → 1000000 → 1 → 1 → 1 → 1 → 1 → 0 → 0 → -1 → 0\n" +
+                "0 → 999001 → 0 → 1000000 → 1000000 → 1000000 → 1000000 → 1000000 → 1 → 1 → 1 → 1 → 1 → 0 → 0 → -1 → 1\n" +
+                "[list]\n" +
+                "108040343 → 100\n" +
+                "101010731 → 100 // copied from the PVF editor\n" +
+                "[/list]\n" +
+                "[/independent drop]\n");
+            Check(
+                "PVF-editor arrows keep existing independent-drop rows",
+                arrows.TryGetValue(61424, out var existingFromArrows)
+                && existingFromArrows.Length == 1
+                && existingFromArrows[0].ItemId == 3015,
+                ref failures);
+            Check(
+                "PVF-editor arrows keep newly added monster independent-drop rows",
+                arrows.TryGetValue(999001, out var addedFromArrows)
+                && addedFromArrows.Length == 1
+                && addedFromArrows[0].HasItemPool
+                && addedFromArrows[0].TryResolvePool(-1, out var addedPool)
+                && addedPoolItemIds(addedPool).SetEquals(new[] { 108040343, 101010731 }),
+                ref failures);
+
+            var glued = IndependentDropDefinitionCatalog.ParseMonsterEntriesFromText(
+                "[independent drop]\n" +
+                "0→61424→3015→1000000→1000000→1000000→1000000→1000000→1→1→1→1→1→0→0→-1→0\n" +
+                "[/independent drop]\n");
+            Check(
+                "glued arrow separators still parse a 17-column independent-drop row",
+                glued.TryGetValue(61424, out var gluedEntries)
+                && gluedEntries.Length == 1
+                && gluedEntries[0].ItemId == 3015,
+                ref failures);
+
+            var recovered = IndependentDropDefinitionCatalog.ParseMonsterEntriesFromText(
+                "[independent drop]\n" +
+                existingRow + "\n" +
+                "hello\n" +
+                "0 20 14400 1000000 1000000 1000000 1000000 1000000 1 1 1 1 1 0 0 -1 0\n" +
+                "[/independent drop]\n");
+            Check(
+                "a non-integer token does not discard later independent-drop rows",
+                recovered.ContainsKey(61424) && recovered.ContainsKey(20),
+                ref failures);
+
+            var trailing = IndependentDropDefinitionCatalog.ParseMonsterEntriesFromText(
+                "[independent drop]\n" +
+                existingRow + "\n" +
+                "[/independent drop]\n" +
+                newMonsterRow + "\n" +
+                "[list]\n" +
+                "108040343 100\n" +
+                "101010731 100\n" +
+                "[/list]\n");
+            Check(
+                "rows appended after [/independent drop] still load",
+                trailing.ContainsKey(61424)
+                && trailing.TryGetValue(999001, out var trailingAdded)
+                && trailingAdded.Length == 1
+                && trailingAdded[0].HasItemPool,
+                ref failures);
+
+            var vanilla = IndependentDropDefinitionCatalog.ParseMonsterEntriesFromText(
+                "[independent drop]\n" +
+                existingRow + "\n" +
+                "0 20 0 1000000 1000000 1000000 1000000 1000000 1 1 1 1 1 0 0 -1 1\n" +
+                "[list]\n" +
+                "14400 1000\n" +
+                "[/list]\n" +
+                "[/independent drop]\n");
+            Check(
+                "vanilla 17-column rows still load direct and inline-list entries",
+                vanilla.TryGetValue(61424, out var vanillaDirect)
+                && vanillaDirect.Length == 1
+                && vanillaDirect[0].ItemId == 3015
+                && vanilla.TryGetValue(20, out var vanillaList)
+                && vanillaList[0].HasItemPool
+                && vanillaList[0].TryResolvePool(-1, out var vanillaPool)
+                && addedPoolItemIds(vanillaPool).SetEquals(new[] { 14400 }),
+                ref failures);
+
+            var typeOneThenZero = IndependentDropDefinitionCatalog.ParseMonsterEntriesFromText(
+                "[independent drop]\n" +
+                "1 1606 3015 4000000 4000000 4000000 4000000 4000000 1 1 1 1 1 0 99 -1 0\n" +
+                existingRow + "\n" +
+                "[/independent drop]\n");
+            Check(
+                "type-1 rows stay skipped without dropping later type-0 rows",
+                !typeOneThenZero.ContainsKey(1606)
+                && typeOneThenZero.ContainsKey(61424),
+                ref failures);
+
+            static HashSet<int> addedPoolItemIds(
+                IndependentDropWeightedPoolDefinition pool)
+            {
+                var ids = new HashSet<int>();
+                if (pool == null)
+                    return ids;
+                foreach (var item in pool.Items)
+                    ids.Add(item.ItemId);
+                return ids;
+            }
+        }
 
         private static void VerifyRealPvfIndependentDrop(ref int failures)
         {
