@@ -1,4 +1,6 @@
 using DfoServer.Game.Characters;
+using DfoServer.Game.Inventory;
+using DfoServer.Game.ItemUpgrade;
 using DfoServer.Game.Mercenary;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.Skills;
@@ -8,6 +10,7 @@ using DfoServer.Network.Handlers;
 using DfoServer.Network.Parsers.Mercenary;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DfoServer.SelfTests
 {
@@ -34,10 +37,11 @@ namespace DfoServer.SelfTests
             CheckSkillListLayout(ref failures);
             CheckSkillPageWireCombo(ref failures);
             CheckTagCharacterRecordLayout(ref failures);
+            CheckTagCharacterEquipmentSlots(ref failures);
             CheckCombatStatBlobIsShared(ref failures);
             CheckMercenaryWaitingAndReturn(ref failures);
             CheckInitSequencePushesMercenaryInfo(ref failures);
-            CheckUserInfoSubtype6AndChannelId(ref failures);
+            CheckUserInfoSubtype6AndMoodValue(ref failures);
             CheckRosterWireIndex(ref failures);
             CheckHandlerRegistrationConstants(ref failures);
 
@@ -254,6 +258,85 @@ namespace DfoServer.SelfTests
                 ref failures);
         }
 
+        private static void CheckTagCharacterEquipmentSlots(ref int failures)
+        {
+            Check(
+                "A21 0x019F equipment slots match USERINFO Noti2: 0-28 plus guild medal 31",
+                EquipmentTypeInfo.IsA21Noti2EquippedSlot((short)EquipmentType.ArtifactGreen)
+                && EquipmentTypeInfo.IsA21Noti2EquippedSlot((short)EquipmentType.GuildMedal)
+                && !EquipmentTypeInfo.IsA21Noti2EquippedSlot((short)EquipmentType.NameTag)
+                && !EquipmentTypeInfo.IsA21Noti2EquippedSlot((short)EquipmentType.Charm),
+                ref failures);
+
+            var snapshot = new UserInfoAdditionSnapshot();
+            for (byte slot = 0; slot <= 8; slot++)
+            {
+                snapshot.EquippedEntries.Add(new EquippedEntrySnapshot
+                {
+                    Slot = slot,
+                    Core = ItemCore.Create(ItemCore.KindAvatar, 1000 + slot),
+                });
+            }
+            snapshot.EquippedEntries.Add(new EquippedEntrySnapshot
+            {
+                Slot = (short)EquipmentType.Charm,
+                Core = ItemCore.Create(ItemCore.KindEquipment, 2000),
+            });
+            snapshot.EquippedEntries.Add(new EquippedEntrySnapshot
+            {
+                Slot = (short)EquipmentType.NameTag,
+                Core = ItemCore.Create(ItemCore.KindEquipment, 2001),
+            });
+            snapshot.EquippedEntries.Add(new EquippedEntrySnapshot
+            {
+                Slot = (short)EquipmentType.GuildMedal,
+                Core = ItemCore.Create(ItemCore.KindGuildMedal, 100380044),
+            });
+
+            var ok = StrikerSupportTagCharacterPacketBuilder.TryBuildEquipmentListForTest(
+                snapshot,
+                job: 255,
+                growType: 0,
+                out var equipment,
+                out var reason);
+            Check(
+                "support 0x019F keeps guild medal slot 31 and skips charm/name-tag so linking still succeeds",
+                ok
+                && reason == null
+                && equipment != null
+                && equipment.Any(entry => entry.Slot == (short)EquipmentType.GuildMedal
+                    && entry.Core.ItemId == 100380044)
+                && equipment.All(entry => entry.Slot != (short)EquipmentType.Charm)
+                && equipment.All(entry => entry.Slot != (short)EquipmentType.NameTag),
+                ref failures);
+
+            var medalOnly = new[]
+            {
+                new EquippedEntrySnapshot
+                {
+                    Slot = (short)EquipmentType.GuildMedal,
+                    Core = ItemCore.Create(ItemCore.KindGuildMedal, 100380044),
+                },
+            };
+            var record = StrikerSupportTagCharacterPacketBuilder.BuildRecordForTest(
+                0x1234,
+                new byte[] { (byte)'n' },
+                level: 70,
+                job: 13,
+                growType: 0x11,
+                selectedSkillId: 43,
+                new UserInfoAdditionSnapshot(),
+                medalOnly,
+                new[] { new StrikerSupportSkillWireEntry(0x0A, 43, 1) });
+            var offset = 2 + 4 + 1 + 3 + 2 + 4 + CombatStatBlobWriter.BlobLength;
+            Check(
+                "0x019F writes guild medal as Noti2 slot 31 before the skill table",
+                record[offset] == 1
+                && record[offset + 1] == (byte)EquipmentType.GuildMedal
+                && BitConverter.ToInt32(record, offset + 2) == 100380044,
+                ref failures);
+        }
+
         private static void CheckCombatStatBlobIsShared(ref int failures)
         {
             var addition = new UserInfoAdditionSnapshot { StatHpMax = 9 };
@@ -391,7 +474,7 @@ namespace DfoServer.SelfTests
                 ref failures);
         }
 
-        private static void CheckUserInfoSubtype6AndChannelId(ref int failures)
+        private static void CheckUserInfoSubtype6AndMoodValue(ref int failures)
         {
             var subtype6 = UserInfoSubtype6Builder.BuildNotificationBody(0x092B);
             Check(
@@ -428,14 +511,14 @@ namespace DfoServer.SelfTests
                 ref failures);
 
             var userInfo0 = UserInfoSubtype0Builder.BuildNotificationBody(snapshot.CharacterRecord);
-            var channelOffset = userInfo0.Length
+            var moodOffset = userInfo0.Length
                 - UserInfoSubtype0Builder.A21AfterAliveLength
-                + UserInfoSubtype0Builder.A21AfterAliveChannelIdOffset;
+                + UserInfoSubtype0Builder.A21AfterAliveMoodValueOffset;
             Check(
-                "USERINFO0 writes ChannelId at 64B-tail +59",
-                channelOffset >= 0
-                && channelOffset + 1 < userInfo0.Length
-                && BitConverter.ToUInt16(userInfo0, channelOffset) == 2,
+                "USERINFO0 writes MoodValue at 64B-tail +59",
+                moodOffset >= 0
+                && moodOffset + 1 < userInfo0.Length
+                && BitConverter.ToUInt16(userInfo0, moodOffset) == 0,
                 ref failures);
         }
 

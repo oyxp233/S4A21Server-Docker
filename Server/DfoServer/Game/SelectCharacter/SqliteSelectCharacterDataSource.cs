@@ -22,6 +22,7 @@ namespace DfoServer.Game.SelectCharacter
         private readonly SqliteCharacterProgressRepository _initDataRepository;
         private readonly SqliteDarkKnightComboSkillRepository _darkKnightComboSkillRepository;
         private readonly KnightShieldDeckRepository _knightShieldDeckRepository;
+        private readonly KnightShieldService _knightShieldService;
         private readonly SqliteUserInfoBlobRepository _userInfoBlobRepository;
         private readonly ICharacterStateRepository _initFlagsRepository;
         private readonly IExpertJobStateRepository _expertJobStateRepository;
@@ -79,6 +80,9 @@ namespace DfoServer.Game.SelectCharacter
             _initDataRepository = new SqliteCharacterProgressRepository(database);
             _darkKnightComboSkillRepository = new SqliteDarkKnightComboSkillRepository(database);
             _knightShieldDeckRepository = KnightShieldDeckRepository.FromConnectionString(_connectionString);
+            _knightShieldService = new KnightShieldService(
+                _knightShieldDeckRepository,
+                LoadClearedQuestIds);
             _userInfoBlobRepository = new SqliteUserInfoBlobRepository(database);
             _initFlagsRepository = new SqliteCharacterStateRepository(database);
             _expertJobStateRepository = new SqliteExpertJobStateRepository(database);
@@ -351,9 +355,14 @@ namespace DfoServer.Game.SelectCharacter
             
             
             CharacterRecord characterRecord = _characterRepository?.GetById(characterId);
-            var knightShieldDeck = KnightShieldDataProvider.IsEligibleCharacter(characterRecord)
-                ? _knightShieldDeckRepository.Load(characterId)
-                : null;
+            KnightShieldDeckSnapshot knightShieldDeck = null;
+            if (KnightShieldDataProvider.IsEligibleCharacter(characterRecord))
+            {
+                var equippedSupportWeaponItemId = LoadEquippedSupportWeaponItemId(characterId);
+                knightShieldDeck = _knightShieldService.ReconcileOnSelect(
+                    characterRecord,
+                    equippedSupportWeaponItemId);
+            }
             if (characterRecord != null)
             {
                 // 选角初始化 USERINFO 同样必须使用当前穿戴栏重建外观，避免 characters.appearance_blob在新建角色或换装后滞留为空/旧值，导致城镇模型和选人/副本显示不一致。
@@ -521,6 +530,8 @@ namespace DfoServer.Game.SelectCharacter
                 InventoryPersistenceService.SaveDirty(lease);
         }
 
+        // 已加载的 item state 只投影 active 剩余秒数，不依赖额外经验加成表。
+        // 恢复客户端状态栏图标；Value 语义为剩余秒。
         private static void ProjectLoadedItemStateSnapshots(
             List<ItemStateEntrySnapshot> items,
             long now)
@@ -721,6 +732,38 @@ ON CONFLICT(character_id) DO UPDATE SET manage_level=excluded.manage_level;";
             }
 
             SeedNewCharacterStructuredData(characterId, job);
+        }
+
+        private int LoadEquippedSupportWeaponItemId(int characterId)
+        {
+            return _database.Read(connection =>
+            {
+                foreach (var item in InventoryItemRepository.LoadEquippedItems(connection, characterId))
+                {
+                    if (item.SlotIndex != (short)EquipmentType.SupportWeapon)
+                        continue;
+                    return item.Core != null ? item.Core.ItemId : 0;
+                }
+
+                return 0;
+            });
+        }
+
+        internal KnightShieldService KnightShieldService => _knightShieldService;
+
+        private ISet<int> LoadClearedQuestIds(int characterId)
+        {
+            if (characterId <= 0)
+                return new HashSet<int>();
+
+            return _database.Read(connection =>
+            {
+                var flags = Quests.QuestRepository.LoadClearedFlags(
+                    connection,
+                    null,
+                    characterId);
+                return new HashSet<int>(flags.Keys);
+            });
         }
 
         private void SeedNewCharacterStructuredData(int characterId, byte job)
