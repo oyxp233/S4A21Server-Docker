@@ -330,6 +330,20 @@ namespace DfoServer.Network.Builders
             return new byte[] { 0x00 };
         }
 
+        // A21 NOTI 0x0073 BOSS_DIE_CHECK. The verified licensed-dungeon
+        // frame is result/state followed by the boss sequence (u16).
+        internal static byte[] BuildBossDieCheck(
+            byte result,
+            byte state,
+            ushort bossSequence)
+        {
+            var writer = new GamePacketWriter();
+            writer.WriteByte(result);
+            writer.WriteByte(state);
+            writer.WriteUInt16(bossSequence);
+            return writer.ToArray();
+        }
+
         public static byte[] BuildLinkedDungeonInfo(
             int nextDungeonId,
             int difficulty)
