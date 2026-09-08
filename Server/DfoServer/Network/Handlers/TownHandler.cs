@@ -837,6 +837,61 @@ namespace DfoServer.Network.Handlers
                 $"moved={moved}/{snapshot.Count}");
         }
 
+        public async Task Handle_ENUM_CMDPACKET_SOLO_TELEPOART(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            byte[] body)
+        {
+            if (!SoloTeleportRequest.TryParse(body, out var request))
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] SOLO_TELEPOART rejected invalid body: " +
+                    $"cid={session?.Player?.CharacterId ?? 0} " +
+                    $"length={body?.Length ?? 0}");
+                return;
+            }
+
+            if (!GameChannelTeleportPolicy.CanUsePartyTeleport(
+                    session.ListenerPort)
+                || !GameChannelSpawnPolicy.CanEnterTown(
+                    session.ListenerPort,
+                    request.TownId))
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] SOLO_TELEPOART rejected by channel policy: " +
+                    $"cid={session?.Player?.CharacterId ?? 0} " +
+                    $"listener={session?.ListenerPort ?? 0} " +
+                    $"target={request.TownId}:{request.AreaId}");
+                await ChannelTownRestrictionSender.SendAsync(session);
+                return;
+            }
+
+            if (session?.Player == null
+                || session.Player.CurrentRun != null)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] SOLO_TELEPOART rejected unavailable state: " +
+                    $"cid={session?.Player?.CharacterId ?? 0}");
+                return;
+            }
+
+            var areaBody = new byte[6];
+            areaBody[0] = request.TownId;
+            areaBody[1] = request.AreaId;
+            BitConverter.TryWriteBytes(areaBody.AsSpan(2), request.X);
+            BitConverter.TryWriteBytes(areaBody.AsSpan(4), request.Y);
+            await SetUserAreaCoreAsync(
+                session,
+                areaBody,
+                default(TownProjectionGuard));
+
+            FileLogger.Log(
+                $"[{ProtocolName}] SOLO_TELEPOART: " +
+                $"cid={session.Player.CharacterId} " +
+                $"target={request.TownId}:{request.AreaId} " +
+                $"pos=({request.X},{request.Y}) direction={request.Direction}");
+        }
+
         public async Task Handle_ENUM_CMDPACKET_GIVEUP_GAME(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
             var sourceRun = session?.Player?.CurrentRun;

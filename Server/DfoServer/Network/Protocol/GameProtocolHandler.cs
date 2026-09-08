@@ -740,6 +740,8 @@ namespace DfoServer.Network
                 _eventTotalAttendanceHandler.HandleCheckThisWeekAsync;
             d[(ushort)CmdPacketType.PARTY_TELEPORT] =
                 _townHandler.Handle_ENUM_CMDPACKET_PARTY_TELEPORT;
+            d[(ushort)CmdPacketTypeA21.SOLO_TELEPOART] =
+                _townHandler.Handle_ENUM_CMDPACKET_SOLO_TELEPOART;
         }
 
         private void RegisterSettingsHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
