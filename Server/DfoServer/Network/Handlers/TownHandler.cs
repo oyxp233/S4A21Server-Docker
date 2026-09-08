@@ -19,6 +19,9 @@ namespace DfoServer.Network.Handlers
 {
     public sealed class TownHandler
     {
+        private const string PartyTeleportMemberLockedMessage =
+            "存在无法前往该地区的队员。";
+
         private static readonly TimeSpan PositionPersistThrottle = TimeSpan.FromSeconds(5);
 
         private readonly struct TownProjectionGuard
@@ -793,7 +796,7 @@ namespace DfoServer.Network.Handlers
 
             var areaBody = new byte[6];
             Buffer.BlockCopy(body, 0, areaBody, 0, areaBody.Length);
-            var moved = 0;
+            var eligible = new List<EnhancedClientSession>();
             foreach (var member in snapshot.MembersBySlot())
             {
                 EnhancedClientSession memberSession;
@@ -821,6 +824,40 @@ namespace DfoServer.Network.Handlers
                     continue;
                 }
 
+                eligible.Add(memberSession);
+            }
+
+            // 全有或全无: 任一队员未解锁目标区域(等级/任务门槛)则整队不传送。
+            // 客户端对未解锁区域的房间出口有本地门禁, 把未解锁队员带进去会
+            // 困在房间里; 逐人跳过又会静默拆散队伍。
+            foreach (var memberSession in eligible)
+            {
+                if (MeetsTownAreaPermission(
+                        memberSession,
+                        request.TownId,
+                        request.AreaId,
+                        out var permissionReason))
+                {
+                    continue;
+                }
+
+                FileLogger.Log(
+                    $"[{ProtocolName}] PARTY_TELEPORT blocked by locked member: " +
+                    $"leaderCid={session.Player.CharacterId} " +
+                    $"memberCid={memberSession.Player.CharacterId} " +
+                    $"target={request.TownId}:{request.AreaId} " +
+                    $"reason={permissionReason}");
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketType.SERVER_NOTICE_MESSAGE,
+                    ServerNoticeMessageBuilder.Build(
+                        PartyTeleportMemberLockedMessage)));
+                return;
+            }
+
+            var moved = 0;
+            foreach (var memberSession in eligible)
+            {
                 await SetUserAreaCoreAsync(
                     memberSession,
                     areaBody,
@@ -835,6 +872,32 @@ namespace DfoServer.Network.Handlers
                 $"target={request.TownId}:{request.AreaId} " +
                 $"pos=({request.X},{request.Y}) direction={request.Direction} " +
                 $"moved={moved}/{snapshot.Count}");
+        }
+
+        private bool MeetsTownAreaPermission(
+            EnhancedClientSession memberSession,
+            int townId,
+            int areaId,
+            out string reason)
+        {
+            reason = null;
+            if (!GameWorld.Town.TryGetAreaPermission(
+                    townId,
+                    areaId,
+                    out var permission))
+            {
+                return true;
+            }
+
+            var cid = memberSession.Player.CharacterId;
+            reason = GameWorld.TownAreaPermissionPolicy.GetDenyReason(
+                permission,
+                memberSession.Player.Level,
+                questId => _database != null
+                    && new Game.Quests.QuestRepository(_database.ConnectionString)
+                        .LoadClearedFlags(cid)
+                        .ContainsKey(questId));
+            return reason == null;
         }
 
         public async Task Handle_ENUM_CMDPACKET_SOLO_TELEPOART(
