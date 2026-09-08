@@ -139,8 +139,10 @@ namespace DfoServer.Network
         {
             if (GameNetworkConfig.IsRaidListener(listenerGamePort))
                 return targetTownId == RaidTownId;
-            return !GameNetworkConfig.IsChannel100Listener(listenerGamePort)
-                   || targetTownId == Channel100TownId;
+            if (GameNetworkConfig.IsChannel100Listener(listenerGamePort))
+                return targetTownId == Channel100TownId;
+            // 圣者之鸣号(17)是 CH100 专属特殊城镇，普通频道不能通过传送/切区进入。
+            return targetTownId != Channel100TownId;
         }
 
         public static bool ShouldPersistPosition(int listenerGamePort)

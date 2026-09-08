@@ -290,7 +290,7 @@ namespace DfoServer.Network.Handlers
                     $"cid={session.Player.CharacterId} listener={session.ListenerPort} " +
                     $"current={session.Player.CurTownId}:{session.Player.CurAreaId} " +
                     $"target={gotoTownId}:{gotoAreaId}");
-                await ChannelTownRestrictionSender.SendAsync(session);
+                await ChannelTownRestrictionSender.SendAsync(session, gotoTownId);
                 return;
             }
 
@@ -649,7 +649,7 @@ namespace DfoServer.Network.Handlers
                     $"current={session.Player.CurTownId}:{session.Player.CurAreaId} " +
                     $"targetTown={request.TargetTownId} " +
                     $"item=0x{request.ItemTemplateId:X8}");
-                await ChannelTownRestrictionSender.SendAsync(session);
+                await ChannelTownRestrictionSender.SendAsync(session, targetTownId);
                 return;
             }
 
@@ -761,7 +761,7 @@ namespace DfoServer.Network.Handlers
                     $"cid={session?.Player?.CharacterId ?? 0} " +
                     $"listener={session?.ListenerPort ?? 0} " +
                     $"target={request.TownId}:{request.AreaId}");
-                await ChannelTownRestrictionSender.SendAsync(session);
+                await ChannelTownRestrictionSender.SendAsync(session, request.TownId);
                 return;
             }
 
@@ -862,7 +862,7 @@ namespace DfoServer.Network.Handlers
                     $"cid={session?.Player?.CharacterId ?? 0} " +
                     $"listener={session?.ListenerPort ?? 0} " +
                     $"target={request.TownId}:{request.AreaId}");
-                await ChannelTownRestrictionSender.SendAsync(session);
+                await ChannelTownRestrictionSender.SendAsync(session, request.TownId);
                 return;
             }
 
