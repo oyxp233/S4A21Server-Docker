@@ -5,7 +5,8 @@ namespace DfoServer.Network.Parsers.Town
 {
     internal readonly struct PartyTeleportRequest
     {
-        internal const int BodyLength = 7;
+        // A21 实抓包体为 8 字节：前 7 字节是 town/area/x/y/direction，尾部多 1 字节 flag。
+        internal const int MinimumBodyLength = 7;
 
         private PartyTeleportRequest(
             byte townId,
@@ -32,7 +33,7 @@ namespace DfoServer.Network.Parsers.Town
             out PartyTeleportRequest request)
         {
             request = default;
-            if (body == null || body.Length != BodyLength)
+            if (body == null || body.Length < MinimumBodyLength)
                 return false;
 
             request = new PartyTeleportRequest(

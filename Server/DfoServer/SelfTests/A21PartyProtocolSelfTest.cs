@@ -8,6 +8,7 @@ using DfoServer.Network.Builders.Party;
 using DfoServer.Network.Handlers;
 using DfoServer.Network.Handlers.Dungeon;
 using DfoServer.Network.Parsers.Party;
+using DfoServer.Network.Parsers.Town;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -1945,6 +1946,30 @@ namespace DfoServer.SelfTests
                     exitTriggeredWipe.Generation,
                     new[] { remainingDead },
                     exitTriggeredWipe.DeadlineUtc),
+                ref failures);
+
+            var teleportBody = new byte[]
+            {
+                0x02, 0x02, 0x3E, 0x08, 0x40, 0x01, 0x05, 0x01,
+            };
+            Check(
+                "party teleport accepts the captured 8-byte A21 body",
+                PartyTeleportRequest.TryParse(teleportBody, out var teleportRequest)
+                && teleportRequest.TownId == 2
+                && teleportRequest.AreaId == 2
+                && teleportRequest.X == 0x083E
+                && teleportRequest.Y == 0x0140
+                && teleportRequest.Direction == 0x05,
+                ref failures);
+            Check(
+                "party teleport still accepts the bare 7-byte body",
+                PartyTeleportRequest.TryParse(
+                    teleportBody.Take(7).ToArray(), out _),
+                ref failures);
+            Check(
+                "party teleport rejects truncated bodies",
+                !PartyTeleportRequest.TryParse(
+                    teleportBody.Take(6).ToArray(), out _),
                 ref failures);
 
             Console.WriteLine($"A21_PARTY_PROTOCOL failures={failures}");
