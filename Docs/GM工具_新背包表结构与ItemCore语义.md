@@ -112,7 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_character_avatar_detail_character
 | character_id | 角色 ID |
 | item_id | 时装模板 ID，应与 `ItemCore.ItemId` 相同 |
 | expire_date | 到期 Unix 时间戳，0 表示无限期 |
-| clear_avatar_id | 透明/克隆外观 ID，0 表示使用 `item_id` |
+| clear_avatar_id | 透明克隆时装：被克隆外观模板 ID。转职光环：被覆盖光环的实例 avatar uid；USERINFO 据此解析原模板 ID 和紧随其后的原实例镶嵌条件块，不可直接把 uid 当模板下发 |
 | jewel_socket | 固定 30 字节，5 组时装孔位 |
 | color1 / color2 | 染色值，按 u16 使用 |
 | delete_date | 删除时间，当前正常数据为 0 |

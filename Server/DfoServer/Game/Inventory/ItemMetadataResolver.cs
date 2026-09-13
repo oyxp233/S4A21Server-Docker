@@ -1097,6 +1097,21 @@ namespace DfoServer.Game.Inventory
             return IsClearAvatarCategory(equipment) || HasAuroraVirtualMotion(equipment);
         }
 
+        public static bool IsAuroraStatSourceAvatar(int itemTemplateId)
+        {
+            return TryLoadEquipmentFile(itemTemplateId, out var equipment)
+                && IsAuroraStatSourceAvatar(equipment);
+        }
+
+        internal static bool IsAuroraStatSourceAvatar(EquipmentFile equipment)
+        {
+            if (equipment == null)
+                return false;
+            if (EquipmentTypeInfo.ParseOrUnknown(equipment.EquipmentType) != EquipmentType.AuroraAvatar)
+                return false;
+            return !IsAuroraLookReplaceAvatar(equipment);
+        }
+
         private static bool IsClearAvatarCategory(EquipmentFile equipment)
         {
             return equipment.ClearAvatar == 1

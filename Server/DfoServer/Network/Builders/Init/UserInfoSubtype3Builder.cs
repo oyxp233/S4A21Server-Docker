@@ -110,7 +110,8 @@ namespace DfoServer.Network.Builders
                     entry.Slot,
                     entry.Core,
                     addition.GetAvatarDetail(entry.Core),
-                    addition.GetCreatureDetail(entry.Core));
+                    addition.GetCreatureDetail(entry.Core),
+                    addition.GetBoundAuroraDetail(entry.Core));
             }
         }
 

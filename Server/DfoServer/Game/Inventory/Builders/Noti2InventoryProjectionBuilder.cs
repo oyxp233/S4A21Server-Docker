@@ -16,7 +16,8 @@ namespace DfoServer.Game.Inventory
             var snapshot = BuildUserInfoAddition(
                 inventory.GetItems(InventoryListType.Equipment),
                 core => ResolveAvatarDetail(inventory, core),
-                core => ResolveCreatureDetail(inventory, core));
+                core => ResolveCreatureDetail(inventory, core),
+                inventory.AvatarDetails.Details);
             snapshot.AuraSkinFlag = inventory.AuraSkinFlag;
             ApplyNameTagFields(inventory, snapshot);
             return snapshot;
@@ -46,7 +47,8 @@ namespace DfoServer.Game.Inventory
             return BuildUserInfoAddition(
                 entries,
                 core => ResolveAvatarDetail(avatarDetails, core),
-                core => ResolveCreatureDetail(creatureDetails, core));
+                core => ResolveCreatureDetail(creatureDetails, core),
+                avatarDetails == null ? null : avatarDetails.Values);
         }
 
         internal List<EquippedEntrySnapshot> BuildEquippedEntries(InventoryService inventory)
@@ -143,7 +145,8 @@ namespace DfoServer.Game.Inventory
         private UserInfoAdditionSnapshot BuildUserInfoAddition(
             IEnumerable<KeyValuePair<short, ItemCore>> equippedItems,
             Func<ItemCore, AvatarDetail> resolveAvatarDetail,
-            Func<ItemCore, CreatureDetail> resolveCreatureDetail)
+            Func<ItemCore, CreatureDetail> resolveCreatureDetail,
+            IEnumerable<AvatarDetail> allAvatarDetails = null)
         {
             var snapshot = new UserInfoAdditionSnapshot();
             if (equippedItems == null)
@@ -164,6 +167,23 @@ namespace DfoServer.Game.Inventory
 
                 snapshot.EquippedEntries.Add(entry);
                 snapshot.SetAvatarDetail(entry.Core.Value, CopyAvatarDetail(avatarDetail));
+                if (ItemMetadataResolver.IsAuroraLookReplaceAvatar(core.ItemId)
+                    && avatarDetail != null
+                    && avatarDetail.ClearAvatarId > 0
+                    && allAvatarDetails != null)
+                {
+                    foreach (var bound in allAvatarDetails)
+                    {
+                        if (bound == null || bound.AvatarUid != avatarDetail.ClearAvatarId)
+                            continue;
+                        if (bound.AvatarUid != core.Value
+                            && bound.DeleteDate == 0
+                            && (bound.ExpireDate == 0 || bound.ExpireDate > nowUnixTime)
+                            && ItemMetadataResolver.IsAuroraStatSourceAvatar(bound.ItemId))
+                            snapshot.SetAvatarDetail(avatarDetail.ClearAvatarId, CopyAvatarDetail(bound));
+                        break;
+                    }
+                }
 
                 if (entry.Core.ItemKind == ItemCore.KindCreature)
                     snapshot.SetCreatureDetail(

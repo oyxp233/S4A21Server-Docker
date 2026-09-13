@@ -337,10 +337,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 wireType,
                 responseBody));
         }
-
-        // A21: 客户端进入副本选择界面后会用 CMD SEQUENTIAL_DUNGEON_INFO(0x035D)
         // 询问当前区域的连续副本序列进度(抓包: body = int32 configKey,
-        // 镇魂/远古区域 key=26)。之前服务端未注册该 CMD, 客户端拿不到应答会
         // 反复重发并卡死选择界面。这里始终按请求的 key 应答
         // NOTI SEQUENTIAL_DUNGEON_INFO(0x025B, int32 key + byte progress +
         // int32 routeMask, 与既有主动推送同布局); 无对应序列或无进度记录时
@@ -728,7 +725,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                 }
                 await _svc.GrowthCapsuleSync.SendExpProgressAsync(
                     session, "enter-select-dungeon", honor: honorSummary);
-                // 进本过图后客户端重置结婚属性 UI：USERINFO subtype1/
                 // USER_STATE 投影之后补发婚礼回放三包。只覆盖进/出本
                 // 触发点，不挂城镇内每次过图。
                 await InventoryRefreshSender.SendWeddingReplayRefresh(session);
@@ -978,7 +974,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 UserInfoBodyBuilder.WriteA21Subtype1Prefix(
                     writer,
                     (ushort)record.CharacterId,
-                    addition.ManageLevel,
+                    addition.Progress1,
+                    addition.Progress2,
                     addition.AuraSkinFlag);
                 writer.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                     addition,
@@ -3513,8 +3510,6 @@ namespace DfoServer.Network.Handlers.Dungeon
         {
             if (body == null || body.Length <= 13)
                 return false;
-
-            // A21 客户端 VERY_DIFFICULT_HELL_PARTY: body[12] 固定为7, body[13] 为0表示勾选, 为1表示取消。
             return body[13] == 0;
         }
 
@@ -4563,7 +4558,6 @@ namespace DfoServer.Network.Handlers.Dungeon
 
         // 城镇残留白影修复(与切区域同一机制, 见 TownAreaRosterDepartureNotifier):
         // 进本提交后玩家离开城镇, 向旧区域广播离开者 USER_AREA(0x0017) 远程移除。
-        // 不得广播 AREA_USERS(0x0018)：已在场客户端会 setDrawLoadingMode 并关掉界面。
         private async Task NotifyTownAreaRosterDepartureAsync(
             EnhancedClientSession session)
         {

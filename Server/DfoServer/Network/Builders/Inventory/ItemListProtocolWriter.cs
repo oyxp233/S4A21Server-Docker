@@ -21,7 +21,8 @@ namespace DfoServer.Network.Builders
             short slot,
             ItemCore core,
             AvatarDetail avatarDetail,
-            CreatureDetail creatureDetail = null)
+            CreatureDetail creatureDetail = null,
+            AvatarDetail boundAuroraDetail = null)
         {
             if (writer == null)
                 throw new ArgumentNullException(nameof(writer));
@@ -35,7 +36,20 @@ namespace DfoServer.Network.Builders
             writer.WriteUInt32(unchecked((uint)ResolveNoti2Value(core, avatarDetail)));
             writer.WriteByte(core.Attr);
             writer.WriteUInt16(core.Durability);
-            writer.WriteUInt32(ResolveNoti2ClearAvatarOrSeal(core, avatarDetail));
+            // A linked aurora carries the source template and its jewel block.
+            var hasBoundAurora = slot == (short)EquipmentType.AuroraAvatar
+                && boundAuroraDetail != null
+                && avatarDetail?.ClearAvatarId == boundAuroraDetail.AvatarUid
+                && ItemMetadataResolver.IsAuroraLookReplaceAvatar(core.ItemId)
+                && ItemMetadataResolver.IsAuroraStatSourceAvatar(boundAuroraDetail.ItemId);
+            writer.WriteUInt32(hasBoundAurora
+                ? unchecked((uint)boundAuroraDetail.ItemId)
+                : ResolveNoti2ClearAvatarOrSeal(core, avatarDetail));
+            if (hasBoundAurora)
+            {
+                writer.WriteInt32(A21AvatarJewelBytes);
+                WriteFixedBytes(writer, boundAuroraDetail.JewelSocket, A21AvatarJewelBytes);
+            }
             WriteEnchantBlock(writer, core);
 
             if (EquipmentTypeInfo.IsCostumeBarSlot(slot))

@@ -108,7 +108,8 @@ namespace DfoServer.Network.Builders
                     UserInfoBodyBuilder.WriteA21Subtype1Prefix(
                         writer,
                         targetUserId,
-                        initialization.UserInfoAddition.ManageLevel,
+                        initialization.UserInfoAddition.Progress1,
+                        initialization.UserInfoAddition.Progress2,
                         initialization.UserInfoAddition.AuraSkinFlag);
                     writer.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                         initialization.UserInfoAddition,
@@ -272,8 +273,6 @@ namespace DfoServer.Network.Builders
                 error = "target_identity_mismatch";
                 return false;
             }
-
-            // Validate before Load(): the SQLite implementation can perform
             // maintenance writes while materializing a character snapshot.
             var authoritative = characterRepository.GetById(
                 targetCharacterId);

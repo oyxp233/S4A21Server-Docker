@@ -1,7 +1,13 @@
 using System;
+using System.IO;
+using Microsoft.Data.Sqlite;
+using DfoServer.Infrastructure;
 using System.Linq;
 using DfoServer.Game.Inventory;
+using DfoServer.Game.SelectCharacter;
+using DfoServer.Game.Characters;
 using DfoServer.Game.ItemUpgrade;
+using DfoServer.Network;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Handlers;
 using DfoServer.Network.Parsers.Inventory;
@@ -25,6 +31,7 @@ namespace DfoServer.SelfTests
             VerifyUseDyeRejectsInvalidItems(ref failures);
             VerifyCloneAvatarCopiesDyeWhenEquipped(ref failures);
             VerifyAuroraLookReplaceDoesNotBorrowAppearance(ref failures);
+            VerifyAuroraLookReplaceProjectsBoundAuroraStats(ref failures);
 
             Console.WriteLine(failures == 0
                 ? "DYE_ITEM selftest passed"
@@ -442,19 +449,264 @@ namespace DfoServer.SelfTests
 
             var detail = inventory.AvatarDetails.GetDetail(9202);
             Check(
-                "equipping 转职光环 does not copy the previous aurora into clear_avatar_id",
+                "equipping 转职光环 binds the previous aurora as a stat source without copying dye",
                 detail != null
-                && detail.ClearAvatarId == 0
+                && detail.ClearAvatarId == 9201
                 && detail.Color1 == 0
                 && detail.Color2 == 0,
                 ref failures);
 
-            var stale = new AvatarDetail { ClearAvatarId = 101590032 };
+            var bound = new AvatarDetail { ClearAvatarId = 101590032 };
             var projection = new Noti2InventoryProjectionBuilder();
             Check(
-                "stale clear_avatar_id is ignored for 转职光环 appearance",
-                projection.ResolveAppearanceDisplayItemId(lookReplace, stale) == 113590006
-                && Noti2InventoryProjectionBuilder.ResolveAppearanceLinkItemId(lookReplace, stale) == 0,
+                "bound clear_avatar_id is ignored for 转职光环 appearance",
+                projection.ResolveAppearanceDisplayItemId(lookReplace, bound) == 113590006
+                && Noti2InventoryProjectionBuilder.ResolveAppearanceLinkItemId(lookReplace, bound) == 0,
+                ref failures);
+
+            InventoryMoveService.SyncAvatarClearAvatarId(
+                inventory,
+                lookReplace,
+                InventoryListType.Avatar,
+                1,
+                null,
+                itemId => itemId == 113590006);
+            Check(
+                "unequipping 转职光环 clears the bound aurora stat source",
+                inventory.AvatarDetails.GetDetail(9202)?.ClearAvatarId == 0,
+                ref failures);
+        }
+
+        private static void VerifyAuroraLookReplaceProjectsBoundAuroraStats(ref int failures)
+        {
+            if (!ItemMetadataResolver.IsAuroraLookReplaceAvatar(113590006))
+            {
+                Console.WriteLine("aurora look-replace PVF item 113590006 skipped");
+                return;
+            }
+
+            var sourceItemId = 0;
+            if (ItemMetadataResolver.IsAuroraStatSourceAvatar(413590000))
+                sourceItemId = 413590000;
+            else if (ItemMetadataResolver.IsAuroraStatSourceAvatar(101590032))
+                sourceItemId = 101590032;
+            else
+            {
+                Console.WriteLine("aurora stat-source PVF item skipped");
+                return;
+            }
+
+            var inventory = CreateInventory();
+            var baseAurora = CreateAvatar(itemId: sourceItemId, avatarUid: 9301);
+            var otherAurora = CreateAvatar(itemId: sourceItemId, avatarUid: 9303);
+            var lookReplace = CreateAvatar(itemId: 113590006, avatarUid: 9302);
+            var sourceSockets = new JewelSocket();
+            sourceSockets.Set(0, 0xFFEF, 2550022);
+            sourceSockets.Set(1, 0xFFEF, -1);
+            var sourceDetail = CreateAvatarDetail(inventory, baseAurora);
+            sourceDetail.JewelSocketView = sourceSockets;
+            inventory.AvatarDetails.Attach(sourceDetail);
+            inventory.AvatarDetails.Attach(CreateAvatarDetail(inventory, otherAurora));
+            inventory.AvatarDetails.Attach(CreateAvatarDetail(inventory, lookReplace));
+            inventory.AttachItem(InventoryListType.Equipment, (short)EquipmentType.AuroraAvatar, lookReplace);
+
+            InventoryMoveService.SyncAvatarClearAvatarId(
+                inventory,
+                lookReplace,
+                InventoryListType.Equipment,
+                (short)EquipmentType.AuroraAvatar,
+                baseAurora,
+                itemId => itemId == 113590006);
+
+            var persisted = inventory.AvatarDetails.GetDetail(9302);
+            Check(
+                "look-replace binds the covered aurora INSTANCE uid without copying jewels",
+                persisted != null
+                && persisted.ClearAvatarId == 9301
+                && persisted.JewelSocketView.GetEmblemId(0) == 0
+                && persisted.JewelSocketView.GetEmblemId(1) == 0,
+                ref failures);
+
+            var snapshotProjection = new Noti2InventoryProjectionBuilder();
+            var snapshot = snapshotProjection.BuildUserInfoAddition(inventory);
+            var equipped = snapshot.EquippedEntries.Find(entry => entry.Slot == (short)EquipmentType.AuroraAvatar);
+            var projectedDetail = snapshot.GetAvatarDetail(equipped?.Core);
+            Check(
+                "USERINFO keeps source instance jewels separate from the cover",
+                equipped != null
+                && equipped.Core.ItemId == 113590006
+                && projectedDetail != null
+                && projectedDetail.ClearAvatarId == 9301
+                && projectedDetail.JewelSocketView.GetEmblemId(0) == 0
+                && snapshot.GetBoundAuroraDetail(equipped.Core)?.JewelSocketView.GetEmblemId(0) == 2550022
+                && snapshot.GetBoundAuroraDetail(equipped.Core)?.JewelSocketView.GetEmblemId(1) == -1
+                && inventory.AvatarDetails.GetDetail(9302)?.JewelSocketView.GetEmblemId(0) == 0,
+                ref failures);
+
+            var appearance = snapshotProjection.BuildAppearanceEntries(inventory);
+            var auroraAppearance = Array.Find(appearance, entry => entry.Slot == (byte)EquipmentType.AuroraAvatar);
+            Check(
+                "appearance still displays look-replace after binding the original aurora",
+                auroraAppearance != null
+                && auroraAppearance.DisplayItemId == 113590006
+                && auroraAppearance.LinkItemId == 0,
+                ref failures);
+
+            var source = snapshot.GetBoundAuroraDetail(equipped.Core);
+            var wire = new GamePacketWriter();
+            ItemListProtocolWriter.WriteNoti2EquippedEntry(
+                wire, equipped.Slot, equipped.Core, projectedDetail,
+                boundAuroraDetail: source);
+            var body = wire.ToArray();
+            Check(
+                "USERINFO slot9 writes template link and source jewels BEFORE enchant",
+                body.Length == 104
+                && BitConverter.ToInt32(body, 1) == 113590006
+                && BitConverter.ToInt32(body, 12) == sourceItemId
+                && BitConverter.ToInt32(body, 16) == 18
+                && body.Skip(20).Take(18).SequenceEqual(sourceSockets.ToBytes().Take(18))
+                && BitConverter.ToInt32(body, 38) == equipped.Core.EnchantCardId
+                && BitConverter.ToInt32(body, 46) == 18
+                && body.Skip(50).Take(18).All(value => value == 0)
+                && BitConverter.ToInt32(body, 68) == 4,
+                ref failures);
+
+            // Use the existing ordinary layout as the byte-for-byte suffix
+            // baseline, not a byte-pattern search that could match a tail id.
+            var ordinaryWriter = new GamePacketWriter();
+            ItemListProtocolWriter.WriteNoti2EquippedEntry(
+                ordinaryWriter, equipped.Slot, equipped.Core, projectedDetail);
+            var ordinary = ordinaryWriter.ToArray();
+            Check(
+                "only the link and its 22B conditional block change the entry",
+                ordinary.Length == 82
+                && BitConverter.ToUInt32(ordinary, 12) == 0
+                && body.Take(12).SequenceEqual(ordinary.Take(12))
+                && body.Skip(38).SequenceEqual(ordinary.Skip(16)),
+                ref failures);
+
+            snapshot.SpecialRewardQuestIds.Add(0x34BE);
+            var skillPage = new SkillInfoPageSnapshot();
+            skillPage.Entries.Add(new SkillInfoEntrySnapshot { SkillId = 169, Level = 1 });
+            var skills = new SkillInfoSnapshot();
+            skills.Pages.Add(skillPage);
+            var packetBody = UserInfoSubtype1Builder.BuildFromSnapshot(snapshot, skills);
+            // Full USERINFO1 starts equipment at 98 after exp/blob/ex-slot/count.
+            Check(
+                "one USERINFO1 contains one cover entry and an unchanged skills/reward tail",
+                packetBody[97] == 1
+                && packetBody.Skip(98).Take(body.Length).SequenceEqual(body)
+                && packetBody.SequenceEqual(UserInfoSubtype1Builder.BuildFromSnapshot(snapshot, skills))
+                && NewCharacterInitSequence.Build().Count(entry =>
+                    entry.Type == (ushort)NotiPacketTypeA21.USERINFO
+                    && entry.OccurrenceIndex == 1) == 1
+                && !NewCharacterInitSequence.Build().Any(entry =>
+                    entry.Type == (ushort)NotiPacketTypeA21.USERINFO
+                    && entry.OccurrenceIndex == 4),
+                ref failures);
+            var savedBind = projectedDetail.ClearAvatarId;
+            projectedDetail.ClearAvatarId = 0;
+            var unlinkedBody = UserInfoSubtype1Builder.BuildFromSnapshot(snapshot, skills);
+            projectedDetail.ClearAvatarId = savedBind;
+            Check(
+                "binding adds only its conditional equipment block, never replays character tails",
+                packetBody.Length == unlinkedBody.Length + 22
+                && packetBody.Skip(98 + body.Length).SequenceEqual(unlinkedBody.Skip(98 + ordinary.Length)),
+                ref failures);
+
+            // Freeze source bytes per snapshot; changing another identical
+            // aura or the live source later must not mutate an in-flight body.
+            var changedSockets = new JewelSocket();
+            changedSockets.Set(0, 0xFFEF, 2550023);
+            inventory.AvatarDetails.GetDetail(9303).JewelSocketView = changedSockets;
+            Check(
+                "duplicate-template changes never select the wrong instance",
+                snapshotProjection.BuildUserInfoAddition(inventory)
+                    .GetBoundAuroraDetail(equipped.Core)?.JewelSocketView.GetEmblemId(0) == 2550022,
+                ref failures);
+            sourceDetail.JewelSocketView = changedSockets;
+            Check(
+                "source updates appear in the next snapshot but not a frozen packet",
+                snapshotProjection.BuildUserInfoAddition(inventory)
+                    .GetBoundAuroraDetail(equipped.Core)?.JewelSocketView.GetEmblemId(0) == 2550023
+                && packetBody.SequenceEqual(UserInfoSubtype1Builder.BuildFromSnapshot(snapshot, skills)),
+                ref failures);
+            sourceDetail.JewelSocketView = sourceSockets;
+            persisted.ClearAvatarId = 999999;
+            var staleSnapshot = snapshotProjection.BuildUserInfoAddition(inventory);
+            Check(
+                "missing source uid is not repaired by template guessing",
+                staleSnapshot.GetBoundAuroraDetail(equipped.Core) == null
+                && persisted.ClearAvatarId == 999999,
+                ref failures);
+            persisted.ClearAvatarId = 9301;
+
+            // Exercise the real detail repository/codec and rollback using
+            // the current baseline schema in an isolated in-memory database.
+            using (var connection = new SqliteConnection("Data Source=:memory:"))
+            {
+                connection.Open();
+                using (var schema = connection.CreateCommand())
+                {
+                    schema.CommandText = File.ReadAllText(ServerPaths.SchemaFilePath);
+                    schema.ExecuteNonQuery();
+                }
+                using (var transaction = connection.BeginTransaction())
+                {
+                    foreach (var detail in inventory.AvatarDetails.Details)
+                        AvatarDetailRepository.Upsert(connection, transaction, detail);
+                    transaction.Commit();
+                }
+                var reloaded = CreateInventory();
+                foreach (var detail in AvatarDetailRepository.LoadForCharacter(connection, inventory.CharacterId).Values)
+                    reloaded.AvatarDetails.Attach(detail);
+                reloaded.AttachItem(InventoryListType.Equipment, (short)EquipmentType.AuroraAvatar,
+                    ItemCore.FromBytes(lookReplace.ToBytes()));
+                var restored = snapshotProjection.BuildUserInfoAddition(reloaded);
+                var restoredCover = restored.EquippedEntries.Single().Core;
+                Check(
+                    "repository reload preserves exact uid among duplicate templates and separate jewels",
+                    restored.GetAvatarDetail(restoredCover)?.ClearAvatarId == 9301
+                    && restored.GetBoundAuroraDetail(restoredCover)?.AvatarUid == 9301
+                    && restored.GetBoundAuroraDetail(restoredCover)?.JewelSocketView.GetEmblemId(0) == 2550022
+                    && restored.GetAvatarDetail(restoredCover)?.JewelSocketView.GetEmblemId(0) == 0,
+                    ref failures);
+                using (var transaction = connection.BeginTransaction())
+                {
+                    var changed = AvatarDetailCodec.FromRecord(AvatarDetailCodec.ToRecord(persisted));
+                    changed.ClearAvatarId = 9303;
+                    AvatarDetailRepository.Upsert(connection, transaction, changed);
+                    transaction.Rollback();
+                }
+                Check(
+                    "rolled-back bind change leaves the original source uid persisted",
+                    AvatarDetailRepository.LoadForCharacter(connection, inventory.CharacterId)[9302].ClearAvatarId == 9301,
+                    ref failures);
+            }
+
+            var unboundInventory = CreateInventory();
+            var unboundSource = CreateAvatar(itemId: sourceItemId, avatarUid: 9401);
+            var unboundCover = CreateAvatar(itemId: 113590006, avatarUid: 9402);
+            var unboundSockets = new JewelSocket();
+            unboundSockets.Set(0, 0xFFEF, 2550022);
+            var unboundSourceDetail = CreateAvatarDetail(unboundInventory, unboundSource);
+            unboundSourceDetail.JewelSocketView = unboundSockets;
+            unboundInventory.AvatarDetails.Attach(unboundSourceDetail);
+            unboundInventory.AvatarDetails.Attach(CreateAvatarDetail(unboundInventory, unboundCover));
+            unboundInventory.AttachItem(InventoryListType.Equipment, (short)EquipmentType.AuroraAvatar, unboundCover);
+            var unboundSnapshot = snapshotProjection.BuildUserInfoAddition(unboundInventory);
+            var unboundEquipped = unboundSnapshot.EquippedEntries.Find(entry => entry.Slot == (short)EquipmentType.AuroraAvatar);
+            var unboundDetail = unboundSnapshot.GetAvatarDetail(unboundEquipped?.Core);
+            Check(
+                "unbound cover never guesses a source from a single bag aura",
+                unboundEquipped != null
+                && unboundEquipped.Core.ItemId == 113590006
+                && unboundDetail != null
+                && unboundDetail.ClearAvatarId == 0
+                && unboundDetail.JewelSocketView.GetEmblemId(0) == 0
+                && unboundSnapshot.GetBoundAuroraDetail(unboundEquipped.Core) == null
+                && unboundInventory.AvatarDetails.GetDetail(9402)?.ClearAvatarId == 0
+                && unboundInventory.AvatarDetails.GetDetail(9402)?.JewelSocketView.GetEmblemId(0) == 0,
                 ref failures);
         }
 

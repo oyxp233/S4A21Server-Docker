@@ -47,7 +47,8 @@ namespace DfoServer.Network.Builders
                     entry.Slot,
                     core,
                     addition.GetAvatarDetail(core),
-                    addition.GetCreatureDetail(core));
+                    addition.GetCreatureDetail(core),
+                    addition.GetBoundAuroraDetail(core));
             }
 
             writer.WriteUInt32(addition.CloneTitleItemId);
@@ -57,6 +58,7 @@ namespace DfoServer.Network.Builders
             WriteSkillPage(writer, skills, 0);
             WriteSkillPage(writer, skills, 1);
             writer.WriteByte(addition.EquippedCreatureLevel);
+            WriteA21PostCreatureFields(writer);
             WriteA21DimensionTail(writer, addition);
             return writer.ToArray();
         }
@@ -98,6 +100,16 @@ namespace DfoServer.Network.Builders
             return result;
         }
 
+        private static void WriteA21PostCreatureFields(GamePacketWriter writer)
+        {
+            writer.WriteZeroBytes(3);
+            writer.WriteUInt32(0);
+            writer.WriteZeroBytes(5);
+            writer.WriteZeroBytes(18);
+            writer.WriteZeroBytes(18);
+            writer.WriteByte(0);
+        }
+
         private static readonly byte[] A21AfterDimensionPrefix =
         {
             0x02, 0x00, 0x05, 0x00, 0x6F,
@@ -136,9 +148,7 @@ namespace DfoServer.Network.Builders
                 writer.WriteByte(value2);
             }
 
-            // A21 consumes the values after 0x6F as completed quest ids and
-            // resolves each QST [special reward status] locally. The repository
-            // already filters this snapshot to completed special-reward quests.
+            // Completed special-reward quest ids are resolved locally by A21.
             writer.WriteBytes(A21AfterDimensionPrefix);
             writer.WriteUInt32((uint)addition.SpecialRewardQuestIds.Count);
             foreach (var questId in addition.SpecialRewardQuestIds)

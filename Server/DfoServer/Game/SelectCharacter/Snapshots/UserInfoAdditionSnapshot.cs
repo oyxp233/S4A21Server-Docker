@@ -61,6 +61,20 @@ namespace DfoServer.Game.SelectCharacter
             return detail;
         }
 
+        internal AvatarDetail GetBoundAuroraDetail(ItemCore core)
+        {
+            if (core == null || !ItemMetadataResolver.IsAuroraLookReplaceAvatar(core.ItemId))
+                return null;
+            var cover = GetAvatarDetail(core);
+            if (cover == null || cover.ClearAvatarId <= 0 || cover.ClearAvatarId == core.Value)
+                return null;
+            return AvatarDetails.TryGetValue(cover.ClearAvatarId, out var bound)
+                && bound != null
+                && bound.AvatarUid == cover.ClearAvatarId
+                && ItemMetadataResolver.IsAuroraStatSourceAvatar(bound.ItemId)
+                ? bound : null;
+        }
+
         internal void SetCreatureDetail(int creatureKey, CreatureDetail detail)
         {
             if (creatureKey <= 0 || detail == null)

@@ -605,10 +605,10 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
                 null);
             Check(
                 "A21 USERINFO1 uses the 88-byte stat block and fixed dimension tail",
-                userInfo1.Length == 301
+                userInfo1.Length == 350
                 && BitConverter.ToInt32(userInfo1, 4) == 88
-                && userInfo1[275] == 0x6F
-                && BitConverter.ToUInt32(userInfo1, 276) == 0
+                && userInfo1[324] == 0x6F
+                && BitConverter.ToUInt32(userInfo1, 325) == 0
                 && userInfo1[280] == 0,
                 ref failures);
 
@@ -637,25 +637,70 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
                 null);
             Check(
                 "A21 USERINFO1 restores completed special-reward quest effects",
-                specialRewardUserInfo1.Length == 309
-                && specialRewardUserInfo1[275] == 0x6F
-                && BitConverter.ToUInt32(specialRewardUserInfo1, 276) == 2
-                && BitConverter.ToUInt32(specialRewardUserInfo1, 280) == 0x34BE
-                && BitConverter.ToUInt32(specialRewardUserInfo1, 284) == 0x34C0
-                && specialRewardUserInfo1[288] == 4
-                && BitConverter.ToUInt32(specialRewardUserInfo1, 289) == 120,
+                specialRewardUserInfo1.Length == 358
+                && specialRewardUserInfo1[324] == 0x6F
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 325) == 2
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 329) == 0x34BE
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 333) == 0x34C0
+                && specialRewardUserInfo1[337] == 4
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 338) == 120,
                 ref failures);
 
-            var auraLockedPrefix = BuildUserInfo1PrefixForSelfTest(123, 7, 0);
-            var auraOpenedPrefix = BuildUserInfo1PrefixForSelfTest(123, 7, 1);
+            var auraLockedPrefix = BuildUserInfo1PrefixForSelfTest(123, 0x12345678, 0x90ABCDEF, 0);
+            var auraOpenedPrefix = BuildUserInfo1PrefixForSelfTest(123, 0x12345678, 0x90ABCDEF, 1);
             Check(
-                "A21 USERINFO1 prefix[14] mirrors aura skin open flag",
+                "A21 USERINFO1 writes u32 honor level/EXP at prefix +6/+10 without moving aura skin flag",
                 auraLockedPrefix.Length == 20
                 && auraOpenedPrefix.Length == 20
-                && auraLockedPrefix[9] == 7
-                && auraOpenedPrefix[9] == 7
+                && BitConverter.ToUInt32(auraLockedPrefix, 9) == 0x12345678
+                && BitConverter.ToUInt32(auraOpenedPrefix, 9) == 0x12345678
+                && BitConverter.ToUInt32(auraLockedPrefix, 13) == 0x90ABCDEF
+                && BitConverter.ToUInt32(auraOpenedPrefix, 13) == 0x90ABCDEF
+                && BitConverter.ToUInt16(auraOpenedPrefix, 18) == 123
                 && auraLockedPrefix[17] == 0
                 && auraOpenedPrefix[17] == 1,
+                ref failures);
+            // USERINFO1 used to reset cached honor to 9 before EXP restored 10.
+            var honorSnapshot = new DfoServer.Game.Accounts.HonorLevelSummary
+            {
+                HonorLevel = 10,
+                HonorExp = 142,
+            };
+            var honorAddition = new UserInfoAdditionSnapshot { ManageLevel = 9 };
+            DfoServer.Game.Accounts.HonorLevelDataProvider.ApplyToUserInfoAddition(honorAddition, honorSnapshot);
+            var honorInit = new SelectCharacterDataSnapshot
+            {
+                CharacterRecord = new CharacterRecord { CharacterId = 1008 },
+                InitializationSnapshot = new SelectCharacterInitializationSnapshot
+                {
+                    UserInfoAddition = honorAddition,
+                },
+            };
+            var honorInfoBuilt = new UserInfoBodyBuilder().TryBuild(honorInit, 1, out var honorInfoBody);
+            var unchangedHonorExp = ExpNotificationBuilder.Build(
+                level: (byte)DfoServer.Game.Dungeon.ExpTableProvider.MaxLevel,
+                totalExp: 100,
+                skillPoints: default,
+                honorLevel: honorSnapshot,
+                growthCapsuleExp: 841536);
+            Check(
+                "USERINFO1 then unchanged EXP cannot invent an honor level-up at dungeon selection",
+                honorInfoBuilt
+                && BitConverter.ToUInt32(honorInfoBody, 9) == 10
+                && BitConverter.ToUInt32(honorInfoBody, 9) == BitConverter.ToUInt32(unchangedHonorExp, ExpNotificationBuilder.HonorLevelOffset)
+                && BitConverter.ToUInt32(honorInfoBody, 13) == BitConverter.ToUInt32(unchangedHonorExp, ExpNotificationBuilder.HonorExpOffset)
+                && honorAddition.ManageLevel == 9
+                && BitConverter.ToUInt32(unchangedHonorExp, ExpNotificationBuilder.GrowthCapsuleExpOffset) == 841536,
+                ref failures);
+            var raisedHonorExp = ExpNotificationBuilder.Build(
+                level: (byte)DfoServer.Game.Dungeon.ExpTableProvider.MaxLevel,
+                totalExp: 101,
+                skillPoints: default,
+                honorLevel: new DfoServer.Game.Accounts.HonorLevelSummary { HonorLevel = 11 });
+            Check(
+                "real honor gains still carry the increased level in EXP",
+                BitConverter.ToUInt32(raisedHonorExp, ExpNotificationBuilder.HonorLevelOffset)
+                    > BitConverter.ToUInt32(honorInfoBody, 9),
                 ref failures);
 
             var roster = AccountCharacterListBodyBuilder.Build(
@@ -740,8 +785,6 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
                     - UserInfoSubtype0Builder.A21AfterAliveLength
                     + UserInfoSubtype0Builder.A21AfterAliveMoodValueOffset) == 6,
                 ref failures);
-
-            // 01C7 恒发: 无存档角色必须下发 PVF 默认键位, 否则客户端沿用上一个选取角色的键位。
             var hotkeyBuilder = new HotkeyConfigBodyBuilder();
             Check(
                 "A21 HOTKEY 0x01C7 sends PVF defaults for a character without saved keys",
@@ -906,14 +949,16 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
 
         private static byte[] BuildUserInfo1PrefixForSelfTest(
             ushort characterId,
-            byte manageLevel,
+            uint honorLevel,
+            uint honorExp,
             byte auraSkinFlag)
         {
             var writer = new GamePacketWriter();
             UserInfoBodyBuilder.WriteA21Subtype1Prefix(
                 writer,
                 characterId,
-                manageLevel,
+                honorLevel,
+                honorExp,
                 auraSkinFlag);
             return writer.ToArray();
         }

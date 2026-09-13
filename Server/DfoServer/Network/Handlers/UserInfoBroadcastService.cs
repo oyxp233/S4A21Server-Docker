@@ -16,7 +16,6 @@ namespace DfoServer.Network.Handlers
     internal static class UserInfoBroadcastService
     {
         // subtype0(角色状态): DB 快照为权威, 荣誉应用后同步回会话缓存再发送。
-        // ⚠ 副本内禁发 subtype0 -- 会打乱客户端副本内角色状态, 由调用方把关。
         internal static Task<bool> SendSubtype0Async(
             EnhancedClientSession session,
             ICharacterRepository characterRepository,
@@ -71,8 +70,6 @@ namespace DfoServer.Network.Handlers
                     accountId,
                     accountCharacters,
                     honorSummary);
-
-                // subtype0 既是客户端通知, 也是服务端会话缓存;
                 // 两端必须观察到同一份 DB 快照。
                 player.Subtype0Tail = record.Subtype0Tail;
 
@@ -101,7 +98,8 @@ namespace DfoServer.Network.Handlers
             UserInfoBodyBuilder.WriteA21Subtype1Prefix(
                 w,
                 (ushort)record.CharacterId,
-                addition.ManageLevel,
+                addition.Progress1,
+                addition.Progress2,
                 addition.AuraSkinFlag);
             w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                 addition,

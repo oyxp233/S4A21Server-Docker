@@ -166,7 +166,6 @@ namespace DfoServer.Network.Builders
             writer.WriteDstr(supportName);
             writer.WriteByte(level);
             writer.WriteByte(job);
-            // 客户端分别读取 grow 的低四位和觉醒阶段位。
             writer.WriteByte(packedGrowContext);
             writer.WriteUInt16(selectedSkillId);
             writer.WriteUInt32((uint)statBlob.Length);
@@ -179,7 +178,8 @@ namespace DfoServer.Network.Builders
                     item.Slot,
                     item.Core,
                     snapshot.GetAvatarDetail(item.Core),
-                    snapshot.GetCreatureDetail(item.Core));
+                    snapshot.GetCreatureDetail(item.Core),
+                    snapshot.GetBoundAuroraDetail(item.Core));
             }
             writer.WriteUInt32(snapshot.CloneTitleItemId);
             writer.WriteByte(checked((byte)skills.Count));
