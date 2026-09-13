@@ -3,12 +3,13 @@ using System.Buffers.Binary;
 
 namespace DfoServer.Network.Parsers.Town
 {
-    internal readonly struct PartyTeleportRequest
+    internal readonly struct SoloTeleportRequest
     {
-        // A21 实抓包体为 8 字节：前 7 字节是 town/area/x/y/direction，尾部多 1 字节 flag。
-        internal const int MinimumBodyLength = 7;
+        // A21 实抓包体为 15 字节：前 8 字节全 0xFF（含义未知，疑似两个 -1 占位），
+        // 后 7 字节与组队传送相同：town/area/x/y/direction。
+        internal const int MinimumBodyLength = 15;
 
-        private PartyTeleportRequest(
+        private SoloTeleportRequest(
             byte townId,
             byte areaId,
             short x,
@@ -30,20 +31,20 @@ namespace DfoServer.Network.Parsers.Town
 
         internal static bool TryParse(
             byte[] body,
-            out PartyTeleportRequest request)
+            out SoloTeleportRequest request)
         {
             request = default;
             if (body == null || body.Length < MinimumBodyLength)
                 return false;
 
-            request = new PartyTeleportRequest(
-                body[0],
-                body[1],
+            request = new SoloTeleportRequest(
+                body[8],
+                body[9],
                 BinaryPrimitives.ReadInt16LittleEndian(
-                    body.AsSpan(2, sizeof(short))),
+                    body.AsSpan(10, sizeof(short))),
                 BinaryPrimitives.ReadInt16LittleEndian(
-                    body.AsSpan(4, sizeof(short))),
-                body[6]);
+                    body.AsSpan(12, sizeof(short))),
+                body[14]);
             return true;
         }
     }

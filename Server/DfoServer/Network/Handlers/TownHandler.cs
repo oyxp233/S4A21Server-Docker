@@ -20,6 +20,9 @@ namespace DfoServer.Network.Handlers
 {
     public sealed class TownHandler
     {
+        private const string PartyTeleportMemberLockedMessage =
+            "存在无法前往该地区的队员。";
+
         private static readonly TimeSpan PositionPersistThrottle = TimeSpan.FromSeconds(5);
 
         private readonly struct TownProjectionGuard
@@ -291,7 +294,7 @@ namespace DfoServer.Network.Handlers
                     $"cid={session.Player.CharacterId} listener={session.ListenerPort} " +
                     $"current={session.Player.CurTownId}:{session.Player.CurAreaId} " +
                     $"target={gotoTownId}:{gotoAreaId}");
-                await ChannelTownRestrictionSender.SendAsync(session);
+                await ChannelTownRestrictionSender.SendAsync(session, gotoTownId);
                 return;
             }
 
@@ -604,7 +607,7 @@ namespace DfoServer.Network.Handlers
                     $"current={session.Player.CurTownId}:{session.Player.CurAreaId} " +
                     $"targetTown={request.TargetTownId} " +
                     $"item=0x{request.ItemTemplateId:X8}");
-                await ChannelTownRestrictionSender.SendAsync(session);
+                await ChannelTownRestrictionSender.SendAsync(session, targetTownId);
                 return;
             }
 
@@ -716,7 +719,7 @@ namespace DfoServer.Network.Handlers
                     $"cid={session?.Player?.CharacterId ?? 0} " +
                     $"listener={session?.ListenerPort ?? 0} " +
                     $"target={request.TownId}:{request.AreaId}");
-                await ChannelTownRestrictionSender.SendAsync(session);
+                await ChannelTownRestrictionSender.SendAsync(session, request.TownId);
                 return;
             }
 
@@ -748,7 +751,7 @@ namespace DfoServer.Network.Handlers
 
             var areaBody = new byte[6];
             Buffer.BlockCopy(body, 0, areaBody, 0, areaBody.Length);
-            var moved = 0;
+            var eligible = new List<EnhancedClientSession>();
             foreach (var member in snapshot.MembersBySlot())
             {
                 EnhancedClientSession memberSession;
@@ -776,6 +779,40 @@ namespace DfoServer.Network.Handlers
                     continue;
                 }
 
+                eligible.Add(memberSession);
+            }
+
+            // 全有或全无: 任一队员未解锁目标区域(等级/任务门槛)则整队不传送。
+            // 客户端对未解锁区域的房间出口有本地门禁, 把未解锁队员带进去会
+            // 困在房间里; 逐人跳过又会静默拆散队伍。
+            foreach (var memberSession in eligible)
+            {
+                if (MeetsTownAreaPermission(
+                        memberSession,
+                        request.TownId,
+                        request.AreaId,
+                        out var permissionReason))
+                {
+                    continue;
+                }
+
+                FileLogger.Log(
+                    $"[{ProtocolName}] PARTY_TELEPORT blocked by locked member: " +
+                    $"leaderCid={session.Player.CharacterId} " +
+                    $"memberCid={memberSession.Player.CharacterId} " +
+                    $"target={request.TownId}:{request.AreaId} " +
+                    $"reason={permissionReason}");
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketType.SERVER_NOTICE_MESSAGE,
+                    ServerNoticeMessageBuilder.Build(
+                        PartyTeleportMemberLockedMessage)));
+                return;
+            }
+
+            var moved = 0;
+            foreach (var memberSession in eligible)
+            {
                 await SetUserAreaCoreAsync(
                     memberSession,
                     areaBody,
@@ -790,6 +827,87 @@ namespace DfoServer.Network.Handlers
                 $"target={request.TownId}:{request.AreaId} " +
                 $"pos=({request.X},{request.Y}) direction={request.Direction} " +
                 $"moved={moved}/{snapshot.Count}");
+        }
+
+        private bool MeetsTownAreaPermission(
+            EnhancedClientSession memberSession,
+            int townId,
+            int areaId,
+            out string reason)
+        {
+            reason = null;
+            if (!GameWorld.Town.TryGetAreaPermission(
+                    townId,
+                    areaId,
+                    out var permission))
+            {
+                return true;
+            }
+
+            var cid = memberSession.Player.CharacterId;
+            reason = GameWorld.TownAreaPermissionPolicy.GetDenyReason(
+                permission,
+                memberSession.Player.Level,
+                questId => _database != null
+                    && new Game.Quests.QuestRepository(_database.ConnectionString)
+                        .LoadClearedFlags(cid)
+                        .ContainsKey(questId));
+            return reason == null;
+        }
+
+        public async Task Handle_ENUM_CMDPACKET_SOLO_TELEPOART(
+            EnhancedClientSession session,
+            GamePacketHeader header,
+            byte[] body)
+        {
+            if (!SoloTeleportRequest.TryParse(body, out var request))
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] SOLO_TELEPOART rejected invalid body: " +
+                    $"cid={session?.Player?.CharacterId ?? 0} " +
+                    $"length={body?.Length ?? 0}");
+                return;
+            }
+
+            if (!GameChannelTeleportPolicy.CanUsePartyTeleport(
+                    session.ListenerPort)
+                || !GameChannelSpawnPolicy.CanEnterTown(
+                    session.ListenerPort,
+                    request.TownId))
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] SOLO_TELEPOART rejected by channel policy: " +
+                    $"cid={session?.Player?.CharacterId ?? 0} " +
+                    $"listener={session?.ListenerPort ?? 0} " +
+                    $"target={request.TownId}:{request.AreaId}");
+                await ChannelTownRestrictionSender.SendAsync(session, request.TownId);
+                return;
+            }
+
+            if (session?.Player == null
+                || session.Player.CurrentRun != null)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] SOLO_TELEPOART rejected unavailable state: " +
+                    $"cid={session?.Player?.CharacterId ?? 0}");
+                return;
+            }
+
+            var areaBody = new byte[6];
+            areaBody[0] = request.TownId;
+            areaBody[1] = request.AreaId;
+            BitConverter.TryWriteBytes(areaBody.AsSpan(2), request.X);
+            BitConverter.TryWriteBytes(areaBody.AsSpan(4), request.Y);
+            await SetUserAreaCoreAsync(
+                session,
+                areaBody,
+                default(TownProjectionGuard));
+
+            FileLogger.Log(
+                $"[{ProtocolName}] SOLO_TELEPOART: " +
+                $"cid={session.Player.CharacterId} " +
+                $"target={request.TownId}:{request.AreaId} " +
+                $"pos=({request.X},{request.Y}) direction={request.Direction}");
         }
 
         public async Task Handle_ENUM_CMDPACKET_GIVEUP_GAME(EnhancedClientSession session, GamePacketHeader header, byte[] body)

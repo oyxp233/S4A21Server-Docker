@@ -2,12 +2,14 @@ using DfoServer.Game.Dungeon;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Party;
 using DfoServer.Game.Session;
+using DfoServer.GameWorld;
 using DfoServer.Network;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Builders.Party;
 using DfoServer.Network.Handlers;
 using DfoServer.Network.Handlers.Dungeon;
 using DfoServer.Network.Parsers.Party;
+using DfoServer.Network.Parsers.Town;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -1983,6 +1985,65 @@ namespace DfoServer.SelfTests
                     exitTriggeredWipe.Generation,
                     new[] { remainingDead },
                     exitTriggeredWipe.DeadlineUtc),
+                ref failures);
+
+            var teleportBody = new byte[]
+            {
+                0x02, 0x02, 0x3E, 0x08, 0x40, 0x01, 0x05, 0x01,
+            };
+            Check(
+                "party teleport accepts the captured 8-byte A21 body",
+                PartyTeleportRequest.TryParse(teleportBody, out var teleportRequest)
+                && teleportRequest.TownId == 2
+                && teleportRequest.AreaId == 2
+                && teleportRequest.X == 0x083E
+                && teleportRequest.Y == 0x0140
+                && teleportRequest.Direction == 0x05,
+                ref failures);
+            Check(
+                "party teleport still accepts the bare 7-byte body",
+                PartyTeleportRequest.TryParse(
+                    teleportBody.Take(7).ToArray(), out _),
+                ref failures);
+            Check(
+                "party teleport rejects truncated bodies",
+                !PartyTeleportRequest.TryParse(
+                    teleportBody.Take(6).ToArray(), out _),
+                ref failures);
+
+            Check(
+                "town area permission gates below-level members",
+                !TownAreaPermissionPolicy.IsSatisfied(
+                    new PvfLib.TownPermission { NeedLevel = 46 },
+                    17,
+                    null)
+                && TownAreaPermissionPolicy.IsSatisfied(
+                    new PvfLib.TownPermission { NeedLevel = 46 },
+                    86,
+                    null)
+                && TownAreaPermissionPolicy.IsSatisfied(
+                    new PvfLib.TownPermission(),
+                    1,
+                    null)
+                && TownAreaPermissionPolicy.IsSatisfied(null, 1, null),
+                ref failures);
+            Check(
+                "town area permission requires the gated quest to be cleared",
+                !TownAreaPermissionPolicy.IsSatisfied(
+                    new PvfLib.TownPermission { NeedQuest = 2116 },
+                    86,
+                    questId => questId == 9999)
+                && TownAreaPermissionPolicy.IsSatisfied(
+                    new PvfLib.TownPermission { NeedQuest = 2116 },
+                    86,
+                    questId => questId == 2116),
+                ref failures);
+            // 线上实测场景: lv17 队员被带进需 46 级的北方避难所(town 5)。
+            Check(
+                "PVF town 5 (ShelterOfNorth) area 1 requires level 46",
+                Town.TryGetAreaPermission(5, 1, out var shelterPermission)
+                && shelterPermission != null
+                && shelterPermission.NeedLevel == 46,
                 ref failures);
 
             Console.WriteLine($"A21_PARTY_PROTOCOL failures={failures}");

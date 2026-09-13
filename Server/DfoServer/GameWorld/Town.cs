@@ -24,6 +24,50 @@ namespace DfoServer.GameWorld
         private static readonly object DungeonGateReturnCacheSync = new object();
         private static readonly Dictionary<long, CeraRoomInfo?> DungeonGateReturnCache =
             new Dictionary<long, CeraRoomInfo?>();
+        private static readonly object AreaPermissionCacheSync = new object();
+        private static readonly Dictionary<long, TownPermission> AreaPermissionCache =
+            new Dictionary<long, TownPermission>();
+
+        public static bool TryGetAreaPermission(
+            int townId,
+            int areaId,
+            out TownPermission permission)
+        {
+            var key = ((long)townId << 32) | (uint)areaId;
+            lock (AreaPermissionCacheSync)
+            {
+                if (AreaPermissionCache.TryGetValue(key, out var cached))
+                {
+                    // null 缓存值表示该区域无门槛(或读取失败, 放行由调用方决定)。
+                    permission = cached;
+                    return cached != null;
+                }
+            }
+
+            TownPermission resolved = null;
+            try
+            {
+                var twnlst = LstFile.Parse(PvfArchiveAccessor.ReadText("town/town.lst"));
+                var entry = twnlst?.GetById(townId);
+                if (entry != null && !string.IsNullOrEmpty(entry.FilePath))
+                {
+                    var town = TownFile.Parse(PvfArchiveAccessor.ReadText(
+                        Path.Combine("town", entry.FilePath)));
+                    var area = town?.Areas?.FirstOrDefault(candidate =>
+                        candidate.Id == areaId);
+                    resolved = area?.Permission ?? town?.Permission;
+                }
+            }
+            catch
+            {
+                resolved = null;
+            }
+
+            lock (AreaPermissionCacheSync)
+                AreaPermissionCache[key] = resolved;
+            permission = resolved;
+            return resolved != null;
+        }
 
         public static CeraRoomInfo GetCeraRoomInfo(int townId)
         {

@@ -6,10 +6,22 @@ namespace DfoServer.Network.Handlers
     internal static class ChannelTownRestrictionSender
     {
         private const string RestrictionMessage =
-            "\u5F53\u524D\u9891\u9053\u65E0\u6CD5\u524D\u5F80\u5176\u4ED6\u57CE\u9547\u3002";
+            "当前频道无法前往其他城镇。";
+        private const string Channel100TownRestrictionMessage =
+            "当前频道无法前往圣者之鸣号。";
+
+        internal static string ResolveRestrictionMessage(
+            int listenerGamePort,
+            int? targetTownId)
+            => targetTownId == GameChannelSpawnPolicy.Channel100TownId
+               && !GameNetworkConfig.IsChannel100Listener(listenerGamePort)
+               && !GameNetworkConfig.IsRaidListener(listenerGamePort)
+                ? Channel100TownRestrictionMessage
+                : RestrictionMessage;
 
         internal static async Task SendAsync(
-            EnhancedClientSession session)
+            EnhancedClientSession session,
+            int? targetTownId = null)
         {
             if (session?.Player == null)
                 return;
@@ -23,7 +35,10 @@ namespace DfoServer.Network.Handlers
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
                 (ushort)NotiPacketType.SERVER_NOTICE_MESSAGE,
-                ServerNoticeMessageBuilder.Build(RestrictionMessage)));
+                ServerNoticeMessageBuilder.Build(
+                    ResolveRestrictionMessage(
+                        session.ListenerPort,
+                        targetTownId))));
         }
         internal static async Task SendCurrentAreaAsync(
             EnhancedClientSession session)

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DfoServer.Infrastructure;
 using DfoServer.Network;
+using DfoServer.Network.Handlers;
 
 namespace DfoServer.SelfTests
 {
@@ -186,6 +187,51 @@ namespace DfoServer.SelfTests
                 && parsed.GetHeader<ChannelPacketHeader>().msg_no == 0x12
                 && parsed.BodyData != null
                 && parsed.BodyData.SequenceEqual(encrypted),
+                ref failures);
+
+            Check(
+                "channel-100 town is rejected from normal channels and allowed on ch100",
+                !GameChannelSpawnPolicy.CanEnterTown(
+                    GameNetworkConfig.NormalGamePort,
+                    GameChannelSpawnPolicy.Channel100TownId)
+                && GameChannelSpawnPolicy.CanEnterTown(
+                    GameNetworkConfig.Channel100GamePort,
+                    GameChannelSpawnPolicy.Channel100TownId)
+                && !GameChannelSpawnPolicy.CanEnterTown(
+                    GameNetworkConfig.Channel100GamePort,
+                    1)
+                && GameChannelSpawnPolicy.CanEnterTown(
+                    GameNetworkConfig.NormalGamePort,
+                    1)
+                && GameChannelSpawnPolicy.CanEnterTown(
+                    GameNetworkConfig.RaidGamePort,
+                    GameChannelSpawnPolicy.RaidTownId)
+                && !GameChannelSpawnPolicy.CanEnterTown(
+                    GameNetworkConfig.RaidGamePort,
+                    1),
+                ref failures);
+            Check(
+                "restriction message names ch100 town only for normal-channel attempts",
+                ChannelTownRestrictionSender.ResolveRestrictionMessage(
+                    GameNetworkConfig.NormalGamePort,
+                    GameChannelSpawnPolicy.Channel100TownId)
+                    == "当前频道无法前往圣者之鸣号。"
+                && ChannelTownRestrictionSender.ResolveRestrictionMessage(
+                    GameNetworkConfig.NormalGamePort,
+                    1)
+                    == "当前频道无法前往其他城镇。"
+                && ChannelTownRestrictionSender.ResolveRestrictionMessage(
+                    GameNetworkConfig.Channel100GamePort,
+                    1)
+                    == "当前频道无法前往其他城镇。"
+                && ChannelTownRestrictionSender.ResolveRestrictionMessage(
+                    GameNetworkConfig.RaidGamePort,
+                    GameChannelSpawnPolicy.Channel100TownId)
+                    == "当前频道无法前往其他城镇。"
+                && ChannelTownRestrictionSender.ResolveRestrictionMessage(
+                    GameNetworkConfig.NormalGamePort,
+                    null)
+                    == "当前频道无法前往其他城镇。",
                 ref failures);
 
             Console.WriteLine(
