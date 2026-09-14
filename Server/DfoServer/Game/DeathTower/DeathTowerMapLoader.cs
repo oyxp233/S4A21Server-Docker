@@ -131,7 +131,6 @@ namespace DfoServer.Game.DeathTower
                 result.Add(new StageMonster
                 {
                     ListIndex = listIndex++,
-                    MonsterUniqueId = tower.NextMonsterSeq(),
                     MonsterIndex = monsterCode,
                     MonsterLevel = ClampLevel(level),
                     MonsterType = type,
@@ -166,7 +165,6 @@ namespace DfoServer.Game.DeathTower
                 result.Add(new StageMonster
                 {
                     ListIndex = listIndex++,
-                    MonsterUniqueId = tower.NextMonsterSeq(),
                     MonsterIndex = apc.Code,
                     MonsterLevel = definition.Level,
                     MonsterType = type,
@@ -212,7 +210,6 @@ namespace DfoServer.Game.DeathTower
                 result.Add(new StageMonster
                 {
                     ListIndex = ApcRandomListIndexStart + selectedCount,
-                    MonsterUniqueId = tower.NextMonsterSeq(),
                     MonsterIndex = selected.Code,
                     MonsterLevel = selected.Level,
                     MonsterType = 5,

@@ -66,14 +66,17 @@ namespace DfoServer.Network.Handlers.Dungeon
                     grantExperienceInTransaction);
         }
 
-        public bool TryCreateSession(int dungeonId, out DeathTowerSession tower)
+        public bool TryCreateSession(
+            int dungeonId,
+            IEnumerable<ushort> participantUserIds,
+            out DeathTowerSession tower)
         {
             tower = null;
             var config = DeathTowerData.GetConfig(dungeonId);
             if (config == null)
                 return false;
 
-            tower = new DeathTowerSession(config);
+            tower = new DeathTowerSession(config, participantUserIds);
             return true;
         }
 
@@ -1590,6 +1593,9 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (monsters.Count == 0)
                 FileLogger.Log($"[DeathTower] WARNING: stage={tower.CurrentStage} map={mapId} loaded 0 monsters (map may have only [apc random point] or PVF read failed)");
 
+            // Assign only the final wire-visible list, before either item
+            // source links or the authoritative combat room consume its IDs.
+            tower.AssignMonsterSequences(monsters);
             var items = DeathTowerMapLoader.LoadStageItems(tower, monsters);
             var stageSeed = (uint)Infrastructure.ServerRandom.Next();
             tower.BeginStage(stageSeed, items);

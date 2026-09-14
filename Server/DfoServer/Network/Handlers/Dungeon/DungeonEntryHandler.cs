@@ -2365,7 +2365,11 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
 
             // 塔类副本分流: dungeonKind==1 走专属流程(NOTI 142+143, 非普通副本的 START_MAP)
-            if (_svc.DeathTower.TryCreateSession(req.DungeonId, out var tower))
+            if (_svc.DeathTower.TryCreateSession(
+                req.DungeonId,
+                (expectedSelection?.PartyCohort?.Participants.Select(member => member.UserId)
+                    ?? Enumerable.Empty<ushort>()).Append(session.Player.UserId),
+                out var tower))
             {
                 await DungeonMechanismCoordinator.ClearRunEffectsAsync(
                     session,
