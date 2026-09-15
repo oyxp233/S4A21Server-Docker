@@ -204,7 +204,7 @@ namespace DfoServer.Network
                             if (channelId < byte.MinValue ||
                                 channelId > byte.MaxValue ||
                                 (!includeFreeDuel &&
-                                 GameNetworkConfig.IsFreeDuelChannel(channelId)) ||
+                                 GameNetworkConfig.IsPvpChannel(channelId)) ||
                                 !channelIds.Add(channelId))
                             {
                                 continue;
@@ -250,12 +250,15 @@ namespace DfoServer.Network
             var scriptText = File.Exists(ServerPaths.ChannelInfoFilePath)
                 ? File.ReadAllText(ServerPaths.ChannelInfoFilePath, Encoding.UTF8)
                 : null;
-            var channelIdsFromScript =
-                scriptText != null ? ParseScriptChannelIds(scriptText) : null;
-            if (channelIdsFromScript != null && channelIdsFromScript.Count > 0)
+            var scriptChannels =
+                scriptText != null ? ParseScriptChannels(scriptText) : null;
+            if (scriptChannels != null && scriptChannels.Count > 0)
             {
-                foreach (var channelId in channelIdsFromScript)
+                foreach (var channel in scriptChannels)
                 {
+                    if (!includeFreeDuel && GameNetworkConfig.IsPvpEnvironment(channel.ChannelType))
+                        continue;
+                    var channelId = channel.ChannelId;
                     if (!channelIds.Add(channelId))
                         continue;
 
@@ -272,7 +275,7 @@ namespace DfoServer.Network
             else
             {
                 foreach (var channel in
-                         GameNetworkConfig.BuildGameChannels(includeFreeDuel: false))
+                         GameNetworkConfig.BuildGameChannels(includeFreeDuel))
                 {
                     if (channelIds.Add(channel.ChannelId))
                         result.Add(CreateDefaultChannel(channel.ChannelId));
@@ -290,11 +293,10 @@ namespace DfoServer.Network
             return result;
         }
 
-        // 解析 channel_info.etc [server] 组 1 的频道 id(每行一条: id `名称` type `[tag]` ...)。
-        // FreeDuel 频道不在此出,由运行时按监听器开关追加到末尾。
-        internal static List<int> ParseScriptChannelIds(string text)
+        // Parse both identity and type from channel_info.etc server group 1.
+        internal static List<GameChannelEndpoint> ParseScriptChannels(string text)
         {
-            var ids = new List<int>();
+            var channels = new List<GameChannelEndpoint>();
             var inServer = false;
             var groupMatched = false;
             using var reader = new StringReader(text);
@@ -335,14 +337,25 @@ namespace DfoServer.Network
                         out var channelId)
                     && channelId >= byte.MinValue
                     && channelId <= byte.MaxValue
-                    && trimmed.Contains('`')
-                    && !GameNetworkConfig.IsFreeDuelChannel(channelId))
+                    && trimmed.Contains('`'))
                 {
-                    ids.Add(channelId);
+                    var nameStart = trimmed.IndexOf('`');
+                    var nameEnd = trimmed.IndexOf('`', nameStart + 1);
+                    if (nameEnd < 0)
+                        continue;
+                    var afterName = trimmed.Substring(nameEnd + 1).TrimStart();
+                    var typeEnd = 0;
+                    while (typeEnd < afterName.Length && !char.IsWhiteSpace(afterName[typeEnd]))
+                        typeEnd++;
+                    if (!byte.TryParse(afterName.Substring(0, typeEnd), NumberStyles.Integer,
+                            CultureInfo.InvariantCulture, out var channelType))
+                        continue;
+                    var port = GameNetworkConfig.PortForChannel(channelId);
+                    channels.Add(new GameChannelEndpoint(channelId, port, port, channelType));
                 }
             }
 
-            return ids;
+            return channels;
         }
 
         // 容量字段不在 etc 格式内,按抓包标定:ch.20/21→150、ch.200→250、其余 100。

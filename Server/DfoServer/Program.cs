@@ -27,6 +27,8 @@ namespace DfoServer
             ("--selftest-story-book-info-replay", SelfTests.StoryBookInfoReplaySelfTest.Run),
             ("--selftest-a21-adventure-group-protocol", SelfTests.A21AdventureGroupProtocolSelfTest.Run),
             ("--selftest-other-user-info-protocol", SelfTests.OtherUserInfoProtocolSelfTest.Run),
+            ("--selftest-a21-fair-pvp-score", SelfTests.A21FairPvpScoreSelfTest.Run),
+            ("--selftest-a21-pvp-room-protocol", SelfTests.A21PvpRoomProtocolSelfTest.Run),
             ("--selftest-a21-mailbox-protocol", SelfTests.A21MailboxProtocolSelfTest.Run),
             ("--selftest-premium-contract-protocol", SelfTests.PremiumContractProtocolSelfTest.Run),
             ("--selftest-a21-guild-medal-guardian-gem", SelfTests.A21GuildMedalGuardianGemSelfTest.Run),
@@ -186,7 +188,7 @@ namespace DfoServer
             if (File.Exists(channelInfoPath))
             {
                 GameNetworkConfig.ConfigureChannelCatalog(
-                    ChannelProtocolHandler.ParseScriptChannelIds(
+                    ChannelProtocolHandler.ParseScriptChannels(
                         File.ReadAllText(channelInfoPath)));
             }
 
@@ -241,7 +243,7 @@ namespace DfoServer
             using var runtimeBuilder = Infrastructure.ServerRuntimeBuilder.CreateDefault();
             var database = runtimeBuilder.Database;
 
-            // 启动时一次性按当前等级重算所有角色战斗属性, 修复历史"升级未重算属性"的存量数据。
+            // 启动时按当前等级和资源重算角色战斗属性。
             // 必须在 PVF 加载后: 属性表来自 Script.pvf。幂等, 重复执行结果一致, 正常时静默, 仅出错时提示。
             try
             {

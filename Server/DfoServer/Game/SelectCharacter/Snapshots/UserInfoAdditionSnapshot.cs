@@ -7,6 +7,7 @@ namespace DfoServer.Game.SelectCharacter
     {
         
         public uint CharacExp { get; set; }
+        public uint GrowthCapsuleExp { get; set; }
 
         
         public uint StatHpMax { get; set; }

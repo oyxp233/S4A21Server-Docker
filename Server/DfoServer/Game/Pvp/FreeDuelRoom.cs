@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace DfoServer.Game.Pvp
 {
@@ -31,6 +32,7 @@ namespace DfoServer.Game.Pvp
         private readonly bool[] _endAcknowledgements;
         private readonly int[] _killCounts;
         private readonly int[] _deathCounts;
+        private readonly PvpMatchParticipant[] _matchParticipants;
         private readonly byte _roomState;
         private readonly byte _selectedMapIndex;
         private readonly byte _settlementPhase;
@@ -65,7 +67,8 @@ namespace DfoServer.Game.Pvp
             int[] deathCounts = null,
             byte settlementPhase = WaitingSettlementPhase,
             byte winnerSeat = byte.MaxValue,
-            long matchGeneration = 0)
+            long matchGeneration = 0,
+            PvpMatchParticipant[] matchParticipants = null)
         {
             if (roomState != WaitingRoomState &&
                 roomState != StartedRoomState)
@@ -112,7 +115,7 @@ namespace DfoServer.Game.Pvp
                     ? Array.Empty<byte>()
                     : (byte[])roomNameBytes.Clone();
             MapIndex = mapIndex;
-            HasPassword = hasPassword;
+            HasPassword = hasPassword && passwordBytes != null && passwordBytes.Length > 0;
             _passwordBytes =
                 passwordBytes == null
                     ? Array.Empty<byte>()
@@ -210,6 +213,9 @@ namespace DfoServer.Game.Pvp
             _deathCounts = CloneSeatArray(
                 deathCounts,
                 nameof(deathCounts));
+            _matchParticipants = matchParticipants == null
+                ? Array.Empty<PvpMatchParticipant>()
+                : (PvpMatchParticipant[])matchParticipants.Clone();
         }
 
         internal ushort RoomId { get; }
@@ -251,6 +257,9 @@ namespace DfoServer.Game.Pvp
         internal byte WinnerSeat => _winnerSeat;
 
         internal long MatchGeneration { get; }
+
+        internal IReadOnlyList<PvpMatchParticipant> MatchParticipants =>
+            Array.AsReadOnly(_matchParticipants);
 
         internal int MatchingType => 0;
 
@@ -519,8 +528,8 @@ namespace DfoServer.Game.Pvp
             aliveStates[seat] = false;
             rankAcknowledgements[seat] = false;
             endAcknowledgements[seat] = false;
-            killCounts[seat] = 0;
-            deathCounts[seat] = 0;
+            if (_settlementPhase == CombatSettlementPhase && _aliveStates[seat])
+                deathCounts[seat] = checked(deathCounts[seat] + 1);
             return Copy(
                 BattleMode,
                 states,
@@ -588,8 +597,8 @@ namespace DfoServer.Game.Pvp
             aliveStates[vacatedSeat] = false;
             rankAcknowledgements[vacatedSeat] = false;
             endAcknowledgements[vacatedSeat] = false;
-            killCounts[vacatedSeat] = 0;
-            deathCounts[vacatedSeat] = 0;
+            if (_settlementPhase == CombatSettlementPhase && _aliveStates[vacatedSeat])
+                deathCounts[vacatedSeat] = checked(deathCounts[vacatedSeat] + 1);
             room = Copy(
                 BattleMode,
                 states,
@@ -656,6 +665,10 @@ namespace DfoServer.Game.Pvp
                 _seatUserIds);
         }
 
+        internal FreeDuelRoom WithMapIndex(short mapIndex)
+            => Copy(BattleMode, _seatStates, _seatSessionIds, _seatCharacterIds, _seatUserIds,
+                mapIndex: mapIndex);
+
         internal FreeDuelRoom CreateResetSnapshot()
         {
             var states = new byte[SeatCount];
@@ -707,11 +720,20 @@ namespace DfoServer.Game.Pvp
             }
 
             var aliveStates = new bool[SeatCount];
+            var participants = new List<PvpMatchParticipant>();
             for (var seat = 0; seat < SeatCount; seat++)
             {
                 aliveStates[seat] =
                     IsOccupiedSeat(seat) &&
                     !IsObserverSeat(seat);
+                if (aliveStates[seat])
+                    participants.Add(new PvpMatchParticipant
+                    {
+                        Seat = (byte)seat,
+                        CharacterId = _seatCharacterIds[seat],
+                        UserId = _seatUserIds[seat],
+                        Team = _seatStates[seat]
+                    });
             }
 
             return Copy(
@@ -731,7 +753,8 @@ namespace DfoServer.Game.Pvp
                 settlementPhase: CombatSettlementPhase,
                 winnerSeat: byte.MaxValue,
                 matchGeneration:
-                    checked(MatchGeneration + 1));
+                    checked(MatchGeneration + 1),
+                matchParticipants: participants.ToArray());
         }
 
         internal bool TryCreateDeathSnapshot(
@@ -888,7 +911,8 @@ namespace DfoServer.Game.Pvp
                 killCounts: new int[SeatCount],
                 deathCounts: new int[SeatCount],
                 settlementPhase: WaitingSettlementPhase,
-                winnerSeat: byte.MaxValue);
+                winnerSeat: byte.MaxValue,
+                matchParticipants: Array.Empty<PvpMatchParticipant>());
         }
 
         internal static bool IsSupportedSeatState(byte seatState)
@@ -919,7 +943,9 @@ namespace DfoServer.Game.Pvp
             int[] deathCounts = null,
             byte? settlementPhase = null,
             byte? winnerSeat = null,
-            long? matchGeneration = null)
+            long? matchGeneration = null,
+            short? mapIndex = null,
+            PvpMatchParticipant[] matchParticipants = null)
         {
             return new FreeDuelRoom(
                 RoomId,
@@ -929,7 +955,7 @@ namespace DfoServer.Game.Pvp
                 ownerUserId ?? OwnerUserId,
                 RoomNameType,
                 _roomNameBytes,
-                MapIndex,
+                mapIndex ?? MapIndex,
                 HasPassword,
                 _passwordBytes,
                 battleMode,
@@ -950,7 +976,8 @@ namespace DfoServer.Game.Pvp
                 deathCounts ?? _deathCounts,
                 settlementPhase ?? _settlementPhase,
                 winnerSeat ?? _winnerSeat,
-                matchGeneration ?? MatchGeneration);
+                matchGeneration ?? MatchGeneration,
+                matchParticipants ?? _matchParticipants);
         }
 
         private bool TryCreateAcknowledgedSnapshot(

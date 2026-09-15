@@ -12,7 +12,13 @@ namespace DfoServer.Network.Builders
 {
     public static class UserInfoSubtype0Builder
     {
+        internal const int A21FixedHeaderLength = 38;
+        internal const int SingleRecordUserIdOffset = 3 + A21FixedHeaderLength;
+
         public static byte[] BuildNotificationBody(CharacterRecord record)
+            => BuildNotificationBody(record, (ushort)(record?.CharacterId ?? 0));
+
+        internal static byte[] BuildNotificationBody(CharacterRecord record, ushort userId)
         {
             if (record == null)
                 throw new ArgumentNullException(nameof(record));
@@ -20,9 +26,9 @@ namespace DfoServer.Network.Builders
             var writer = new GamePacketWriter();
             writer.WriteByte(0);
             writer.WriteUInt16(1);
-            // A21 USERINFO0 在 subtype/版本字段后保留 38B 固定头。
-            writer.WriteZeroBytes(38);
-            writer.WriteUInt16((ushort)record.CharacterId);
+            // A21 USERINFO0 的每条记录在 UID 前包含 38B 固定头。
+            writer.WriteZeroBytes(A21FixedHeaderLength);
+            writer.WriteUInt16(userId);
             writer.WriteDstr(record.Name);
             writer.WriteBytes(BuildRemainingBytes(record));
             return writer.ToArray();

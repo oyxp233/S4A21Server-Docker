@@ -49,6 +49,8 @@ namespace DfoServer.Sqlite
                 new MigrationStep(24, "add_license_dungeon_period_state", ApplyLicenseDungeonPeriodState),
                 new MigrationStep(25, "add_license_dungeon_progress", ApplyLicenseDungeonProgress),
                 new MigrationStep(26, "add_license_dungeon_unlock_conditions", ApplyLicenseDungeonUnlockConditions),
+                new MigrationStep(27, "add_pvp_records_and_total_match_teams", ApplyPvpRecordsAndTeams),
+                new MigrationStep(28, "add_pvp_match_settlements", ApplyPvpMatchSettlements),
             };
 
         internal static int CurrentVersion =>
@@ -131,6 +133,81 @@ ON CONFLICT(singleton_id) DO UPDATE SET
         {
             var metadata = ReadMetadata(connection);
             return string.Equals(metadata.BaselineId, BaselineId, StringComparison.Ordinal);
+        }
+
+        private static void ApplyPvpMatchSettlements(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+CREATE TABLE IF NOT EXISTS pvp_matches (
+    room_generation TEXT NOT NULL,
+    match_generation INTEGER NOT NULL CHECK(match_generation > 0),
+    listener_port INTEGER NOT NULL,
+    battle_mode INTEGER NOT NULL CHECK(battle_mode BETWEEN 1 AND 3),
+    winner_seat INTEGER NOT NULL CHECK(winner_seat BETWEEN 0 AND 7 OR winner_seat=255),
+    season INTEGER NOT NULL CHECK(season > 0),
+    game_day INTEGER NOT NULL,
+    completed_at_utc TEXT NOT NULL,
+    PRIMARY KEY(room_generation, match_generation)
+);
+CREATE TABLE IF NOT EXISTS pvp_match_results (
+    result_id INTEGER PRIMARY KEY,
+    room_generation TEXT NOT NULL,
+    match_generation INTEGER NOT NULL,
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    seat INTEGER NOT NULL CHECK(seat BETWEEN 0 AND 7),
+    user_id INTEGER NOT NULL CHECK(user_id BETWEEN 1 AND 65534),
+    team INTEGER NOT NULL CHECK(team BETWEEN 0 AND 2),
+    outcome INTEGER NOT NULL CHECK(outcome BETWEEN 0 AND 2),
+    kills INTEGER NOT NULL CHECK(kills >= 0),
+    deaths INTEGER NOT NULL CHECK(deaths >= 0),
+    previous_grade INTEGER NOT NULL CHECK(previous_grade BETWEEN 0 AND 255),
+    grade INTEGER NOT NULL CHECK(grade BETWEEN 0 AND 255),
+    experience_change INTEGER NOT NULL,
+    experience INTEGER NOT NULL CHECK(experience >= 0),
+    win_streak INTEGER NOT NULL CHECK(win_streak >= 0),
+    peak_win_streak INTEGER NOT NULL CHECK(peak_win_streak >= win_streak),
+    opponent_job INTEGER,
+    opponent_grow_type INTEGER,
+    UNIQUE(room_generation, match_generation, character_id),
+    UNIQUE(room_generation, match_generation, seat),
+    FOREIGN KEY(room_generation, match_generation)
+        REFERENCES pvp_matches(room_generation, match_generation) ON DELETE CASCADE,
+    CHECK((opponent_job IS NULL AND opponent_grow_type IS NULL)
+        OR (opponent_job BETWEEN 0 AND 255 AND opponent_grow_type BETWEEN 0 AND 255))
+);
+CREATE INDEX IF NOT EXISTS idx_pvp_match_results_character
+    ON pvp_match_results(character_id, result_id DESC);";
+            command.ExecuteNonQuery();
+        }
+
+        private static void ApplyPvpRecordsAndTeams(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"
+CREATE TABLE IF NOT EXISTS character_pvp_records (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(character_id) ON DELETE CASCADE,
+    experience_in_grade INTEGER NOT NULL DEFAULT 0 CHECK(experience_in_grade BETWEEN 0 AND 2147483647),
+    win_count INTEGER NOT NULL DEFAULT 0 CHECK(win_count BETWEEN 0 AND 2147483647),
+    loss_count INTEGER NOT NULL DEFAULT 0 CHECK(loss_count BETWEEN 0 AND 2147483647),
+    rank_point INTEGER NOT NULL DEFAULT 0 CHECK(rank_point BETWEEN 0 AND 2147483647),
+    peak_rank_point INTEGER NOT NULL DEFAULT 0 CHECK(peak_rank_point BETWEEN rank_point AND 2147483647),
+    rank_warmup_games INTEGER NOT NULL DEFAULT 0 CHECK(rank_warmup_games BETWEEN 0 AND 2147483647),
+    total_match_point INTEGER NOT NULL DEFAULT 0 CHECK(total_match_point BETWEEN 0 AND 2147483647),
+    total_match_warmup_games INTEGER NOT NULL DEFAULT 0 CHECK(total_match_warmup_games BETWEEN 0 AND 2147483647)
+);
+CREATE TABLE IF NOT EXISTS account_pvp_total_match_teams (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(account_id) ON DELETE CASCADE,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(name) > 0),
+    character_id_0 INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    character_id_1 INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    character_id_2 INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK(character_id_0 <> character_id_1 AND character_id_0 <> character_id_2 AND character_id_1 <> character_id_2)
+);";
+            command.ExecuteNonQuery();
         }
 
         internal static void ApplyExpandItemCoreTo99(

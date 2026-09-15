@@ -15,15 +15,15 @@ namespace DfoServer.Game.Skills
 
         public int RemainingSp { get; set; }
 
-        // PVP 树(page1)的剩余 SP(独立池, 总量公式与 PVE 相同)。
+        // 第二技能页的剩余 SP；两页都属于当前频道的技能存储。
         public int RemainingSpPage1 { get; set; }
 
         public int TotalTp { get; set; }
 
-        // PVE 树(page0)的剩余 TP(remain_sfp[2])。
+        // 第一技能页的剩余 TP(remain_sfp[2])。
         public int RemainingTp { get; set; }
 
-        // PVP 树(page1)的剩余 TP(remain_sfp[3])。
+        // 第二技能页的剩余 TP(remain_sfp[3])。
         public int RemainingTpPage1 { get; set; }
 
         public byte SyncedLevel { get; set; }
@@ -43,6 +43,28 @@ namespace DfoServer.Game.Skills
 
     public static class SkillStateService
     {
+        // PvP keeps its own learned entries, but uses the same authoritative
+        // ledger for earned/bonus points and costs. Protocol u16 values are
+        // balances, not an "unlimited" flag (A21 11783A0 and 1178CD0).
+        public static (SkillInfoSnapshot Skills, SkillPointState Points) LoadPvpAndSync(
+            SqlitePvpSkillRepository repository,
+            Characters.CharacterRecord character,
+            byte level)
+        {
+            if (repository == null) throw new ArgumentNullException(nameof(repository));
+            if (character == null) throw new ArgumentNullException(nameof(character));
+            Characters.CharacterStatComputer.DecodeGrowType(
+                character.GrowType, out var firstGrow, out var secondGrow);
+            var skills = repository.LoadOrInitialize(
+                character.CharacterId, character.Job, level, character.GrowType);
+            var removed = RemoveUnavailableSkills(skills, character.Job, firstGrow, secondGrow);
+            var synced = Synchronize(skills, character.Job, level,
+                character.BonusSp, character.BonusTp, firstGrow, secondGrow);
+            if (removed > 0)
+                repository.Save(character.CharacterId, synced.Skills);
+            return synced;
+        }
+
         // 纯派生: 四池各自从对应页的已学技能算出, 逐树独立扣减。
         public static SkillPointState ResolvePointState(
             SkillInfoSnapshot skills,

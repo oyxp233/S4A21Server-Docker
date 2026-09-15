@@ -328,6 +328,10 @@ namespace DfoServer.Network
             d[0x0007] = _characterSessionLifecycle
                 .HandleReturnSelectCharacterAsync;
             d[0x0008] = _characterSelectHandler.Handle_ENUM_CMDPACKET_GET_USERINFO;
+            d[(ushort)CmdPacketTypeA21.FAIR_PVP_SCORE] =
+                _characterSelectHandler.HandleFairPvpScore;
+            d[(ushort)CmdPacketTypeA21.INTEGRATE_MATCH_PVP_SCORE] =
+                _characterSelectHandler.HandleIntegrateMatchPvpScore;
             d[0x01A8] = _characterSelectHandler
                 .Handle_ENUM_CMDPACKET_OTHER_USER_TITLE_BOOK_LIST;
             d[(ushort)CmdPacketTypeA21.RE_GROWUP_CHANGE] =
@@ -960,6 +964,8 @@ namespace DfoServer.Network
                 _pvpRoomHandler.HandleSetReadyState;
             d[PvpRoomHandler.SetTeamModeCommandType] =
                 _pvpRoomHandler.HandleSetTeamMode;
+            d[(ushort)CmdPacketTypeA21.SET_PVP_MAP_INDEX] =
+                _pvpRoomHandler.HandleSetMapIndex;
             d[PvpRoomHandler.DiePvpCharacterCommandType] =
                 _pvpRoomHandler.HandleDiePvpCharacter;
             d[PvpRoomHandler.PvpTimeOutCommandType] =
@@ -974,6 +980,10 @@ namespace DfoServer.Network
                 _pvpRoomHandler.HandleConnectP2pPvp;
             d[PvpRoomHandler.PvpRequestFightCommandType] =
                 _pvpRoomHandler.HandlePvpRequestFight;
+            d[(ushort)CmdPacketTypeA21.CHECK_PVP_TOTAL_MATCH_TEAM_NAME] =
+                _pvpRoomHandler.HandleCheckTotalMatchTeamName;
+            d[(ushort)CmdPacketTypeA21.SET_PVP_TOTAL_MATCH_TEAM] =
+                _pvpRoomHandler.HandleSetTotalMatchTeam;
             d[(ushort)CmdPacketType.SECURITY_STATUS] = HandleSecurityStatus;
         }
 

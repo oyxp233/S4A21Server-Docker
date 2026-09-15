@@ -742,6 +742,8 @@ namespace DfoServer.Network.Handlers
 
             session.Player.CharacterId = 0;
             session.Player.UserId = 0;
+            session.Player.PvpGrade = 0;
+            session.Player.PvpRatingGrade = 0;
         }
 
         private CharacterRecord ResolveSelectedCharacter(

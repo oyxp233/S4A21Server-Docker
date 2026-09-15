@@ -1,3 +1,4 @@
+using DfoServer.Game.Accounts;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.ItemUpgrade;
@@ -10,6 +11,7 @@ using DfoServer.Network.Handlers;
 using DfoServer.Network.Parsers.Mercenary;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace DfoServer.SelfTests
@@ -44,12 +46,91 @@ namespace DfoServer.SelfTests
             CheckUserInfoSubtype6AndMoodValue(ref failures);
             CheckRosterWireIndex(ref failures);
             CheckHandlerRegistrationConstants(ref failures);
+            CheckAdventureGroupUserInfoTail(ref failures);
 
             Console.WriteLine(
                 failures == 0
                     ? "A21_ADVENTURE_GROUP_PROTOCOL: PASS"
                     : $"A21_ADVENTURE_GROUP_PROTOCOL: FAIL count={failures}");
             return failures == 0 ? 0 : 1;
+        }
+
+        private static void CheckAdventureGroupUserInfoTail(ref int failures)
+        {
+            var characters = new[]
+            {
+                new CharacterRecord { CharacterId = 5461, AccountId = 1, Level = 86 },
+                new CharacterRecord { CharacterId = 5462, AccountId = 1, Level = 86 },
+            };
+            var group = AdventureGroupDataProvider.Calculate(characters);
+            var honor = new HonorLevelSummary { HonorLevel = 9, HonorExp = 321 };
+            foreach (var populated in new[] { false, true })
+            {
+                var addition = new UserInfoAdditionSnapshot();
+                SkillInfoSnapshot skills = null;
+                if (populated)
+                {
+                    addition.SpecialRewardQuestIds.Add(0x34BE);
+                    addition.SpecialRewardQuestIds.Add(0x34C0);
+                    skills = new SkillInfoSnapshot();
+                    for (var pageIndex = 0; pageIndex < 2; pageIndex++)
+                    {
+                        var page = new SkillInfoPageSnapshot();
+                        page.Entries.Add(new SkillInfoEntrySnapshot { SkillId = 179, Level = 7 });
+                        page.Entries.Add(new SkillInfoEntrySnapshot { SkillId = 174, Level = 1 });
+                        skills.Pages.Add(page);
+                    }
+                }
+
+                var body = UserInfoBroadcastService.BuildSubtype1Body(characters[0], addition, characters, honor, skills);
+                using var stream = new MemoryStream(body);
+                using var reader = new BinaryReader(stream);
+                // Independent walk of 13E6370 and its packet-consuming callees.
+                var valid = reader.ReadByte() == 1 && reader.ReadUInt16() == 1;
+                reader.ReadUInt32();
+                reader.ReadUInt16();
+                valid &= reader.ReadUInt32() == honor.HonorLevel;
+                valid &= reader.ReadUInt32() == honor.HonorExp;
+                reader.ReadByte();
+                valid &= reader.ReadUInt16() == characters[0].CharacterId;
+                reader.ReadUInt32();
+                var statLength = reader.ReadInt32();
+                valid &= statLength == 88 && reader.ReadBytes(statLength).Length == statLength;
+                reader.ReadByte();
+                valid &= reader.ReadByte() == 0; // no equipment in this fixture
+                reader.ReadBytes(12);
+                reader.ReadByte();
+                for (var pageIndex = 0; pageIndex < 2; pageIndex++)
+                {
+                    var count = reader.ReadByte();
+                    valid &= count == (populated ? 2 : 0);
+                    for (var index = 0; index < count; index++)
+                    {
+                        reader.ReadUInt16();
+                        reader.ReadByte();
+                    }
+                }
+                reader.ReadByte(); // creature level, immediately followed by counts
+                var dimensionCount = reader.ReadByte();
+                valid &= dimensionCount == 26;
+                reader.ReadBytes(dimensionCount * 6);
+                reader.ReadBytes(3);
+                var accountCount = reader.ReadByte();
+                valid &= accountCount == 0;
+                reader.ReadBytes(accountCount * 8);
+                reader.ReadByte();
+                var questCount = reader.ReadUInt32();
+                valid &= questCount == (populated ? 2u : 0u);
+                for (var index = 0; index < questCount; index++)
+                    reader.ReadUInt32();
+                var manageLevel = reader.ReadByte();
+                var managePoint = reader.ReadInt32();
+                Check(
+                    $"USERINFO1 preserves adventure-group buff level through native dynamic fields (populated={populated})",
+                    valid && group.ManageLevel > 0 && manageLevel == group.ManageLevel
+                    && managePoint == group.TotalPoint && stream.Position == stream.Length,
+                    ref failures);
+            }
         }
 
         private static void CheckPaddedParsers(ref int failures)

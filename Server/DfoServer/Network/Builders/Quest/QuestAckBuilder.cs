@@ -118,6 +118,7 @@ namespace DfoServer.Network.Builders
 
             // A21 Seeking/0x19 先消费 7B 材料条目，再单独读取 chain。
             // 无材料时这个零字节也不能省略，否则奖励数量会被当成 chain。
+            // 槽位解锁 chain=23 无尾部字段，槽位位图由 ACK 后的 USERINFO 刷新。
             w.WriteByte((byte)r.ChainType);
             if (r.ChainType == 0)
             {
@@ -132,12 +133,6 @@ namespace DfoServer.Network.Builders
                     w.WriteUInt32(r.RewardAcquiredAtUnixTime);
                     w.WriteUInt16(0); // A21 entry tail
                 }
-            }
-            else if (r.ChainType == GameWorld.QuestData.ChainTypeSlotExpansion)
-            {
-                w.WriteByte((byte)r.GrowNumber);
-                w.WriteByte(0); // npcCount layer 1
-                w.WriteByte(0); // npcCount layer 2
             }
             return w.ToArray();
         }

@@ -648,6 +648,8 @@ namespace DfoServer.Infrastructure
                 world.Sessions,
                 townDungeon.Town.BuildFullUserInfoPacket,
                 world.CharacterTransitions,
+                announceTownArrivalWithinTransition:
+                    townDungeon.Town.AnnouncePvpTownArrivalWithinTransitionAsync,
                 pvpUdpRelay: pvpUdpRelay,
                 database: core.Database);
             party.AttachPvpRoomHandler(pvpRoom);

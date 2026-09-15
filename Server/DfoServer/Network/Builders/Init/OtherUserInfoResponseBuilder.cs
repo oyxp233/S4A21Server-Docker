@@ -44,7 +44,7 @@ namespace DfoServer.Network.Builders
             out string fullDetailsError)
         {
             fullDetailsError = null;
-            if (mode != 0x00 && mode != 0x01 && mode != 0x03)
+            if (mode != 0x00 && mode != 0x01 && mode != 0x03 && mode != 0x05)
             {
                 fullDetailsError = "unsupported_mode";
                 return Array.Empty<byte[]>();
@@ -52,7 +52,7 @@ namespace DfoServer.Network.Builders
 
             try
             {
-                if (mode == 0x00)
+                if (mode == 0x00 || mode == 0x05)
                 {
                     if (!TryCaptureAuthorizedIdentity(
                             characterRepository,
@@ -65,9 +65,24 @@ namespace DfoServer.Network.Builders
                         return Array.Empty<byte[]>();
                     }
 
-                    var body = AppearanceService.BuildNoti2Body(
-                        target.Player,
-                        database);
+                    byte[] packet;
+                    if (mode == 0x05)
+                    {
+                        // A21 A72C80 clears the window, reads u8 count, then
+                        // rebuilds its rows. No character rename/history owner
+                        // exists yet, so the actual history is an empty list.
+                        packet = GamePacketEnvelopeBuilder.Build(
+                            0x00,
+                            (ushort)NotiPacketTypeA21.CHARAC_NAME_CHANGE_LOG,
+                            new byte[] { 0 });
+                    }
+                    else
+                    {
+                        var body = AppearanceService.BuildNoti2Body(
+                            target.Player,
+                            database);
+                        packet = BuildUserInfoPacket(body, routingByte7);
+                    }
                     if (!IdentityStillMatches(
                             target,
                             appearanceCharacterId,
@@ -80,7 +95,7 @@ namespace DfoServer.Network.Builders
 
                     return new[]
                     {
-                        BuildUserInfoPacket(body, routingByte7),
+                        packet,
                     };
                 }
 
@@ -110,7 +125,8 @@ namespace DfoServer.Network.Builders
                         targetUserId,
                         initialization.UserInfoAddition.Progress1,
                         initialization.UserInfoAddition.Progress2,
-                        initialization.UserInfoAddition.AuraSkinFlag);
+                        initialization.UserInfoAddition.AuraSkinFlag,
+                        initialization.UserInfoAddition.GrowthCapsuleExp);
                     writer.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                         initialization.UserInfoAddition,
                         initialization.SkillInfo,

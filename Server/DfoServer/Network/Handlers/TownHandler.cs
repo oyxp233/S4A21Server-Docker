@@ -6,6 +6,7 @@ using DfoServer.Game.Dungeon;
 using DfoServer.Game.Friends;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Session;
+using DfoServer.Game.Skills;
 using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
 using DfoServer.Network;
@@ -52,6 +53,7 @@ namespace DfoServer.Network.Handlers
         private readonly GrowthCapsuleSyncService _growthCapsule;
         private readonly SqliteSubtype0FieldsRepository _subtype0Repository;
         private readonly Game.SelectCharacter.SqliteSelectCharacterDataSource _selectDataSource;
+        private readonly SqlitePvpSkillRepository _pvpSkillRepository;
         private readonly Game.Party.PartyManager _partyManager;   // 可空: 副本退出/回城时把队员一起拉回城(跟随退出)
         // 可空: 会话目录(charId→session)。同屏区域查询与队员定位共用这一份注册表, 不另设区域广播器。
         private readonly Game.Session.ISessionDirectory _sessions;
@@ -105,6 +107,7 @@ namespace DfoServer.Network.Handlers
             _subtype0Repository = new SqliteSubtype0FieldsRepository(_database);
             _refresh = refresh;
             _selectDataSource = selectDataSource;  // 可空: PVP 房间仍需构建完整 USERINFO subtype1。
+            _pvpSkillRepository = new SqlitePvpSkillRepository(_database);
             _partyManager = partyManager;          // 可空: 组队副本收尾 fan-out(跟随退出); 与副本共享同一 PartyManager
             _sessions = sessions;                  // 可空: 未注入时退化为单人(不广播)
             _dungeonInstances = dungeonInstances;
@@ -122,9 +125,9 @@ namespace DfoServer.Network.Handlers
             _publishTownPartyLists = publisher;
         }
 
-        // 构建某在线会话玩家的【完整 USERINFO subtype1】(0x0002 occ1, ~1458B: 属性/装备/技能)。
+        // 构建某在线会话玩家的完整 USERINFO subtype1（属性/装备/当前频道技能）。
         // 同屏时仅推 subtype0(精简外观)客户端能渲染但判定"对方不在城镇/不可邀请"; self 进游戏收的是 subtype0+subtype1
-        // 两份, 故给同屏他人补 subtype1。id 头(bytes 3-4)由 CharacterId 改写为 UserId 以对齐城镇名册。
+        // 两份, 故给同屏他人补 subtype1。A21 单条记录的 UID 位于 body +18。
         internal byte[] BuildFullUserInfoPacket(EnhancedClientSession s)
         {
             if (_selectDataSource == null || s?.Player == null || s.Player.CharacterId <= 0)
@@ -134,9 +137,16 @@ namespace DfoServer.Network.Handlers
                 var snap = _selectDataSource.Load(s.Player.CharacterId, s.Account?.AccountId ?? 1);
                 if (snap?.CharacterRecord == null || snap.InitializationSnapshot?.UserInfoAddition == null)
                     return null;
-                if (!new Network.Builders.UserInfoBodyBuilder().TryBuild(snap, 1, out var fullBody) || fullBody == null || fullBody.Length < 5)
+                if (GameNetworkConfig.IsPvpListener(s.ListenerPort))
+                {
+                    snap.InitializationSnapshot.SkillInfo = SkillStateService.LoadPvpAndSync(
+                        _pvpSkillRepository, snap.CharacterRecord, s.Player.Level).Skills;
+                }
+                if (s.Player.Subtype0Tail != null)
+                    snap.InitializationSnapshot.UserInfoAddition.SkillTreeIndex = s.Player.Subtype0Tail.SkillTreeIndex;
+                if (!new Network.Builders.UserInfoBodyBuilder().TryBuild(snap, 1, out var fullBody) || fullBody == null || fullBody.Length < 20)
                     return null;
-                BitConverter.GetBytes(s.Player.UserId).CopyTo(fullBody, 3);
+                BitConverter.GetBytes(s.Player.UserId).CopyTo(fullBody, 18);
                 return GamePacketEnvelopeBuilder.Build(0x00, 0x0002, fullBody);
             }
             catch (Exception ex)
@@ -397,6 +407,24 @@ namespace DfoServer.Network.Handlers
         /// 已在场他人：只发到达者 USERINFO0 + USER_AREA，不得发 0x18。
         /// _sessions 为空(单人/未注入)时退化为只发自己 —— 与既有单机行为等价。
         /// </summary>
+        internal async Task<bool> AnnouncePvpTownArrivalWithinTransitionAsync(
+            EnhancedClientSession session)
+        {
+            bool IsCurrentArrival() =>
+                session?.Player != null
+                && GameNetworkConfig.IsPvpListener(session.ListenerPort)
+                && IsTownArrivalStateEligible(session.Player)
+                && _sessions != null
+                && _sessions.TryGet(session.Player.CharacterId, out var current)
+                && ReferenceEquals(current, session);
+
+            if (!IsCurrentArrival())
+                return false;
+            await BroadcastAreaRosterAsync(
+                session, TownAreaNotificationBuilder.CreateCurrentSnapshot(session.Player));
+            return IsCurrentArrival();
+        }
+
         private async Task BroadcastAreaRosterAsync(
             EnhancedClientSession session,
             TownUserSnapshot selfSnapshot,

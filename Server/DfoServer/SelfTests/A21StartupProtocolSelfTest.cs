@@ -18,6 +18,7 @@ namespace DfoServer.SelfTests
         {
             Console.WriteLine("=== A21_STARTUP_PROTOCOL selftest ===");
             var failures = 0;
+            CheckPvpGradeProjection(ref failures);
 
             Check(
                 "A21 cmd/noti table sizes are 1271/1218",
@@ -488,7 +489,7 @@ namespace DfoServer.SelfTests
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = @"
-INSERT INTO accounts(account_id, m_id, password_hash) VALUES(9601, 'a21-startup-skilltree', '');
+INSERT INTO accounts(account_id, m_id, password_hash, growth_capsule_exp) VALUES(9601, 'a21-startup-skilltree', '', 841536);
 INSERT INTO characters(character_id, account_id, name, job) VALUES(9602, 9601, 'a21-startup-skilltree-c', 0);";
                     command.ExecuteNonQuery();
                 }
@@ -505,6 +506,43 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9602, 9601, '
                 Check(
                     "subtype0 broadcast tail carries purchased skill-tree page",
                     subtype0Repository.Load(9602)?.SkillTreeIndex == 1,
+                    ref failures);
+
+                var capsuleRepository = new DfoServer.Game.CharacterData.SqliteSubtype1Repository(skillTreeDb);
+                Check(
+                    "USERINFO1 hides account capsule progress below the level cap",
+                    capsuleRepository.Load(9602)?.GrowthCapsuleExp == 0,
+                    ref failures);
+                using (var connection = skillTreeDb.OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE characters SET level=@level WHERE character_id=9602;";
+                    command.Parameters.AddWithValue("@level", DfoServer.Game.Dungeon.ExpTableProvider.MaxLevel);
+                    command.ExecuteNonQuery();
+                }
+                var capsuleAddition = capsuleRepository.Load(9602);
+                var capsuleBody = DfoServer.Network.Handlers.UserInfoBroadcastService.BuildSubtype1Body(
+                    new CharacterRecord { CharacterId = 9602 },
+                    capsuleAddition,
+                    Array.Empty<CharacterRecord>(),
+                    new DfoServer.Game.Accounts.HonorLevelSummary(),
+                    null);
+                Check(
+                    "USERINFO1 refresh carries persisted account capsule progress at body +3",
+                    capsuleAddition.GrowthCapsuleExp == 841536
+                    && BitConverter.ToUInt32(capsuleBody, 3) == 841536
+                    && BitConverter.ToUInt16(capsuleBody, 7) == 0
+                    && BitConverter.ToUInt16(capsuleBody, 18) == 9602,
+                    ref failures);
+                using (var connection = skillTreeDb.OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE accounts SET growth_capsule_exp=0 WHERE account_id=9601;";
+                    command.ExecuteNonQuery();
+                }
+                Check(
+                    "USERINFO1 reload observes cleared capsule progress instead of reusing a cached value",
+                    capsuleRepository.Load(9602)?.GrowthCapsuleExp == 0,
                     ref failures);
             }
             finally
@@ -604,12 +642,12 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
                 new UserInfoAdditionSnapshot(),
                 null);
             Check(
-                "A21 USERINFO1 uses the 88-byte stat block and fixed dimension tail",
-                userInfo1.Length == 350
+                "A21 USERINFO1 uses the 88-byte stat block and ends after the native dimension/quest/group fields",
+                userInfo1.Length == 285
                 && BitConverter.ToInt32(userInfo1, 4) == 88
-                && userInfo1[324] == 0x6F
-                && BitConverter.ToUInt32(userInfo1, 325) == 0
-                && userInfo1[280] == 0,
+                && userInfo1[114] == 26
+                && userInfo1[275] == 0x6F
+                && BitConverter.ToUInt32(userInfo1, 276) == 0,
                 ref failures);
 
             var unlockedExpansionUserInfo1 = UserInfoSubtype1Builder.BuildFromSnapshot(
@@ -637,13 +675,13 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
                 null);
             Check(
                 "A21 USERINFO1 restores completed special-reward quest effects",
-                specialRewardUserInfo1.Length == 358
-                && specialRewardUserInfo1[324] == 0x6F
-                && BitConverter.ToUInt32(specialRewardUserInfo1, 325) == 2
-                && BitConverter.ToUInt32(specialRewardUserInfo1, 329) == 0x34BE
-                && BitConverter.ToUInt32(specialRewardUserInfo1, 333) == 0x34C0
-                && specialRewardUserInfo1[337] == 4
-                && BitConverter.ToUInt32(specialRewardUserInfo1, 338) == 120,
+                specialRewardUserInfo1.Length == 293
+                && specialRewardUserInfo1[275] == 0x6F
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 276) == 2
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 280) == 0x34BE
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 284) == 0x34C0
+                && specialRewardUserInfo1[288] == 4
+                && BitConverter.ToUInt32(specialRewardUserInfo1, 289) == 120,
                 ref failures);
 
             var auraLockedPrefix = BuildUserInfo1PrefixForSelfTest(123, 0x12345678, 0x90ABCDEF, 0);
@@ -666,7 +704,7 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
                 HonorLevel = 10,
                 HonorExp = 142,
             };
-            var honorAddition = new UserInfoAdditionSnapshot { ManageLevel = 9 };
+            var honorAddition = new UserInfoAdditionSnapshot { ManageLevel = 9, GrowthCapsuleExp = 841536 };
             DfoServer.Game.Accounts.HonorLevelDataProvider.ApplyToUserInfoAddition(honorAddition, honorSnapshot);
             var honorInit = new SelectCharacterDataSnapshot
             {
@@ -690,7 +728,21 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
                 && BitConverter.ToUInt32(honorInfoBody, 9) == BitConverter.ToUInt32(unchangedHonorExp, ExpNotificationBuilder.HonorLevelOffset)
                 && BitConverter.ToUInt32(honorInfoBody, 13) == BitConverter.ToUInt32(unchangedHonorExp, ExpNotificationBuilder.HonorExpOffset)
                 && honorAddition.ManageLevel == 9
+                && BitConverter.ToUInt32(honorInfoBody, 3) == BitConverter.ToUInt32(unchangedHonorExp, ExpNotificationBuilder.GrowthCapsuleExpOffset)
                 && BitConverter.ToUInt32(unchangedHonorExp, ExpNotificationBuilder.GrowthCapsuleExpOffset) == 841536,
+                ref failures);
+            var lowLevelHonorExp = ExpNotificationBuilder.Build(
+                level: 1,
+                totalExp: 0,
+                skillPoints: default,
+                honorLevel: honorSnapshot);
+            Check(
+                "non-max-level EXP preserves the same account honor as USERINFO1",
+                BitConverter.ToUInt32(lowLevelHonorExp, ExpNotificationBuilder.HonorLevelOffset)
+                    == BitConverter.ToUInt32(honorInfoBody, 9)
+                && BitConverter.ToUInt32(lowLevelHonorExp, ExpNotificationBuilder.HonorExpOffset)
+                    == BitConverter.ToUInt32(honorInfoBody, 13)
+                && BitConverter.ToUInt32(lowLevelHonorExp, ExpNotificationBuilder.GrowthCapsuleExpOffset) == 0,
                 ref failures);
             var raisedHonorExp = ExpNotificationBuilder.Build(
                 level: (byte)DfoServer.Game.Dungeon.ExpTableProvider.MaxLevel,
@@ -947,6 +999,36 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
             return offset == body.Length;
         }
 
+        private static void CheckPvpGradeProjection(ref int failures)
+        {
+            var player = new DfoServer.Game.Session.PlayerContext
+            {
+                Subtype0Tail = new UserInfoMinimumTailSnapshot(),
+                AppearanceEntries = new[]
+                {
+                    new CharacterAppearanceEntry(0, 100, 4, new byte[4], 0, 0, 0, 0),
+                },
+            };
+            foreach (var (grade, rating) in new[] { (1, 0), (10, 0), (20, 4), (0, 0) })
+            {
+                var record = new CharacterRecord
+                {
+                    CharacterId = 32000,
+                    Name = Encoding.ASCII.GetBytes("pvprank"),
+                    Level = 86,
+                    PvpGrade = (byte)grade,
+                    PvpRatingGrade = (byte)rating,
+                };
+                player.HydrateIdentityFrom(record);
+                var body = DfoServer.Game.Appearance.AppearanceService.BuildNoti2Body(player);
+                var fields = 47 + record.Name.Length;
+                Check(
+                    $"A21 appearance refresh preserves hydrated PvP grade/rating {grade}/{rating}",
+                    body[fields + 3] == grade && body[fields + 4] == rating,
+                    ref failures);
+            }
+        }
+
         private static byte[] BuildUserInfo1PrefixForSelfTest(
             ushort characterId,
             uint honorLevel,
@@ -959,7 +1041,8 @@ INSERT INTO characters(character_id, account_id, name, job) VALUES(9612, 9611, '
                 characterId,
                 honorLevel,
                 honorExp,
-                auraSkinFlag);
+                auraSkinFlag,
+                0);
             return writer.ToArray();
         }
 

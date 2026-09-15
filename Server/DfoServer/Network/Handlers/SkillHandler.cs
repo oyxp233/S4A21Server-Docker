@@ -63,7 +63,7 @@ namespace DfoServer.Network.Handlers
                 foreach (var (page, skillId, commandBytes) in records)
                 {
                     int rows;
-                    if (GameNetworkConfig.IsFreeDuelListener(session.ListenerPort))
+                    if (GameNetworkConfig.IsPvpListener(session.ListenerPort))
                     {
                         rows = _pvpSkillRepository
                             .UpdateSkillCommand(cid, skillId, commandBytes);
@@ -96,7 +96,7 @@ namespace DfoServer.Network.Handlers
             try
             {
                 int cleared;
-                if (GameNetworkConfig.IsFreeDuelListener(session.ListenerPort))
+                if (GameNetworkConfig.IsPvpListener(session.ListenerPort))
                 {
                     cleared = _pvpSkillRepository.ClearAllSkillCommands(cid);
                 }
@@ -124,7 +124,7 @@ namespace DfoServer.Network.Handlers
                 try
                 {
                     int page = body[0] == 1 ? 1 : 0;
-                    if (GameNetworkConfig.IsFreeDuelListener(session.ListenerPort))
+                    if (GameNetworkConfig.IsPvpListener(session.ListenerPort))
                     {
                         _pvpSkillRepository.SwapSkillSlot(
                             cid,
@@ -289,7 +289,7 @@ namespace DfoServer.Network.Handlers
                 try
                 {
                     var isPvpSkillChannel =
-                        GameNetworkConfig.IsFreeDuelListener(session.ListenerPort);
+                        GameNetworkConfig.IsPvpListener(session.ListenerPort);
                     if (!isPvpSkillChannel)
                     {
                         var storedSkillTree = _subtype1Repository.LoadSkillTreeIndex(cid)
@@ -395,16 +395,13 @@ namespace DfoServer.Network.Handlers
                     accountId);
                 var snapshot = _selectCharacterDataSource.Load(cid, accountId);
                 var skillInfo = snapshot.InitializationSnapshot.SkillInfo;
-                if (GameNetworkConfig.IsFreeDuelListener(session.ListenerPort))
+                if (GameNetworkConfig.IsPvpListener(session.ListenerPort))
                 {
                     var character = _characterRepository.GetById(cid);
                     if (character != null)
                     {
-                        skillInfo = _pvpSkillRepository.LoadOrInitialize(
-                            cid,
-                            character.Job,
-                            character.Level,
-                            character.GrowType);
+                        skillInfo = SkillStateService.LoadPvpAndSync(
+                            _pvpSkillRepository, character, character.Level).Skills;
                     }
                 }
                 var skillBytes = SkillInfoBodyBuilder.BuildFrom(skillInfo);

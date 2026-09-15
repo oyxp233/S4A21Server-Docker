@@ -34,7 +34,9 @@ namespace DfoServer.Network.Builders
             CombatStatBlobWriter.Write(writer, addition);
             writer.WriteByte(addition.ExEquipSlotStat);
 
-            writer.WriteByte((byte)Math.Min(byte.MaxValue, equipped.Count));
+            if (equipped.Count > byte.MaxValue)
+                throw new InvalidDataException("USERINFO1 equipment count exceeds its u8 field.");
+            writer.WriteByte((byte)equipped.Count);
             foreach (var entry in equipped)
             {
                 var core = entry?.Core;
@@ -58,7 +60,7 @@ namespace DfoServer.Network.Builders
             WriteSkillPage(writer, skills, 0);
             WriteSkillPage(writer, skills, 1);
             writer.WriteByte(addition.EquippedCreatureLevel);
-            WriteA21PostCreatureFields(writer);
+            // A21 13E6370 calls 13E1D60 immediately after the creature level.
             WriteA21DimensionTail(writer, addition);
             return writer.ToArray();
         }
@@ -100,25 +102,9 @@ namespace DfoServer.Network.Builders
             return result;
         }
 
-        private static void WriteA21PostCreatureFields(GamePacketWriter writer)
-        {
-            writer.WriteZeroBytes(3);
-            writer.WriteUInt32(0);
-            writer.WriteZeroBytes(5);
-            writer.WriteZeroBytes(18);
-            writer.WriteZeroBytes(18);
-            writer.WriteByte(0);
-        }
-
         private static readonly byte[] A21AfterDimensionPrefix =
         {
             0x02, 0x00, 0x05, 0x00, 0x6F,
-        };
-
-        private static readonly byte[] A21AfterDimensionRest =
-        {
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         };
 
         private static void WriteA21DimensionTail(
@@ -155,7 +141,6 @@ namespace DfoServer.Network.Builders
                 writer.WriteUInt32(questId);
             writer.WriteByte(addition.ManageLevel);
             writer.WriteUInt32(unchecked((uint)addition.ManagePoint));
-            writer.WriteBytes(A21AfterDimensionRest);
         }
 
         private static void WriteSkillPage(
@@ -163,13 +148,7 @@ namespace DfoServer.Network.Builders
             SkillInfoSnapshot skills,
             int pageIndex)
         {
-            if (A21ShouldOmitCopiedPage1(skills) && pageIndex == 1)
-            {
-                writer.WriteByte(0);
-                return;
-            }
-
-            if (skills == null || pageIndex >= skills.Pages.Count)
+            if (skills == null || pageIndex >= skills.Pages.Count || skills.Pages[pageIndex] == null)
             {
                 writer.WriteByte(0);
                 return;
@@ -183,7 +162,11 @@ namespace DfoServer.Network.Builders
                     count++;
             }
 
-            writer.WriteByte((byte)Math.Min(byte.MaxValue, count));
+            if (count > byte.MaxValue)
+                throw new InvalidDataException("USERINFO1 skill count exceeds its u8 field.");
+            // 13E2540 clears and reads both remote skill pages independently.
+            // An empty second page does not mean a copy of the first page.
+            writer.WriteByte((byte)count);
             foreach (var entry in page.Entries)
             {
                 if (entry == null || entry.Level <= 0)
@@ -193,40 +176,5 @@ namespace DfoServer.Network.Builders
             }
         }
 
-        internal static bool A21ShouldOmitCopiedPage1(SkillInfoSnapshot skills)
-        {
-            if (skills == null || skills.Pages.Count < 2)
-                return false;
-
-            var page0 = GetLeveledSkills(skills.Pages[0]);
-            var page1 = GetLeveledSkills(skills.Pages[1]);
-            if (page0.Count == 0 || page0.Count != page1.Count)
-                return false;
-
-            for (var i = 0; i < page0.Count; i++)
-            {
-                if (page0[i].SkillId != page1[i].SkillId
-                    || page0[i].Level != page1[i].Level)
-                    return false;
-            }
-
-            return true;
-        }
-
-        private static List<SkillInfoEntrySnapshot> GetLeveledSkills(
-            SkillInfoPageSnapshot page)
-        {
-            var result = new List<SkillInfoEntrySnapshot>();
-            if (page?.Entries == null)
-                return result;
-
-            foreach (var entry in page.Entries)
-            {
-                if (entry != null && entry.Level > 0)
-                    result.Add(entry);
-            }
-
-            return result;
-        }
     }
 }

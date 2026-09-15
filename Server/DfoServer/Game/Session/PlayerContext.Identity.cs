@@ -10,6 +10,8 @@ namespace DfoServer.Game.Session
         public byte GrowType { get; set; }
         public int GrowupChangeCount { get; set; }
         public byte Level { get; set; } = 1;
+        public byte PvpGrade { get; set; }
+        public byte PvpRatingGrade { get; set; }
         public uint Exp { get; set; }
         public ushort UserId { get; set; }
         public byte UserState { get; set; } = 0x01;

@@ -9,15 +9,19 @@ using DfoServer.Game.Mercenary;
 using DfoServer.Game.Mailbox;
 using DfoServer.Game.Names;
 using DfoServer.Game.Premium;
+using DfoServer.Game.Pvp;
 using DfoServer.Game.Quests;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
 using DfoServer.Network.Builders;
+using DfoServer.Network.Builders.Pvp;
 using DfoServer.Network.Parsers;
+using DfoServer.Network.Parsers.Pvp;
 using Microsoft.Data.Sqlite;
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DfoServer.Network.Handlers
@@ -510,16 +514,13 @@ namespace DfoServer.Network.Handlers
             }
 
             SkillInfoSnapshot pvpSkillOverride = null;
-            if (GameNetworkConfig.IsFreeDuelListener(session.ListenerPort))
+            if (GameNetworkConfig.IsPvpListener(session.ListenerPort))
             {
                 var skillOwner = _characterRepository.GetById(ownerCharId);
                 if (skillOwner != null)
                 {
-                    pvpSkillOverride = _pvpSkillRepository.LoadOrInitialize(
-                        ownerCharId,
-                        skillOwner.Job,
-                        skillOwner.Level,
-                        skillOwner.GrowType);
+                    pvpSkillOverride = Game.Skills.SkillStateService.LoadPvpAndSync(
+                        _pvpSkillRepository, skillOwner, skillOwner.Level).Skills;
                     FileLogger.Log(
                         $"[{ProtocolName}] Loaded independent PvP skills " +
                         $"character_id={ownerCharId} " +
@@ -602,7 +603,7 @@ namespace DfoServer.Network.Handlers
             {
                 // body = {u16 targetUserId, u8 mode}，允许 padding。
                 // 城镇查看基本信息用 mode=3，只回一个 USERINFO subtype 3。
-                // mode 0/1 仍按目标查；mode 2 回请求者名册。
+                // mode 0/1 仍按目标查；mode 2 回请求者名册；mode 5 查询改名记录。
                 // 无效、过期、歧义或跨频道目标直接失败。
                 if (_sessions == null || body == null || body.Length < 3)
                 {
@@ -621,7 +622,8 @@ namespace DfoServer.Network.Handlers
                 if (mode != 0x00
                     && mode != 0x01
                     && mode != 0x02
-                    && mode != 0x03)
+                    && mode != 0x03
+                    && mode != 0x05)
                 {
                     FileLogger.Log(
                         $"[{ProtocolName}] GET_USERINFO rejected " +
@@ -724,6 +726,84 @@ namespace DfoServer.Network.Handlers
             {
                 FileLogger.Log($"[{ProtocolName}] GET_USERINFO EXCEPTION: {ex}");
             }
+        }
+
+        public Task HandleFairPvpScore(
+            EnhancedClientSession session, GamePacketHeader header, byte[] body)
+        {
+            if (!FairPvpScoreRequest.TryParse(body, out var request))
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] FAIR_PVP_SCORE rejected invalid request");
+                return Task.CompletedTask;
+            }
+            return SendPvpScoreAsync(session, request.TargetUserId,
+                CmdPacketTypeA21.FAIR_PVP_SCORE, request.IsSelf, request.ViewMode);
+        }
+
+        public Task HandleIntegrateMatchPvpScore(
+            EnhancedClientSession session, GamePacketHeader header, byte[] body)
+        {
+            if (!IntegrateMatchPvpScoreRequest.TryParse(body, out var request))
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] INTEGRATE_MATCH_PVP_SCORE rejected invalid request");
+                return Task.CompletedTask;
+            }
+            return SendPvpScoreAsync(session, request.TargetUserId,
+                CmdPacketTypeA21.INTEGRATE_MATCH_PVP_SCORE, null, 0);
+        }
+
+        private async Task SendPvpScoreAsync(
+            EnhancedClientSession session, ushort targetUserId,
+            CmdPacketTypeA21 command, bool? isSelf, byte viewMode)
+        {
+            if (session == null || !IsAuthorizedInspectRequester(session))
+            {
+                FileLogger.Log($"[{ProtocolName}] {command} rejected invalid session");
+                return;
+            }
+
+            var requesterCharacterId = session.Player.CharacterId;
+            var requesterAccountId = session.Account.AccountId;
+            var target = FindInspectableOnlineByUserId(
+                _sessions, session, targetUserId);
+            if (target == null
+                || !IsCurrentInspectableTarget(session, target, targetUserId)
+                || (isSelf.HasValue && isSelf.Value != ReferenceEquals(session, target)))
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] {command} rejected target uid={targetUserId}");
+                return;
+            }
+
+            var targetCharacterId = target.Player.CharacterId;
+            var targetAccountId = target.Account.AccountId;
+            var record = _characterRepository.GetById(targetCharacterId);
+            if (record == null || record.Deleted
+                || record.CharacterId != targetCharacterId
+                || record.AccountId != targetAccountId)
+                return;
+
+            var response = command == CmdPacketTypeA21.INTEGRATE_MATCH_PVP_SCORE
+                ? IntegrateMatchPvpScoreResponseBuilder.BuildEmptyBody(targetUserId)
+                : FairPvpScoreResponseBuilder.BuildBody(
+                    targetUserId, viewMode, record.PvpGrade, record.PvpRatingGrade,
+                    new SqlitePvpRecordRepository(_database).LoadSeasonScore(targetCharacterId, viewMode));
+            var sent = await session.TrySendPacketAsync(
+                GamePacketEnvelopeBuilder.Build(
+                    0x01, (ushort)command, response),
+                CancellationToken.None,
+                () => session.Player.CharacterId == requesterCharacterId
+                    && session.Account?.AccountId == requesterAccountId
+                    && target.Player.CharacterId == targetCharacterId
+                    && target.Account?.AccountId == targetAccountId
+                    && IsAuthorizedInspectRequester(session)
+                    && IsCurrentInspectableTarget(session, target, targetUserId));
+            FileLogger.Log(
+                $"[{ProtocolName}] {command} uid={targetUserId} " +
+                $"mode={viewMode} grade={record.PvpGrade} " +
+                $"rating={record.PvpRatingGrade} bodyLen={response.Length} sent={sent}");
         }
 
         public async Task Handle_ENUM_CMDPACKET_OTHER_USER_TITLE_BOOK_LIST(

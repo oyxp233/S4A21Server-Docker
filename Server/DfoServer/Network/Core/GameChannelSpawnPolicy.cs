@@ -57,6 +57,7 @@ namespace DfoServer.Network
         public const byte Channel100TownId = 17;
         public const byte Channel100SpawnAreaId = 4;
         public const byte RaidTownId = 19;
+        public const byte PvpTownId = 10;
         public const byte NormalTownFallbackId = 20;
 
         public static GameChannelSpawn Resolve(
@@ -69,7 +70,7 @@ namespace DfoServer.Network
             var townId = persistedTownId > 0
                 ? persistedTownId
                 : 1;
-            if (townId == RaidTownId)
+            if (townId == RaidTownId || townId == PvpTownId)
                 townId = NormalTownFallbackId;
             var gate = Town.GetCeraRoomInfo(townId);
             if (gate.Town <= 0)
@@ -91,6 +92,24 @@ namespace DfoServer.Network
             out GameChannelSpawn spawn)
         {
             spawn = null;
+            if (GameNetworkConfig.IsPvpListener(listenerGamePort))
+            {
+                // town/town.lst -> Fair_PVP.twn: gate area 0 and its anchor.
+                var pvpGate = Town.GetCeraRoomInfo(PvpTownId);
+                if (pvpGate.Town != PvpTownId)
+                    throw new InvalidOperationException("PvP town has no entry gate.");
+
+                spawn = new GameChannelSpawn(
+                    pvpGate.Town,
+                    pvpGate.Area,
+                    pvpGate.X,
+                    pvpGate.Y,
+                    direction: 5,
+                    areaState: 3,
+                    isTransient: true);
+                return true;
+            }
+
             if (GameNetworkConfig.IsRaidListener(listenerGamePort))
             {
                 var raidGate = Town.GetCeraRoomInfo(RaidTownId);
@@ -137,17 +156,20 @@ namespace DfoServer.Network
             int listenerGamePort,
             int targetTownId)
         {
+            if (GameNetworkConfig.IsPvpListener(listenerGamePort))
+                return targetTownId == PvpTownId;
             if (GameNetworkConfig.IsRaidListener(listenerGamePort))
                 return targetTownId == RaidTownId;
             if (GameNetworkConfig.IsChannel100Listener(listenerGamePort))
                 return targetTownId == Channel100TownId;
             // 圣者之鸣号(17)是 CH100 专属特殊城镇，普通频道不能通过传送/切区进入。
-            return targetTownId != Channel100TownId;
+            return targetTownId != Channel100TownId && targetTownId != PvpTownId;
         }
 
         public static bool ShouldPersistPosition(int listenerGamePort)
         {
-            return !GameNetworkConfig.IsChannel100Listener(listenerGamePort)
+            return !GameNetworkConfig.IsPvpListener(listenerGamePort)
+                   && !GameNetworkConfig.IsChannel100Listener(listenerGamePort)
                    && !GameNetworkConfig.IsRaidListener(listenerGamePort);
         }
     }

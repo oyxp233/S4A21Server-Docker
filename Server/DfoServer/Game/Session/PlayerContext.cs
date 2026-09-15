@@ -195,6 +195,8 @@ namespace DfoServer.Game.Session
             GrowType = record.GrowType;
             GrowupChangeCount = record.GrowupChangeCount;
             Level = record.Level == 0 ? Level : record.Level;
+            PvpGrade = record.PvpGrade;
+            PvpRatingGrade = record.PvpRatingGrade;
             Exp = record.Exp;
             UserState = record.UserState;
         }

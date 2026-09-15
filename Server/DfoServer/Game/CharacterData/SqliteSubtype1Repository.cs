@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Data.Sqlite;
+using DfoServer.Game.Accounts;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.KnightShield;
@@ -63,6 +64,7 @@ namespace DfoServer.Game.CharacterData
         {
             var snap = new UserInfoAdditionSnapshot();
             byte characterJob = 0;
+            byte characterLevel = 0;
             int characterGrowType = 0;
             int characterAccountId = 0;
 
@@ -119,7 +121,7 @@ namespace DfoServer.Game.CharacterData
                 }
 
                 
-                using (var cmd = new SqliteCommand("SELECT exp, ex_equip_slot_stat, clone_title_item_id, job, grow_type, aura_skin_flag, account_id FROM characters WHERE character_id=@cid", conn))
+                using (var cmd = new SqliteCommand("SELECT exp, ex_equip_slot_stat, clone_title_item_id, job, grow_type, aura_skin_flag, account_id, level FROM characters WHERE character_id=@cid", conn))
                 {
                     cmd.Parameters.AddWithValue("@cid", characterId);
                     using (var r = cmd.ExecuteReader())
@@ -133,12 +135,18 @@ namespace DfoServer.Game.CharacterData
                             characterGrowType = r.GetInt32(4);
                             snap.AuraSkinFlag = r.FieldCount > 5 && !r.IsDBNull(5) ? (byte)r.GetInt32(5) : (byte)0;
                             characterAccountId = r.FieldCount > 6 && !r.IsDBNull(6) ? r.GetInt32(6) : 0;
+                            characterLevel = (byte)r.GetInt32(7);
                         }
                     }
                 }
 
                 
                 
+                snap.GrowthCapsuleExp = GrowthCapsuleDataProvider.GetDisplayProgress(
+                    characterLevel,
+                    GrowthCapsuleDataProvider.Calculate(
+                        GrowthCapsuleProgressRepository.LoadTotalExp(conn, null, characterAccountId)));
+
                 var projectionBuilder = new Noti2InventoryProjectionBuilder();
                 if (InventoryContext.TryGetLease(characterId, out var lease))
                 {

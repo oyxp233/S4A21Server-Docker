@@ -3,21 +3,21 @@ using System;
 namespace DfoServer.Network.Parsers.Pvp
 {
     /// <summary>
-    /// CMD 0x0037 DIE_PVP_CHARACTER.
-    ///
-    /// The leading u16 is the reporting (dead) character's town/PvP user id,
-    /// not the killer id.  The current 2016 client sends three additional
-    /// opaque bytes. Keep the accepted shapes explicit so arbitrary trailing
-    /// data cannot enter settlement state.
+    /// A21 DIE_PVP_CHARACTER: victim UID, attacker UID, then a boolean.
+    /// 1838FF0 reads the attacker identity from the victim's damage source;
+    /// the boolean is a separate actor-property comparison, not kill permission.
+    /// The compatible two-byte form contains only the victim UID.
     /// </summary>
     internal readonly struct DiePvpCharacterRequest
     {
-        private DiePvpCharacterRequest(ushort reportedDeadUserId)
+        private DiePvpCharacterRequest(ushort reportedDeadUserId, ushort? reportedKillerUserId)
         {
             ReportedDeadUserId = reportedDeadUserId;
+            ReportedKillerUserId = reportedKillerUserId;
         }
 
         internal ushort ReportedDeadUserId { get; }
+        internal ushort? ReportedKillerUserId { get; }
 
         internal static bool TryParse(
             byte[] body,
@@ -30,10 +30,13 @@ namespace DfoServer.Network.Parsers.Pvp
             {
                 return false;
             }
+            if (body.Length == 5 && body[4] > 1)
+                return false;
 
             request =
                 new DiePvpCharacterRequest(
-                    BitConverter.ToUInt16(body, 0));
+                    BitConverter.ToUInt16(body, 0),
+                    body.Length == 5 ? BitConverter.ToUInt16(body, 2) : (ushort?)null);
             return true;
         }
     }

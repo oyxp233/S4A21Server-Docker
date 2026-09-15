@@ -27,7 +27,8 @@ namespace DfoServer.Network.Builders
                     (ushort)c.CharacterId,
                     addition.Progress1,
                     addition.Progress2,
-                    addition.AuraSkinFlag);
+                    addition.AuraSkinFlag,
+                    addition.GrowthCapsuleExp);
                 w.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                     addition,
                     snapshot.InitializationSnapshot.SkillInfo,
@@ -59,12 +60,14 @@ namespace DfoServer.Network.Builders
             ushort characterId,
             uint honorLevel,
             uint honorExp,
-            byte auraSkinFlag)
+            byte auraSkinFlag,
+            uint growthCapsuleExp)
         {
             writer.WriteByte(1);
             writer.WriteUInt16(1);
             // The prefix carries the character's account honor level and EXP.
-            writer.WriteZeroBytes(6);
+            writer.WriteUInt32(growthCapsuleExp);
+            writer.WriteUInt16(0);
             writer.WriteUInt32(honorLevel);
             writer.WriteUInt32(honorExp);
             writer.WriteByte(auraSkinFlag != 0 ? (byte)1 : (byte)0);

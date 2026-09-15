@@ -25,6 +25,8 @@ namespace DfoServer.SelfTests
             Console.WriteLine("=== A21_TUTORIAL_PROTOCOL selftest ===");
             var failures = 0;
 
+            VerifySlotExpansionFinish(ref failures);
+
             Check(
                 "A21 EXP/DIE_MONSTER/GET_ITEM opcodes are direction-specific",
                 (ushort)NotiPacketTypeA21.EXP == 0x0025
@@ -2454,6 +2456,21 @@ namespace DfoServer.SelfTests
                     ExpNotificationBuilder.RemovedChannelExpOffset) == 0,
                 ref failures);
 
+            var altHonor = new DfoServer.Game.Accounts.HonorLevelSummary
+            {
+                HonorLevel = 7,
+                HonorExp = 1234,
+            };
+            var altExp = ExpNotificationBuilder.Build(
+                level: 50,
+                totalExp: 456,
+                skillPoints: default,
+                honorLevel: altHonor);
+            Check(
+                "A21 non-max-level EXP preserves account honor instead of resetting it to zero",
+                BitConverter.ToUInt32(altExp, ExpNotificationBuilder.HonorLevelOffset) == altHonor.HonorLevel
+                && BitConverter.ToUInt32(altExp, ExpNotificationBuilder.HonorExpOffset) == altHonor.HonorExp,
+                ref failures);
             var eliteExp = ExpNotificationBuilder.Build(
                 level: 1,
                 totalExp: 100,
@@ -3818,6 +3835,73 @@ namespace DfoServer.SelfTests
                     }),
             };
             return run;
+        }
+
+        private static void VerifySlotExpansionFinish(ref int failures)
+        {
+            foreach (var (questId, slotType) in new[] { (649, 0), (650, 1) })
+            {
+                var resolution = QuestData.ResolveReward(questId, -1, 70, -1, -1);
+                Check($"PVF slot expansion quest {questId} maps to native type 23 and slot {slotType}",
+                    resolution.IsValid
+                    && resolution.Reward.ChainType == 23
+                    && resolution.Reward.GrowNumber == slotType,
+                    ref failures);
+                if (!resolution.IsValid)
+                    continue;
+
+                foreach (var finishType in new[]
+                {
+                    QuestFinishType.Seeking,
+                    QuestFinishType.MeetNpc,
+                    (QuestFinishType)0x19,
+                })
+                {
+                    var result = new QuestFinishResult
+                    {
+                        QuestId = 1,
+                        FinishType = finishType,
+                        CompletionCount = 1,
+                        ChainType = resolution.Reward.ChainType,
+                        GrowNumber = resolution.Reward.GrowNumber,
+                    };
+                    var hasConsumedPrefix = finishType == QuestFinishType.Seeking
+                        || (byte)finishType == 0x19;
+                    if (hasConsumedPrefix)
+                        result.ConsumedEntries.Add(new ConsumedItemEntry
+                        {
+                            UpdateType = 0,
+                            SlotIndex = 3,
+                            ConsumedCount = 2,
+                        });
+
+                    // A21：12B 公共前缀、按完成类型携带的消耗列表、chain=23；无尾部。
+                    var expected = hasConsumedPrefix
+                        ? new byte[] { 1, 1, 0, (byte)finishType, 0, 0, 0, 0, 1, 0, 0, 0,
+                            1, 0, 3, 0, 2, 0, 0, 0, 23 }
+                        : new byte[] { 1, 1, 0, 4, 0, 0, 0, 0, 1, 0, 0, 0, 23 };
+                    Check($"slot expansion {slotType}/{finishType} emits native chain 23 with no unread tail",
+                        QuestAckBuilder.BuildFinish(result).AsSpan().SequenceEqual(expected)
+                        && result.ChainType == QuestData.ChainTypeSlotExpansion
+                        && result.GrowNumber == slotType,
+                        ref failures);
+                    if (hasConsumedPrefix)
+                    {
+                        result.ConsumedEntries.Clear();
+                        var emptyConsumedExpected = new byte[]
+                        {
+                            1, 1, 0, (byte)finishType, 0, 0, 0, 0, 1, 0, 0, 0, 0, 23,
+                        };
+                        Check($"slot expansion {slotType}/{finishType} retains zero consumed count before chain",
+                            QuestAckBuilder.BuildFinish(result).AsSpan().SequenceEqual(emptyConsumedExpected),
+                            ref failures);
+                    }
+                    result.ErrorCode = 4;
+                    Check($"failed slot expansion {slotType}/{finishType} emits only failure",
+                        QuestAckBuilder.BuildFinish(result).AsSpan().SequenceEqual(new byte[] { 0, 4 }),
+                        ref failures);
+                }
+            }
         }
 
         private static string FormatInts(int[] values)

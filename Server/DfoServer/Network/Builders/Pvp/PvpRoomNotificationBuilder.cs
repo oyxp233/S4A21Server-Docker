@@ -112,7 +112,8 @@ namespace DfoServer.Network.Builders.Pvp
 
         internal static byte[] BuildEndPvpBody(
             FreeDuelRoom room,
-            int recipientSeat)
+            int recipientSeat,
+            IReadOnlyDictionary<int, PvpMatchProgress> records)
         {
             if (room == null)
                 throw new ArgumentNullException(nameof(room));
@@ -143,14 +144,12 @@ namespace DfoServer.Network.Builders.Pvp
             }
 
             var writer = new GamePacketWriter();
-            // The deployed A14 client interprets this byte as its own
-            // win/lose/draw result. Sending the older native winner-seat value
-            // makes seat 0 (red) appear correct by accident, while a blue win
-            // is rendered as a draw/red win.
-            writer.WriteByte(GetRecipientResultCode(room, recipientSeat));
+            // A21 1170310 resolves this value through room vtable+60: winner seat.
+            var recipient = records[room.GetSeatCharacterId(recipientSeat)];
+            writer.WriteByte(room.WinnerSeat);
             writer.WriteInt32(0); // free-duel win point
-            writer.WriteByte(0); // free-duel PvP grade
-            writer.WriteInt32(0); // free-duel experience delta
+            writer.WriteByte(recipient.Record.Grade);
+            writer.WriteInt32(recipient.ExperienceChange);
             writer.WriteByte((byte)combatantCount);
             for (var seat = 0;
                  seat < FreeDuelRoom.SeatCount;
@@ -162,54 +161,27 @@ namespace DfoServer.Network.Builders.Pvp
                     continue;
                 }
 
-                writer.WriteUInt16(
-                    room.GetSeatUserId(seat));
-                writer.WriteInt32(0); // client rank score is not trusted
-                writer.WriteByte(0); // PvP grade
-                writer.WriteInt32(0); // PvP experience
-                writer.WriteInt32(0); // current rank point
-                writer.WriteInt32(0); // next rank point
+                var record = records[room.GetSeatCharacterId(seat)].Record;
+                writer.WriteUInt16(room.GetSeatUserId(seat));
+                // 1170310 -> 25DE910 stores this at result entry +4;
+                // 25DD770 draws it in the kill-count column.
                 writer.WriteInt32(room.GetKillCount(seat));
-                writer.WriteInt32(room.GetDeathCount(seat));
+                writer.WriteByte(record.Grade);
+                writer.WriteInt32(record.Experience);
+                writer.WriteInt32(record.RankPoint);
+                writer.WriteInt32(record.PeakRankPoint);
             }
-            if (combatantCount > 0)
-                writer.WriteUInt16(0); // ace is intentionally unset
+            writer.WriteUInt16(ushort.MaxValue); // no ace recipient
             writer.WriteUInt16(ushort.MaxValue); // no all-kill recipient
             writer.WriteInt32(0); // no reward experience
             writer.WriteByte(
                 room.WinnerSeat == byte.MaxValue
                     ? (byte)1
                     : (byte)0);
-            writer.WriteByte(0); // no within-mission result
-            writer.WriteByte(byte.MaxValue); // not relay battle
+            writer.WriteByte(byte.MaxValue); // no supported mission result
+            writer.WriteInt32(0); // unnamed result-event value
+            writer.WriteByte(0); // reward item count
             return writer.ToArray();
-        }
-
-        private static byte GetRecipientResultCode(
-            FreeDuelRoom room,
-            int recipientSeat)
-        {
-            const byte victory = 0;
-            const byte defeat = 1;
-            const byte draw = 2;
-
-            if (room.IsObserverSeat(recipientSeat) ||
-                room.WinnerSeat == byte.MaxValue)
-            {
-                return draw;
-            }
-            if (recipientSeat == room.WinnerSeat)
-                return victory;
-
-            if (room.BattleMode == 1 || room.BattleMode == 4)
-                return defeat;
-            if (!room.IsOccupiedSeat(room.WinnerSeat))
-                return defeat;
-
-            return room.GetSeatState(recipientSeat) ==
-                   room.GetSeatState(room.WinnerSeat)
-                ? victory
-                : defeat;
         }
 
         internal static byte[] BuildEnterSuccessBody(
@@ -305,7 +277,6 @@ namespace DfoServer.Network.Builders.Pvp
             {
                 writer.WriteByte(room.GetSeatState(seat));
                 writer.WriteUInt16(room.GetSeatUserId(seat));
-                writer.WriteByte(0); // location/geo sharing disabled
             }
 
             // Native PvP_Room::make_room_info writes IsExistPassword here.
@@ -374,7 +345,6 @@ namespace DfoServer.Network.Builders.Pvp
             writer.WriteByte((byte)seat);
             writer.WriteByte(room.GetSeatState(seat));
             writer.WriteUInt16(room.GetSeatUserId(seat));
-            writer.WriteByte(0); // location/geo sharing disabled
         }
     }
 }

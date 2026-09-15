@@ -16,6 +16,7 @@ namespace DfoServer.Game.Accounts
         private readonly HonorLevelSyncService _honorLevel;
         private readonly GrowthCapsuleProgressRepository _growthCapsuleRepository;
         private readonly SqliteCharacterProgressRepository _progressRepository;
+        private readonly SqlitePvpSkillRepository _pvpSkillRepository;
 
         public GrowthCapsuleSyncService(ICharacterRepository characterRepository)
             : this(characterRepository, ServerPaths.DatabasePath, ServerPaths.SchemaFilePath)
@@ -41,6 +42,7 @@ namespace DfoServer.Game.Accounts
             _honorLevel = new HonorLevelSyncService(characterRepository, database);
             _growthCapsuleRepository = new GrowthCapsuleProgressRepository(database);
             _progressRepository = new SqliteCharacterProgressRepository(database);
+            _pvpSkillRepository = new SqlitePvpSkillRepository(database);
         }
 
         public async Task SendExpProgressAsync(
@@ -92,6 +94,13 @@ namespace DfoServer.Game.Accounts
                 }
                 else
                 {
+                    if (GameNetworkConfig.IsPvpListener(session.ListenerPort))
+                    {
+                        var synced = SkillStateService.LoadPvpAndSync(
+                            _pvpSkillRepository, record, session.Player.Level);
+                        skillPoints = SkillStateService.GetProtocolState(synced.Skills, synced.Points);
+                        return true;
+                    }
                     Characters.CharacterStatComputer.DecodeGrowType(record.GrowType, out var capFirstGrow, out var capSecondGrow);
                     skillPoints = SkillStateService.LoadProtocolState(
                         _progressRepository,

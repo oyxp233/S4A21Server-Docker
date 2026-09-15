@@ -1,8 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using DfoServer.Game.Accounts;
+using DfoServer.Game.SelectCharacter;
+using DfoServer.Game.Session;
 using DfoServer.Infrastructure;
 using DfoServer.Network;
+using DfoServer.Network.Builders;
 using DfoServer.Network.Handlers;
 
 namespace DfoServer.SelfTests
@@ -125,21 +132,81 @@ namespace DfoServer.SelfTests
                 selectorCatalog);
             Check(
                 "A21 selector catalog comes from channel_info.etc group 1",
-                selectorCatalog.Count == 28
+                selectorCatalog.Count == 17
                 && selectorCatalog.Any(channel => channel.ChannelId == 1)
                 && selectorCatalog.Any(channel => channel.ChannelId == 11)
                 && selectorCatalog.Any(channel => channel.ChannelId == 200)
                 && !selectorCatalog.Any(channel =>
                     channel.ChannelId == GameNetworkConfig.FreeDuelChannelIndex)
+                && !selectorCatalog.Any(channel => channel.ChannelId == 50
+                    || channel.ChannelId == 60 || channel.ChannelId == 70)
                 && selectorCatalog.Single(
                        channel => channel.ChannelId == 200).MaxUserNum == 250
                 && selectorCatalog.All(channel =>
                     channel.ChannelName == $"#ch.{channel.ChannelId}"),
                 ref failures);
             Check(
-                "A21 selector catalog keeps the capture-verified 1350B body",
-                selectorCatalogPlaintext.Length == 1350
-                && BitConverter.ToInt32(selectorCatalogPlaintext, 2) == 28,
+                "A21 disabled PvP catalog keeps 17 valid 48B entries",
+                selectorCatalogPlaintext.Length == 822
+                && BitConverter.ToInt32(selectorCatalogPlaintext, 2) == 17,
+                ref failures);
+
+            var definitions = ChannelProtocolHandler.ParseScriptChannels(
+                File.ReadAllText(ServerPaths.ChannelInfoFilePath));
+            GameNetworkConfig.ConfigureChannelCatalog(definitions);
+            try
+            {
+                var pvpCatalog = ChannelProtocolHandler.LoadChannels(null, includeFreeDuel: true);
+                var enabledListeners = GameNetworkConfig.BuildGameChannels(includeFreeDuel: true);
+                Check(
+                    "A21 PvP catalog exposes every configured listener exactly once",
+                    pvpCatalog.Count == 29
+                    && enabledListeners.Count == 29
+                    && enabledListeners.Select(channel => channel.ListenerGamePort).Distinct().Count() == 29
+                    && pvpCatalog.All(channel => enabledListeners.Any(
+                        endpoint => endpoint.ChannelId == channel.ChannelId)),
+                    ref failures);
+                foreach (var (channelId, environment) in new[]
+                {
+                    (50, 24), (54, 24), (60, 8), (64, 8), (68, 13), (70, 13)
+                })
+                {
+                    var port = GameNetworkConfig.PortForChannel(channelId);
+                    Check(
+                        $"A21 CH.{channelId} uses its PvP environment and restores the town only after leaving PvP",
+                        GameNetworkConfig.IsPvpListener(port)
+                        && LoginPacketBuilder.BuildLoginSuccess(port)[3] == environment
+                        && !LoginHandler.IsListenerAdmissionAllowed(port, false)
+                        && LoginHandler.IsListenerAdmissionAllowed(port, true)
+                        && !GameChannelSpawnPolicy.ShouldPersistPosition(port),
+                        ref failures);
+                }
+                Check(
+                    "A21 disabled PvP removes its listeners without changing normal login",
+                    GameNetworkConfig.BuildGameChannels(includeFreeDuel: false).Count == 17
+                    && LoginPacketBuilder.BuildLoginSuccess(10011)[3] == GameNetworkConfig.GeneralChannelEnvironment
+                    && GameChannelSpawnPolicy.ShouldPersistPosition(10011),
+                    ref failures);
+                CheckPvpLobbyInitialization(ref failures);
+            }
+            finally
+            {
+                GameNetworkConfig.ConfigureChannelCatalog(null);
+            }
+
+            var unavailablePvp = PvpChannelInfoHandler.BuildErrorBody();
+            Check(
+                "A21 unavailable PvP uses ordinary failure instead of the mercenary-only 0x15 branch",
+                PvpChannelInfoHandler.CommandType == (ushort)CmdPacketTypeA21.PVP_CHANNEL_INFO
+                && unavailablePvp.SequenceEqual(new byte[] { 0, 0 }),
+                ref failures);
+            var availablePvp = PvpChannelInfoHandler.BuildSuccessBody();
+            Check(
+                "A21 PvP channel success keeps its 6B context and empty cross-server list",
+                availablePvp.Length == 6
+                && availablePvp[0] == 1
+                && BitConverter.ToInt32(availablePvp, 1) == 0
+                && availablePvp[5] == 0,
                 ref failures);
 
             var encrypted = EncryptTool.EncryptData(plaintext, Key);
@@ -239,6 +306,86 @@ namespace DfoServer.SelfTests
                     ? "A21_CHANNEL_PROTOCOL selftest passed."
                     : $"A21_CHANNEL_PROTOCOL selftest failed: {failures}");
             return failures == 0 ? 0 : 1;
+        }
+
+        private static void CheckPvpLobbyInitialization(ref int failures)
+        {
+            var directory = Path.Combine(Path.GetTempPath(), $"a21_pvp_lobby_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var database = new GameDatabase(Path.Combine(directory, "inventory.db"),
+                    ServerPaths.SchemaFilePath);
+                var sessions = new SessionDirectory();
+                var sent = new List<byte[]>();
+                using var pvp = new PvpRoomHandler(
+                    sessions,
+                    _ => throw new InvalidOperationException("Lobby must not request full room-entry USERINFO"),
+                    new CharacterTransitionCoordinator(sessions),
+                    isFreeDuelAvailable: () => true,
+                    database: database,
+                    sendQueuedPacket: (_, packet, _) =>
+                    {
+                        sent.Add(packet);
+                        return Task.CompletedTask;
+                    });
+                foreach (var port in new[] { 10011, 10050, 10060, 10068, 10070 })
+                {
+                    var session = new EnhancedClientSession(null, new GamePacketHeader(), port)
+                    {
+                        Account = new AccountRecord { AccountId = 1 }
+                    };
+                    session.Player.CharacterId = 40000 + port;
+                    session.Player.UserId = (ushort)session.Player.CharacterId;
+                    session.Player.Name = Encoding.ASCII.GetBytes("pvp-lobby");
+                    session.Player.Level = 86;
+                    session.Player.UserState = 0;
+                    session.Player.PvpGrade = 10;
+                    session.Player.Subtype0Tail = new UserInfoMinimumTailSnapshot();
+                    session.Player.TownPresenceReady = true;
+                    session.GameSession = new GameSession(session, database);
+                    sessions.Register(session.Player.CharacterId, session);
+                    sent.Clear();
+                    pvp.HandleLobbyReadyAsync(session).GetAwaiter().GetResult();
+                    var isPvp = port != 10011;
+                    Check(
+                        $"listener {port} publishes the real PvP lobby sequence only in a PvP environment",
+                        isPvp
+                            ? sent.Count == 2
+                              && sent[0][0] == 0
+                               && BitConverter.ToUInt16(sent[0], 1) == (ushort)NotiPacketTypeA21.USERINFO
+                               && sent[0][15] == 0
+                               && BitConverter.ToUInt16(sent[0], 16) == 1
+                               && BitConverter.ToUInt16(sent[0], 15 + 41) == session.Player.UserId
+                              && sent[1][0] == 0
+                              && BitConverter.ToUInt16(sent[1], 1) == (ushort)NotiPacketTypeA21.PVP_ROOM_INFO
+                              && sent[1].Length == 17
+                              && BitConverter.ToUInt16(sent[1], 15) == 0
+                              && pvp.IsLobbyReadyForTest(session.SessionId)
+                               && session.Player.TownPresenceReady
+                            : sent.Count == 0 && session.Player.TownPresenceReady,
+                        ref failures);
+                    sent.Clear();
+                    pvp.HandleLobbyReadyAsync(session).GetAwaiter().GetResult();
+                    Check($"listener {port} does not replay an initialized lobby",
+                        sent.Count == 0, ref failures);
+                    sessions.UnregisterAsync(session.Player.CharacterId, session)
+                        .GetAwaiter().GetResult();
+                    Check($"listener {port} releases lobby state on session exit",
+                        !pvp.IsLobbyReadyForTest(session.SessionId), ref failures);
+                    session.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                Check("PvP lobby initialization harness completes", false, ref failures);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                Directory.Delete(directory, recursive: true);
+            }
         }
 
         private static string ReadFixedClientText(

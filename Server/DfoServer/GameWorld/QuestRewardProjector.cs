@@ -48,7 +48,8 @@ namespace DfoServer.GameWorld
 
     internal static class QuestRewardProjector
     {
-        internal const int ChainTypeSlotExpansion = 21;
+        // A21 [slot expansion] 的原生奖励类型。
+        internal const int ChainTypeSlotExpansion = 23;
 
         private static readonly Lazy<QuestParameterTable> Parameters =
             new Lazy<QuestParameterTable>(LoadParameters);

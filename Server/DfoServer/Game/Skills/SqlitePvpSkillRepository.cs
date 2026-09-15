@@ -55,13 +55,11 @@ namespace DfoServer.Game.Skills
                         SaveCore(connection, transaction, characterId, initial);
                         MarkInitialized(connection, transaction, characterId);
                         transaction.Commit();
-                        ApplyUnlimitedPointMirrors(initial);
                         return initial;
                     }
 
                     var loaded = LoadCore(connection, transaction, characterId);
                     transaction.Commit();
-                    ApplyUnlimitedPointMirrors(loaded);
                     return loaded;
                 }
             }
@@ -72,9 +70,7 @@ namespace DfoServer.Game.Skills
             using (var connection = new SqliteConnection(_connectionString))
             {
                 connection.Open();
-                var snapshot = LoadCore(connection, null, characterId);
-                ApplyUnlimitedPointMirrors(snapshot);
-                return snapshot;
+                return LoadCore(connection, null, characterId);
             }
         }
 
@@ -150,20 +146,6 @@ WHERE character_id=@cid AND skill_id=@sid;";
                     transaction.Commit();
                 }
             }
-        }
-
-        internal static void ApplyUnlimitedPointMirrors(SkillInfoSnapshot snapshot)
-        {
-            if (snapshot == null)
-                return;
-            while (snapshot.Pages.Count < 2)
-                snapshot.Pages.Add(new SkillInfoPageSnapshot());
-
-            snapshot.Pages[0].HeaderValue = ushort.MaxValue;
-            snapshot.Pages[1].HeaderValue = ushort.MaxValue;
-            snapshot.Tail0 = ushort.MaxValue;
-            snapshot.Tail1 = ushort.MaxValue;
-            snapshot.HasTailValues = true;
         }
 
         private int ExecuteUpdate(string sql, int characterId)

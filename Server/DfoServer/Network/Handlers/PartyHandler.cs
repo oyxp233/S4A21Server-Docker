@@ -1229,7 +1229,7 @@ namespace DfoServer.Network.Handlers
             byte reqType = body[2];
             int peerInt = body.Length >= 7 ? System.BitConverter.ToInt32(body, 3) : 0;
             var (cid, aid) = SessionOwnerResolver.Resolve(session);
-            ushort inviterUid = (ushort)cid;
+            ushort inviterUid = session.Player?.UserId > 0 ? session.Player.UserId : (ushort)cid;
             FileLogger.Log($"[{ProtocolName}] REQUEST_PEER by={cid} targetUid={targetUid} type={reqType} peerInt={peerInt} body={System.BitConverter.ToString(body)}");
 
             var targetSession = FindSessionByUserId(targetUid);
@@ -1419,12 +1419,10 @@ namespace DfoServer.Network.Handlers
             if (_sessions == null || body == null || body.Length < 2)
                 return;
             ushort inviterUid = System.BitConverter.ToUInt16(body, 0);
-            // ★body[2]=reqType(与 REQUEST_PEER 同域): 0=组队 1=交易。真机 ground truth:
-            //   组队 accept body=EB-03-`00`-..., 交易 accept body=EB-03-`01`-...。
-            //   之前无视 reqType 一律 party join → 交易【同意】被误组队(1v1交易窗点同意冒出组队 + 交易无后续)。
+            // body[2] 与 REQUEST_PEER 共用类型：0=组队，1=交易，2=决斗邀请。
             byte reqType = body.Length >= 3 ? body[2] : (byte)0;
             var (acid, aaid) = SessionOwnerResolver.Resolve(session);
-            ushort accepterUid = (ushort)acid;
+            ushort accepterUid = session.Player?.UserId > 0 ? session.Player.UserId : (ushort)acid;
             FileLogger.Log($"[{ProtocolName}] RES_PEER recv: accepter={accepterUid} inviter={inviterUid} type={reqType} body={System.BitConverter.ToString(body)}");
 
             if (inviterUid == accepterUid)
@@ -1626,13 +1624,18 @@ namespace DfoServer.Network.Handlers
         // 按 UserId 找在线会话。
         private EnhancedClientSession FindSessionByUserId(ushort uid)
         {
+            EnhancedClientSession match = null;
             foreach (var s in _sessions.GetAllGameSessions())
             {
                 var (scid, _) = SessionOwnerResolver.Resolve(s);
-                if (scid > 0 && (ushort)scid == uid)
-                    return s;
+                var wireUid = s.Player?.UserId > 0 ? s.Player.UserId : (ushort)scid;
+                if (scid <= 0 || wireUid != uid)
+                    continue;
+                if (match != null)
+                    return null;
+                match = s;
             }
-            return null;
+            return match;
         }
 
         internal async Task PublishTownPartyListsAsync()
@@ -1920,10 +1923,9 @@ namespace DfoServer.Network.Handlers
         }
 
         // 向队伍全体在线成员广播 PARTY_INFO(0x09)+ 实时信息(0x99)+ P2P 端点(0x0B)。
-        // A21 当前最稳的 formation 基线是双方统一发送完整 type=0。
-        // type=2 分流是本轮双端退出的最强回归点，先回到该基线再实机闭环。
+        // A21 formation 向双方统一发送完整 type=0。
         // includeP2p=false: 只发 0x09 名册刷新, 不重发 0x0B/0x99。委托队长用: 队伍已 P2P 连着,
-        //   swap 槽位后再重发 0x0B 会触发客户端 P2P 重握手 → 崩溃/超时(真机实测 A 断连)。换队长只需名册刷新。
+        //   换队长只刷新名册，避免对已有连接触发 P2P 重握手。
         private Task BroadcastPartyInfo(
             Game.Party.Party party,
             bool includeP2p = true,

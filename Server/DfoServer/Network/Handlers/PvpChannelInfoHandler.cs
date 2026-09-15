@@ -5,17 +5,17 @@ using DfoServer.Infrastructure;
 namespace DfoServer.Network.Handlers
 {
     /// <summary>
-    /// CMD 0x00C3 PVP_CHANNEL_INFO.
+    /// A21 PVP_CHANNEL_INFO.
     ///
     /// The client sends an empty request before it opens the PvP channel
-    /// selector. The legacy game server replies on the same command with:
-    ///   u8 success, i32 reserved, u8 connectedServerCount.
-    /// The selector itself already receives CH.68 from ChannelProtocol, so the
+    /// selector. A21 reads the successful reply on the same command as:
+    ///   u8 success, i32 context, u8 connectedServerCount.
+    /// ChannelProtocol advertises configured PvP channels when enabled; the
     /// game-server reply intentionally carries an empty inter-server list.
     /// </summary>
     public sealed class PvpChannelInfoHandler
     {
-        internal const ushort CommandType = 0x00C3;
+        internal const ushort CommandType = (ushort)CmdPacketTypeA21.PVP_CHANNEL_INFO;
 
         private readonly Func<bool> _isFreeDuelAvailable;
 
@@ -78,9 +78,11 @@ namespace DfoServer.Network.Handlers
 
         internal static byte[] BuildErrorBody()
         {
-            // Legacy SendCmdErrorPacket(type, 0x15):
-            // u8 success=0, u8 error=21.
-            return new byte[] { 0, 0x15 };
+            // A21 1119FB0 sends failure 0x15 to the mercenary notice (1585060).
+            // Zero follows 26BAC60's ordinary selector fallback. If no eligible
+            // PvP channel exists, 26BAB90 shows the client's localized 70077.
+            // That text resource ID is not a wire error code or server notice.
+            return new byte[] { 0, 0 };
         }
 
         private static bool IsFreeDuelAvailable()

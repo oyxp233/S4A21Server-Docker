@@ -388,6 +388,8 @@ WHERE character_id = @cid;";
                 Job = player.Job,
                 GrowType = player.GrowType,
                 Level = player.Level,
+                PvpGrade = player.PvpGrade,
+                PvpRatingGrade = player.PvpRatingGrade,
                 UserState = player.UserState,
                 Appearance = player.AppearanceEntries,
                 Subtype0Tail = player.Subtype0Tail,
@@ -404,7 +406,8 @@ WHERE character_id = @cid;";
             if (record.Subtype0Tail == null)
                 record.Subtype0Tail = new UserInfoMinimumTailSnapshot();
 
-            return UserInfoSubtype0Builder.BuildNotificationBody(record);
+            return UserInfoSubtype0Builder.BuildNotificationBody(
+                record, player.UserId != 0 ? player.UserId : (ushort)player.CharacterId);
         }
     }
 }

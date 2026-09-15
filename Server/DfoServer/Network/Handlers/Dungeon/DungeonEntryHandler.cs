@@ -976,7 +976,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     (ushort)record.CharacterId,
                     addition.Progress1,
                     addition.Progress2,
-                    addition.AuraSkinFlag);
+                    addition.AuraSkinFlag,
+                    addition.GrowthCapsuleExp);
                 writer.WriteBytes(UserInfoSubtype1Builder.BuildFromSnapshot(
                     addition,
                     skillSnapshot,

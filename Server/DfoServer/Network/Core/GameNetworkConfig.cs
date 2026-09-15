@@ -61,15 +61,16 @@ namespace DfoServer.Network
 
         // 频道目录(频道号 ↔ TCP 端口 10000+频道号,与线上约定一致)。
         // 启动时由 Program 从 channel_info.etc 加载; 未加载时退回基线三频道。
-        private static int[] _channelCatalogIds;
+        private static GameChannelEndpoint[] _channelCatalog;
 
-        public static void ConfigureChannelCatalog(IReadOnlyList<int> channelIds)
+        public static void ConfigureChannelCatalog(IReadOnlyList<GameChannelEndpoint> channels)
         {
-            _channelCatalogIds = channelIds == null
+            _channelCatalog = channels == null
                 ? null
-                : channelIds
-                    .Where(id => id >= byte.MinValue && id <= byte.MaxValue)
-                    .Distinct()
+                : channels
+                    .Where(channel => channel != null)
+                    .GroupBy(channel => channel.ChannelId)
+                    .Select(group => group.First())
                     .ToArray();
         }
 
@@ -86,7 +87,7 @@ namespace DfoServer.Network
             bool includeFreeDuel,
             bool proxyMode)
         {
-            var catalog = _channelCatalogIds;
+            var catalog = _channelCatalog;
             var channels = new List<GameChannelEndpoint>();
             if (proxyMode || catalog == null || catalog.Length == 0)
             {
@@ -109,25 +110,28 @@ namespace DfoServer.Network
                     new GameChannelEndpoint(
                         RaidChannelIndex,
                         RaidGamePort,
-                        RaidGamePort));
+                        RaidGamePort,
+                        RaidChannelEnvironment));
             }
             else
             {
-                foreach (var channelId in catalog)
+                foreach (var channel in catalog)
                 {
-                    var port = PortForChannel(channelId);
-                    channels.Add(
-                        new GameChannelEndpoint(channelId, port, port));
+                    if (!includeFreeDuel && IsPvpEnvironment(channel.ChannelType))
+                        continue;
+                    channels.Add(channel);
                 }
             }
 
-            if (includeFreeDuel)
+            if (includeFreeDuel
+                && !channels.Any(channel => channel.ChannelId == FreeDuelChannelIndex))
             {
                 channels.Add(
                     new GameChannelEndpoint(
                         FreeDuelChannelIndex,
                         FreeDuelGamePort,
-                        FreeDuelGamePort));
+                        FreeDuelGamePort,
+                        FreeDuelChannelEnvironment));
             }
 
             return channels;
@@ -157,10 +161,23 @@ namespace DfoServer.Network
                 channel => channel.ChannelId == channelId);
 
         public static bool IsFreeDuelChannel(int channelId)
-            => channelId == FreeDuelChannelIndex;
+            => FindGameChannel(channelId)?.ChannelType == FreeDuelChannelEnvironment;
 
         public static bool IsFreeDuelListener(int listenerGamePort)
-            => listenerGamePort == FreeDuelGamePort;
+            => TryResolveGameChannel(listenerGamePort, out var channel)
+               && channel.ChannelType == FreeDuelChannelEnvironment;
+
+        public static bool IsPvpEnvironment(byte channelType)
+            => channelType == 8 || channelType == 24
+               || channelType == FreeDuelChannelEnvironment;
+
+        public static bool IsPvpChannel(int channelId)
+            => FindGameChannel(channelId) is GameChannelEndpoint channel
+               && IsPvpEnvironment(channel.ChannelType);
+
+        public static bool IsPvpListener(int listenerGamePort)
+            => TryResolveGameChannel(listenerGamePort, out var channel)
+               && IsPvpEnvironment(channel.ChannelType);
 
         public static bool IsChannel100Listener(int listenerGamePort)
             => listenerGamePort == Channel100GamePort
@@ -177,8 +194,9 @@ namespace DfoServer.Network
             if (IsRaidListener(listenerGamePort))
                 return RaidChannelEnvironment;
 
-            return IsFreeDuelListener(listenerGamePort)
-                ? FreeDuelChannelEnvironment
+            return TryResolveGameChannel(listenerGamePort, out var channel)
+                   && IsPvpEnvironment(channel.ChannelType)
+                ? channel.ChannelType
                 : GeneralChannelEnvironment;
         }
 

@@ -145,7 +145,7 @@ namespace DfoServer.Network.Handlers
         internal static bool IsListenerAdmissionAllowed(
             int listenerPort,
             bool freeDuelChannelEnabled)
-            => !GameNetworkConfig.IsFreeDuelListener(listenerPort)
+            => !GameNetworkConfig.IsPvpListener(listenerPort)
                || freeDuelChannelEnabled;
 
         private bool EnsureListenerAdmission(

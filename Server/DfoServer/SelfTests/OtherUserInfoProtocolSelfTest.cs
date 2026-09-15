@@ -1,12 +1,19 @@
+using DfoServer.Game.Accounts;
 using DfoServer.Game.Characters;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.Session;
 using DfoServer.Game.Skills;
+using DfoServer.Infrastructure;
 using DfoServer.Network;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Handlers;
 using System;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
+using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
 
 namespace DfoServer.SelfTests
 {
@@ -31,6 +38,16 @@ namespace DfoServer.SelfTests
             CheckSkillPagesAreBothWritten(ref failures);
             CheckFashionMergeUsesAppearance(ref failures);
             CheckInspectStaysOnSameChannel(ref failures);
+            try
+            {
+                CheckNameChangeLogDispatchAsync().GetAwaiter().GetResult();
+                Check("name-history mode 5 dispatches the native empty list with inspect permissions", true, ref failures);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                Check("name-history mode 5 dispatches the native empty list with inspect permissions", false, ref failures);
+            }
 
             Console.WriteLine(
                 failures == 0
@@ -225,6 +242,112 @@ namespace DfoServer.SelfTests
                     requester,
                     1005) == null,
                 ref failures);
+        }
+
+        private static async Task CheckNameChangeLogDispatchAsync()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), $"a21_name_history_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var database = new GameDatabase(Path.Combine(directory, "inventory.db"), ServerPaths.SchemaFilePath);
+                database.Write((connection, transaction) =>
+                {
+                    using var command = connection.CreateCommand();
+                    command.Transaction = transaction;
+                    command.CommandText = @"
+INSERT INTO accounts (account_id, m_id, password_hash)
+VALUES (5461, 'name-history-self', ''), (5462, 'name-history-other', '');
+INSERT INTO characters (character_id, account_id, name, level)
+VALUES (5461, 5461, 'history-self', 86), (5462, 5462, 'history-other', 86);";
+                    command.ExecuteNonQuery();
+                });
+                var sessions = new SessionDirectory();
+                using var runtime = new ServerRuntimeBuilder(database);
+                var protocol = runtime.BuildGameProtocolHandler(sessions);
+                var listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                using var receiver = new TcpClient { ReceiveTimeout = 2000 };
+                TcpClient sender;
+                try
+                {
+                    var connect = receiver.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+                    sender = await listener.AcceptTcpClientAsync();
+                    await connect;
+                }
+                finally
+                {
+                    listener.Stop();
+                }
+
+                using (sender)
+                {
+                    var requester = new EnhancedClientSession(sender, new GamePacketHeader(), 10010)
+                    {
+                        Account = new AccountRecord { AccountId = 5461 },
+                    };
+                    requester.Player.CharacterId = 5461;
+                    requester.Player.UserId = 5461;
+                    var target = CreateDirectorySession(5462, 10010);
+                    target.Account = new AccountRecord { AccountId = 5462 };
+                    sessions.Register(5461, requester);
+                    sessions.Register(5462, target);
+                    var header = new GamePacketHeader { cmd = 1, type = (ushort)CmdPacketTypeA21.GET_USERINFO };
+                    Task Send(byte[] request) => protocol.OnPacketReceived_86JP(requester, header, request);
+                    byte[] Request(ushort uid, byte mode = 5) => new[] { (byte)uid, (byte)(uid >> 8), mode };
+                    async Task ExpectEmpty(ushort uid)
+                    {
+                        await Send(Request(uid));
+                        var packet = new byte[16];
+                        receiver.GetStream().ReadExactly(packet);
+                        if (packet[0] != 0 || BitConverter.ToUInt16(packet, 1) != (ushort)NotiPacketTypeA21.CHARAC_NAME_CHANGE_LOG
+                            || BitConverter.ToInt32(packet, 3) != packet.Length || packet[15] != 0
+                            || receiver.Client.Poll(20000, SelectMode.SelectRead))
+                            throw new InvalidOperationException("Name history must be exactly one u8 zero-count notification.");
+                    }
+                    async Task ExpectRejected(byte[] request)
+                    {
+                        await Send(request);
+                        if (receiver.Client.Poll(20000, SelectMode.SelectRead))
+                            throw new InvalidOperationException("Invalid name-history request produced a notification.");
+                    }
+
+                    await ExpectEmpty(5461);
+                    await ExpectEmpty(5462);
+                    await ExpectEmpty(5461);
+                    await ExpectRejected(new byte[2]);
+                    await ExpectRejected(Request(5462, 4));
+                    await ExpectRejected(Request(ushort.MaxValue));
+                    await ExpectRejected(Request(5463));
+                    target.Account.AccountId = 5461;
+                    await ExpectRejected(Request(5462));
+                    target.Account.AccountId = 5462;
+                    var remote = CreateDirectorySession(5462, 10011);
+                    remote.Account = target.Account;
+                    sessions.Register(5462, remote);
+                    await ExpectRejected(Request(5462));
+                    sessions.Register(5462, target);
+                    var collision = CreateDirectorySession(5462 + 65536, 10010);
+                    collision.Account = target.Account;
+                    sessions.Register(collision.Player.CharacterId, collision);
+                    await ExpectRejected(Request(5462));
+                    collision.Player.CharacterId = 0;
+                    requester.Account.AccountId = 0;
+                    await ExpectRejected(Request(5462));
+                    requester.Account.AccountId = 5461;
+                    sessions.Register(5461, CreateDirectorySession(5461, 10010));
+                    await ExpectRejected(Request(5462));
+                    requester.Close();
+                    target.Close();
+                    remote.Close();
+                    collision.Close();
+                }
+            }
+            finally
+            {
+                SqliteConnection.ClearAllPools();
+                Directory.Delete(directory, recursive: true);
+            }
         }
 
         private static EnhancedClientSession CreateDirectorySession(

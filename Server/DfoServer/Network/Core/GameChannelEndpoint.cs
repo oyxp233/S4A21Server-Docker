@@ -7,7 +7,8 @@ namespace DfoServer.Network
         public GameChannelEndpoint(
             int channelId,
             int publicGamePort,
-            int listenerGamePort)
+            int listenerGamePort,
+            byte channelType = GameNetworkConfig.GeneralChannelEnvironment)
         {
             if (channelId < byte.MinValue || channelId > byte.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(channelId));
@@ -19,6 +20,7 @@ namespace DfoServer.Network
             ChannelId = channelId;
             PublicGamePort = publicGamePort;
             ListenerGamePort = listenerGamePort;
+            ChannelType = channelType;
         }
 
         public int ChannelId { get; }
@@ -30,5 +32,7 @@ namespace DfoServer.Network
         public int PublicGamePort { get; }
 
         public int ListenerGamePort { get; }
+
+        public byte ChannelType { get; }
     }
 }

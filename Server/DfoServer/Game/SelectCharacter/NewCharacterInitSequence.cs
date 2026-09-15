@@ -57,6 +57,10 @@ namespace DfoServer.Game.SelectCharacter
             // 城镇对象创建后、HOTKEY 前再发一次 USERINFO0。
             Raw(0x00, (ushort)NotiPacketTypeA21.USERINFO, 3);
             Raw(0x00, 0x01C7);
+            // 1165CB0 writes the current actor's experience and RP/GP state.
+            // Both USERINFO0 publications must precede this authoritative record.
+            Raw(0x00, (ushort)NotiPacketTypeA21.PVP_RECORD);
+            Raw(0x00, (ushort)NotiPacketTypeA21.PVP_TOTAL_MATCH_TEAM_INFO);
             Raw(0x00, 0x006C);
             Raw(0x00, 0x0187);
             Raw(0x00, 0x01B9);

@@ -53,8 +53,7 @@ namespace DfoServer.Game.Skills
                 level,
                 bonusTp,
                 firstGrow,
-                secondGrow,
-                unlimitedPoints: false);
+                secondGrow);
             if (plan.Result.Success)
                 repo.SaveSkillProgress(cid, plan.Snapshot);
             return plan.Result;
@@ -88,8 +87,7 @@ namespace DfoServer.Game.Skills
                 level,
                 bonusTp,
                 firstGrow,
-                secondGrow,
-                unlimitedPoints: false);
+                secondGrow);
             if (!plan.Result.Success)
                 return plan.Result;
 
@@ -150,8 +148,7 @@ namespace DfoServer.Game.Skills
                 level,
                 bonusTp,
                 firstGrow,
-                secondGrow,
-                unlimitedPoints: false);
+                secondGrow);
             if (!preview.Result.Success)
                 return preview.Result;
             if (preview.HasEffectiveRefund
@@ -180,8 +177,7 @@ namespace DfoServer.Game.Skills
                         level,
                         bonusTp,
                         firstGrow,
-                        secondGrow,
-                        unlimitedPoints: false);
+                        secondGrow);
                     if (!plan.Result.Success)
                     {
                         committedResult = plan.Result;
@@ -253,8 +249,7 @@ namespace DfoServer.Game.Skills
                 level,
                 bonusTp,
                 firstGrow,
-                secondGrow,
-                unlimitedPoints: true);
+                secondGrow);
             if (plan.Result.Success)
                 repo.Save(cid, plan.Snapshot);
             return plan.Result;
@@ -279,8 +274,7 @@ namespace DfoServer.Game.Skills
             byte level,
             int bonusTp,
             int firstGrow,
-            int secondGrow,
-            bool unlimitedPoints)
+            int secondGrow)
         {
             int pageIdx = skillTree == 1 ? 1 : 0;
             while (snapshot.Pages.Count <= pageIdx)
@@ -400,25 +394,18 @@ namespace DfoServer.Game.Skills
                         slotForEntry = (byte)allocatedSlot;
                     }
 
-                    // 校验4+5: SP/TP 成本按费用表原值分池扣减, 无百分比折扣
-                    // ([skill fitness ...] 是从属标记非折扣, 斩铁式+1 成本 45 整实测定案)。
+                    // SP/TP 成本按费用表原值分池扣减；skill fitness 是从属标记，不是折扣。
                     if (sd.IsTpSkill)
                     {
                         int tpCost = sd.TpCostFor(curLevel, newLevel);
-                        if (!unlimitedPoints)
-                        {
-                            if (remainTp < tpCost) { result.Success = false; result.ErrorCode = 2; return new BuySkillExecutionPlan { Result = result, Snapshot = snapshot }; }
-                            remainTp -= tpCost;
-                        }
+                        if (remainTp < tpCost) { result.Success = false; result.ErrorCode = 2; return new BuySkillExecutionPlan { Result = result, Snapshot = snapshot }; }
+                        remainTp -= tpCost;
                     }
                     else
                     {
                         int cost = sd.SpCostFor(curLevel, newLevel);
-                        if (!unlimitedPoints)
-                        {
-                            if (remainSp < cost) { result.Success = false; result.ErrorCode = 2; return new BuySkillExecutionPlan { Result = result, Snapshot = snapshot }; }
-                            remainSp -= cost;
-                        }
+                        if (remainSp < cost) { result.Success = false; result.ErrorCode = 2; return new BuySkillExecutionPlan { Result = result, Snapshot = snapshot }; }
+                        remainSp -= cost;
                     }
 
                     if (existing != null)
@@ -454,11 +441,11 @@ namespace DfoServer.Game.Skills
                     if (!sd.IsTpSkill)
                         hasNonTpEffectiveRefund = true;
                     // 退点 100% 返还费用表原值。
-                    if (!unlimitedPoints && sd.IsTpSkill)
+                    if (sd.IsTpSkill)
                     {
                         remainTp += sd.TpCostFor(newLevel, curLevel);
                     }
-                    else if (!unlimitedPoints)
+                    else
                     {
                         remainSp += sd.SpCostFor(newLevel, curLevel);
                     }
@@ -481,19 +468,13 @@ namespace DfoServer.Game.Skills
                 }
             }
 
-            result.RemainSp = unlimitedPoints ? ushort.MaxValue : ToUInt16(remainSp);
-            result.RemainTp = unlimitedPoints ? ushort.MaxValue : ToUInt16(remainTp);
-            // 写协议镜像: 保存前将两页 SP/TP 派生值写入 snapshot 的 HeaderValue/Tail,
-            // 使 SaveSkillsCore 持久化的镜像值与 Ledger 派生一致。
-            if (unlimitedPoints)
-            {
-                SqlitePvpSkillRepository.ApplyUnlimitedPointMirrors(snapshot);
-            }
-            else
-            {
-                var finalPoints = SkillStateService.ResolvePointState(snapshot, (byte)job, level, bonusSp, bonusTp, firstGrow, secondGrow);
-                SkillStateService.ApplyProtocolMirrors(snapshot, finalPoints);
-            }
+            // Recompute the final balances for both the ACK and later refreshes.
+            // This also keeps refunds from an old overspent tree at the same
+            // ledger balance instead of inventing points from a clamped zero.
+            var finalPoints = SkillStateService.ResolvePointState(snapshot, (byte)job, level, bonusSp, bonusTp, firstGrow, secondGrow);
+            SkillStateService.ApplyProtocolMirrors(snapshot, finalPoints);
+            result.RemainSp = ToUInt16(pageIdx == 0 ? finalPoints.RemainingSp : finalPoints.RemainingSpPage1);
+            result.RemainTp = ToUInt16(pageIdx == 0 ? finalPoints.RemainingTp : finalPoints.RemainingTpPage1);
             return new BuySkillExecutionPlan
             {
                 Result = result,

@@ -78,7 +78,7 @@ namespace DfoServer.Game.Pvp
                 listenerPort <= 0 ||
                 ownerCharacterId <= 0 ||
                 ownerSessionId == Guid.Empty ||
-                ownerUserId == 0)
+                ownerUserId == 0 || !PvpMapRules.Current.CanSelect(request.MapIndex))
             {
                 errorCode = 19;
                 return false;
@@ -873,6 +873,29 @@ namespace DfoServer.Game.Pvp
             }
         }
 
+        internal bool TrySetMapIndex(int ownerCharacterId, Guid ownerSessionId, short mapIndex,
+            out FreeDuelRoom room, out byte errorCode)
+        {
+            room = null;
+            errorCode = 8;
+            if (!PvpMapRules.Current.CanSelect(mapIndex))
+                return false;
+            lock (_sync)
+            {
+                if (!TryGetOwnedRoom(ownerCharacterId, ownerSessionId, out var current))
+                    return false;
+                if (current.RoomState != FreeDuelRoom.WaitingRoomState)
+                {
+                    errorCode = 19;
+                    return false;
+                }
+                room = current.MapIndex == mapIndex ? current : current.WithMapIndex(mapIndex);
+                _rooms[current.RoomId] = room;
+                errorCode = 0;
+                return true;
+            }
+        }
+
         internal bool TryReportDeath(
             int characterId,
             Guid sessionId,
@@ -880,7 +903,8 @@ namespace DfoServer.Game.Pvp
             out FreeDuelRoom room,
             out byte deadSeat,
             out byte killerSeat,
-            out bool terminal)
+            out bool terminal,
+            ushort? reportedKillerUserId = null)
         {
             room = null;
             deadSeat = byte.MaxValue;
@@ -910,11 +934,10 @@ namespace DfoServer.Game.Pvp
                     return false;
                 }
 
-                // DIE_PVP_CHARACTER identifies the reporting victim.  Do not
-                // reinterpret that value as a killer-controlled identity.
-                // A killer can be credited only when exactly one live
-                // opposing seat exists; otherwise keep attribution unknown
-                // while still allowing authoritative death/win settlement.
+                // The current A21 packet supplies the attacker's UID separately.
+                // Resolve it only inside this combat roster. Unknown, self or
+                // allied sources still report a death, but award no kill.
+                // Only the older victim-only form needs unique-opponent inference.
                 var killerIndex = -1;
                 for (var seat = 0;
                      seat < FreeDuelRoom.SeatCount;
@@ -929,6 +952,16 @@ namespace DfoServer.Game.Pvp
                         current.GetSeatState(seat) ==
                             current.GetSeatState(deadSeat))
                     {
+                        continue;
+                    }
+
+                    if (reportedKillerUserId.HasValue)
+                    {
+                        if (current.GetSeatUserId(seat) == reportedKillerUserId.Value)
+                        {
+                            killerIndex = seat;
+                            break;
+                        }
                         continue;
                     }
 
@@ -962,14 +995,16 @@ namespace DfoServer.Game.Pvp
             int characterId,
             Guid sessionId,
             out FreeDuelRoom room,
-            out bool completed)
+            out bool completed,
+            Action<FreeDuelRoom> beforeCompletion = null)
         {
             return TryAcknowledgeSettlement(
                 characterId,
                 sessionId,
                 rank: true,
                 out room,
-                out completed);
+                out completed,
+                beforeCompletion);
         }
 
         internal bool TryAcknowledgeEnd(
@@ -1021,7 +1056,8 @@ namespace DfoServer.Game.Pvp
             ushort roomId,
             Guid generationId,
             long matchGeneration,
-            out FreeDuelRoom room)
+            out FreeDuelRoom room,
+            Action<FreeDuelRoom> beforeCompletion = null)
         {
             room = null;
             lock (_sync)
@@ -1036,6 +1072,9 @@ namespace DfoServer.Game.Pvp
                 }
 
                 room = current.CreateAwaitingEndSnapshot();
+                // Failed durable settlement leaves the rank phase intact so
+                // the same generation can retry without resetting the room.
+                beforeCompletion?.Invoke(room);
                 _rooms[roomId] = room;
                 return true;
             }
@@ -1121,7 +1160,8 @@ namespace DfoServer.Game.Pvp
             Guid sessionId,
             bool rank,
             out FreeDuelRoom room,
-            out bool completed)
+            out bool completed,
+            Action<FreeDuelRoom> beforeCompletion = null)
         {
             room = null;
             completed = false;
@@ -1158,6 +1198,8 @@ namespace DfoServer.Game.Pvp
                 if (!accepted)
                     return false;
 
+                if (completed)
+                    beforeCompletion?.Invoke(room);
                 _rooms[roomId] = room;
                 return true;
             }
@@ -1327,13 +1369,7 @@ namespace DfoServer.Game.Pvp
         private static byte SelectStartMap(
             FreeDuelRoom room)
         {
-            // PvP map indices are one-based in the legacy candidate list.
-            // A MAKE value of zero means "random"; use the first normal-map
-            // candidate deterministically until map-rotation state exists.
-            return room.MapIndex > 0 &&
-                   room.MapIndex <= byte.MaxValue
-                ? (byte)room.MapIndex
-                : (byte)1;
+            return PvpMapRules.Current.SelectStartMap(room.MapIndex);
         }
 
         private static bool AreValidJoinArguments(
