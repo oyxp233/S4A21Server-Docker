@@ -67,13 +67,13 @@ namespace DfoServer.Network.Builders
             return true;
         }
     }
-    // NOTI 273 (0x0111) 联合服好友信息。客户端有注册 handler(0x00D0DBB0)。
+    // UNITED_SERVER_FRIEND_INFO 的 subcmd=0 全量重建好友列表并刷新面板。
     // 选角时会话已注册进目录（RegisterReplacingAsync 先于 init 包流），按 CharacterId
     // 反查回 self 会话，组真实好友列表（在线频道三态 + 离线 DB 数据，见 UnitedFriendSystem）。
     // 无好友/self 未水合 → 8 字节空态（[subcmd=0][count=0]）兜底，保持基线总是发包。
     public sealed class UnitedServerFriendInfoBodyBuilder : IInitPacketBuilder
     {
-        public ushort NotiType => 0x0111;
+        public ushort NotiType => (ushort)NotiPacketTypeA21.UNITED_SERVER_FRIEND_INFO;
 
         private readonly ISessionDirectory _sessions;
 

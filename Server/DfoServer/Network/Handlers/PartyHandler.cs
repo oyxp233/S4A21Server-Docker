@@ -23,6 +23,7 @@ namespace DfoServer.Network.Handlers
     public sealed class PartyHandler : IDisposable
     {
         private readonly PartyManager _partyManager;
+        private readonly BlacklistRepository _blacklist;
         private readonly ICharacterRepository _characterRepository;
         private readonly SqliteSubtype0FieldsRepository _subtype0Repository;
         private readonly HonorLevelSyncService _honorLevel;
@@ -62,6 +63,7 @@ namespace DfoServer.Network.Handlers
             _partyManager = partyManager;
             _characterRepository = characterRepository;
             database ??= GameDatabase.CreateDefault();
+            _blacklist = new BlacklistRepository(database);
             _subtype0Repository = new SqliteSubtype0FieldsRepository(database);
             _honorLevel = new HonorLevelSyncService(characterRepository, database);
             _sessions = sessions;
@@ -1247,6 +1249,13 @@ namespace DfoServer.Network.Handlers
             }
             if (targetUid == inviterUid)
                 return;
+            int targetCharacterId = targetSession.Player.CharacterId;
+            bool CanInvite() => session.Player.CharacterId == cid
+                && targetSession.Player.CharacterId == targetCharacterId
+                && _sessions.TryGet(cid, out var currentSender) && ReferenceEquals(currentSender, session)
+                && _sessions.TryGet(targetCharacterId, out var currentTarget) && ReferenceEquals(currentTarget, targetSession)
+                && !_blacklist.IsBlocked(targetCharacterId, cid) && !_blacklist.IsBlocked(cid, targetCharacterId);
+            if (!CanInvite()) return;
 
             // ★交易 阶段1: reqType==1 = ENUM_PEER_REQUEST_TYPE TRADE → 给对方弹【交易确认窗】(而非组队框)。
             //   交易形态 body = 11B [A.uid:2][01][peer:4][createTime:4](含 peer, 漏了长度不符被客户端静默丢弃→不弹窗)。
@@ -1284,17 +1293,18 @@ namespace DfoServer.Network.Handlers
                 tw.WriteByte(1);              // ENUM_PEER_REQUEST_TYPE = 1 TRADE
                 tw.WriteInt32(peerInt);       // peer(回传请求里的 peer)
                 tw.WriteInt32(0);             // A.createTime(阶段1先填0)
+                bool tradeDelivered = false;
                 var tradeSent = await Game.Session.SessionDirectory
                     .TrySendBestEffortAsync(
-                        cancellationToken =>
-                            targetSession.SendPacketAsync(
+                        async cancellationToken =>
+                            tradeDelivered = await targetSession.TrySendPacketAsync(
                                 GamePacketEnvelopeBuilder.Build(
                                     0x00,
                                     0x0007,
                                     tw.ToArray()),
-                                cancellationToken),
+                                cancellationToken, CanInvite),
                         $"trade invite target={targetUid}");
-                if (tradeSent)
+                if (tradeSent && tradeDelivered)
                 {
                     FileLogger.Log($"[{ProtocolName}] TRADE REQUEST_PEER A={inviterUid}->B={targetUid} → SC 0x0007 交易形态(11B, ⚠️阶段2待实现)");
                 }
@@ -1317,6 +1327,7 @@ namespace DfoServer.Network.Handlers
                     targetSession,
                     () =>
                     {
+                        if (!CanInvite()) return;
                         inviteRecorded = _partyManager.RecordInvite(
                             targetUid,
                             targetSession.SessionId,
@@ -1348,25 +1359,26 @@ namespace DfoServer.Network.Handlers
             w.WriteUInt16(0);            // 疲劳(待真机校准)
             w.WriteUInt16(0);            // 体力
             w.WriteUInt16(0);
+            bool delivered = false;
             var inviteSent = await Game.Session.SessionDirectory
                 .TrySendBestEffortAsync(
                     async cancellationToken =>
                     {
                         if (inviteContext != null)
                         {
-                            await targetSession.SendPacketAsync(
+                            await targetSession.TrySendPacketAsync(
                                 inviteContext,
-                                cancellationToken);
+                                cancellationToken, CanInvite);
                         }
-                        await targetSession.SendPacketAsync(
+                        delivered = await targetSession.TrySendPacketAsync(
                             GamePacketEnvelopeBuilder.Build(
                                 0x00,
                                 (ushort)NotiPacketTypeA21.REQUEST_PEER,
                                 w.ToArray()),
-                            cancellationToken);
+                            cancellationToken, CanInvite);
                     },
                     $"party invite target={targetUid}");
-            if (inviteSent)
+            if (inviteSent && delivered)
             {
                 FileLogger.Log(
                     $"[{ProtocolName}] REQUEST_PEER → 给 uid={targetUid} " +
@@ -1445,6 +1457,12 @@ namespace DfoServer.Network.Handlers
                 FileLogger.Log($"[{ProtocolName}] RES_PEER: 邀请者 uid={inviterUid} 不在线");
                 if (reqType == 2)
                     await SendPvpInviteFailureAsync(session, 3);
+                return;
+            }
+            if (_blacklist.IsBlocked(acid, inviterSession.Player.CharacterId)
+                || _blacklist.IsBlocked(inviterSession.Player.CharacterId, acid))
+            {
+                _partyManager.CancelInvite(accepterUid, session.SessionId, inviterUid, inviterSession.SessionId);
                 return;
             }
             if (!IsSameGameChannel(session, inviterSession))
@@ -1532,7 +1550,8 @@ namespace DfoServer.Network.Handlers
                     () =>
                     {
                         if (inviterSession.Player?.CurrentRun != null ||
-                            session.Player?.CurrentRun != null)
+                            session.Player?.CurrentRun != null ||
+                            _blacklist.IsBlocked(acid, icid) || _blacklist.IsBlocked(icid, acid))
                         {
                             failureReason = _partyManager.CancelInvite(
                                 accepterUid,

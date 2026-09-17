@@ -23,6 +23,8 @@ namespace DfoServer.Network.Handlers
     {
         private const string PartyTeleportMemberLockedMessage =
             "存在无法前往该地区的队员。";
+        private const string PartyTeleportRemoteMemberMessage =
+            "存在与队长不在同一房间的队员。";
 
         private static readonly TimeSpan PositionPersistThrottle = TimeSpan.FromSeconds(5);
 
@@ -810,6 +812,31 @@ namespace DfoServer.Network.Handlers
                 eligible.Add(memberSession);
             }
 
+            // 全有或全无: 任一可传送队员与队长不在同一房间则整队不传送。
+            // 此时队长尚未移动, CurTownId/CurAreaId 即发起时的房间。
+            foreach (var memberSession in eligible)
+            {
+                if (IsPartyTeleportSameRoom(
+                        session.Player,
+                        memberSession.Player))
+                {
+                    continue;
+                }
+
+                FileLogger.Log(
+                    $"[{ProtocolName}] PARTY_TELEPORT blocked by remote member: " +
+                    $"leaderCid={session.Player.CharacterId} " +
+                    $"memberCid={memberSession.Player.CharacterId} " +
+                    $"leader={session.Player.CurTownId}:{session.Player.CurAreaId} " +
+                    $"member={memberSession.Player.CurTownId}:{memberSession.Player.CurAreaId}");
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketType.SERVER_NOTICE_MESSAGE,
+                    ServerNoticeMessageBuilder.Build(
+                        PartyTeleportRemoteMemberMessage)));
+                return;
+            }
+
             // 全有或全无: 任一队员未解锁目标区域(等级/任务门槛)则整队不传送。
             // 客户端对未解锁区域的房间出口有本地门禁, 把未解锁队员带进去会
             // 困在房间里; 逐人跳过又会静默拆散队伍。
@@ -882,6 +909,15 @@ namespace DfoServer.Network.Handlers
                         .ContainsKey(questId));
             return reason == null;
         }
+
+        // 组队传送同房间判定: 队员当前 town/area 必须与队长完全一致。
+        internal static bool IsPartyTeleportSameRoom(
+            PlayerContext leader,
+            PlayerContext member)
+            => leader != null
+               && member != null
+               && leader.CurTownId == member.CurTownId
+               && leader.CurAreaId == member.CurAreaId;
 
         public async Task Handle_ENUM_CMDPACKET_SOLO_TELEPOART(
             EnhancedClientSession session,

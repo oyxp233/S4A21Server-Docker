@@ -8,10 +8,10 @@ namespace DfoServer.Game.Friends
     /// <summary>
     /// 好友关系表（united_friend_relations）数据访问。
     ///
-    /// 建表由 item_schema.sql（新库）+ SqliteMigrations v8（旧库）负责，构造时经
+    /// 建表由 item_schema.sql（新库）+ SqliteMigrations v9（旧库）负责，构造时经
     /// SqliteDatabaseBootstrap.Initialize 先跑 schema+迁移，因此本仓储只做表 CRUD，
     /// 不得运行时隐式建表（见 AGENTS.md 硬性约定）。
-    /// 单条 INSERT/DELETE 由 SQLite 原子执行，无需显式事务；多表业务写入才需同一事务。
+    /// 单向好友增删由单语句原子执行；角色改名涉及的两条 UPDATE 使用同一事务。
     /// 内存图（UnitedFriendSystem.Friends）为运行期权威，本表仅在启动/写边/删边时访问。
     /// </summary>
     public sealed class UnitedFriendRepository

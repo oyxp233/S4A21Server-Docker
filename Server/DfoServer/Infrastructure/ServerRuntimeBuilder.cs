@@ -623,7 +623,9 @@ namespace DfoServer.Infrastructure
                 world.RaidManager);
             var chat = new ChatHandler(
                 world.Sessions,
-                world.PartyManager);
+                world.PartyManager,
+                world.CharacterTransitions);
+            chat.ConfigureBlacklist(new Game.Friends.BlacklistRepository(core.Database));
             townDungeon.Town.ConfigureDungeonGiveupPartyDeparture(
                 party.HandleDungeonGiveupWithinTransitionAsync);
             townDungeon.Town.ConfigureTownPartyListPublisher(

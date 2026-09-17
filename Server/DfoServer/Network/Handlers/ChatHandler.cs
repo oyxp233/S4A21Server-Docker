@@ -7,9 +7,9 @@ using System.Threading.Tasks;
 
 namespace DfoServer.Network.Handlers
 {
-    /// 8.6 SEND_MESSAGE：mode:u8 + targetUid:u16 + targetCharacterId:u32 + message:dstr；
+    /// A21 SEND_MESSAGE：mode:u8 + targetUid:u16 + targetCharacterId:u32 + message:dstr；
     /// 私聊还可跟 targetName:dstr。
-    public sealed class ChatHandler : IDisposable
+    public sealed partial class ChatHandler : IDisposable
     {
         private const int MaximumMessageBytes = 256;
         private const byte DirectMessageMode = 1;
@@ -17,28 +17,36 @@ namespace DfoServer.Network.Handlers
         private const byte AreaMessageMode = 3;
         internal const byte GuildMessageMode = 6; // 01A63239 jump table -> 01A63312 guild identity check.
         private const byte AlternateDirectMessageMode = 7;
-        private const byte OneToOneConversationMode = 45;
+        private const byte OneToOneConversationMode = 43;
 
         private readonly ISessionDirectory _sessions;
         private readonly PartyManager _parties;
         private readonly object _conversationLock = new object();
-        private readonly Dictionary<ulong, uint> _activeConversations =
-            new Dictionary<ulong, uint>();
+        private readonly Dictionary<ulong, Conversation> _activeConversations =
+            new Dictionary<ulong, Conversation>();
         private uint _nextConversationId = 1;
+        private readonly CharacterTransitionCoordinator _transitions;
         private Game.Guilds.GuildRepository _guilds;
         private CharacterTransitionCoordinator _guildTransitions;
+        private Game.Friends.BlacklistRepository _blacklist;
+
+        internal void ConfigureBlacklist(Game.Friends.BlacklistRepository blacklist) => _blacklist = blacklist;
+        private bool IsBlocked(int recipient, int sender) => _blacklist?.IsBlocked(recipient, sender) == true;
 
         internal void ConfigureGuilds(Game.Guilds.GuildRepository guilds, CharacterTransitionCoordinator transitions)
         { _guilds = guilds; _guildTransitions = transitions; }
 
         public ChatHandler(
             ISessionDirectory sessions,
-            PartyManager parties)
+            PartyManager parties,
+            CharacterTransitionCoordinator transitions)
         {
             _sessions = sessions
                 ?? throw new ArgumentNullException(nameof(sessions));
             _parties = parties
                 ?? throw new ArgumentNullException(nameof(parties));
+            _transitions = transitions
+                ?? throw new ArgumentNullException(nameof(transitions));
             _sessions.SessionEnding += OnSessionEndingAsync;
         }
 
@@ -59,8 +67,7 @@ namespace DfoServer.Network.Handlers
                 FileLogger.Log(
                     $"[GameProtocol] SEND_MESSAGE invalid " +
                     $"cid={session?.Player?.CharacterId ?? 0} " +
-                    $"body({body?.Length ?? 0}B): " +
-                    $"{(body == null ? "null" : BitConverter.ToString(body))}");
+                    $"bodyBytes={body?.Length ?? 0}");
                 return;
             }
 
@@ -69,35 +76,29 @@ namespace DfoServer.Network.Handlers
                 await SendGuildMessageAsync(session, request);
                 return;
             }
+            if (request.Mode == OneToOneConversationMode)
+            {
+                await SendConversationMessageAsync(session, request);
+                return;
+            }
             var recipients = ResolveRecipients(session, request);
             var sendTasks = new List<Task>(recipients.Count);
             foreach (var recipient in recipients)
             {
-                if (request.Mode == OneToOneConversationMode
-                    && recipient.SessionId == session.SessionId)
-                {
-                    // The 86JP conversation window performs local echo. A
-                    // second server projection would duplicate the sender's
-                    // own line.
-                    continue;
-                }
-                var notificationType = request.Mode == OneToOneConversationMode
-                    ? NotiPacketType.MESSAGE_GROUP_CHAT
-                    : NotiPacketType.MESSAGE;
+                int senderId = session.Player.CharacterId;
+                int recipientId = recipient.Player.CharacterId;
                 var packet = GamePacketEnvelopeBuilder.Build(
                     0x00,
-                    (ushort)notificationType,
-                    request.Mode == OneToOneConversationMode
-                        ? BuildGroupChatNotificationBody(
-                            request.ConversationId,
-                            session.Player.Name,
-                            request.MessageBytes)
-                        : BuildNotificationBody(
-                            request.Mode,
-                            session.Player.UserId,
-                            serverGroup: 0,
-                            request.MessageBytes));
-                sendTasks.Add(recipient.SendPacketAsync(packet));
+                    (ushort)NotiPacketTypeA21.MESSAGE,
+                    BuildNotificationBody(
+                        request.Mode,
+                        session.Player.UserId,
+                        serverGroup: 0,
+                        request.MessageBytes));
+                sendTasks.Add(recipient.TrySendPacketAsync(packet, default, () =>
+                    session.Player.CharacterId == senderId && recipient.Player.CharacterId == recipientId
+                    && _transitions.IsCurrent(session) && _transitions.IsCurrent(recipient)
+                    && !IsBlocked(recipientId, senderId)));
             }
 
             if (sendTasks.Count > 0)
@@ -109,10 +110,7 @@ namespace DfoServer.Network.Handlers
                 $"targetUid={request.TargetUniqueId} " +
                 $"targetCid={request.TargetCharacterId} " +
                 $"messageBytes={request.MessageBytes.Length} " +
-                $"recipients={sendTasks.Count}" +
-                (request.Mode == OneToOneConversationMode
-                    ? $" raw={BitConverter.ToString(body)}"
-                    : string.Empty));
+                $"recipients={sendTasks.Count}");
         }
 
         internal IReadOnlyList<EnhancedClientSession> ResolveRecipients(
@@ -120,22 +118,13 @@ namespace DfoServer.Network.Handlers
             ChatMessageRequest request)
         {
             var result = new Dictionary<Guid, EnhancedClientSession>();
+            if (request.Mode == OneToOneConversationMode) return result.Values.ToList();
             if (request.Mode == GuildMessageMode) return result.Values.ToList(); // Dedicated durable membership path, including in dungeons.
             AddIfCurrentChannel(result, sender, sender);
 
             if (IsDirectMessageMode(request.Mode))
             {
-                if (request.Mode == OneToOneConversationMode)
-                {
-                    foreach (var target in FindConversationPeers(
-                                 sender,
-                                 request.ConversationId))
-                        AddIfOnline(result, target);
-                }
-                else
-                {
-                    AddIfOnline(result, FindDirectTarget(request));
-                }
+                AddIfOnline(result, FindDirectTarget(request));
                 return result.Values.ToList();
             }
 
@@ -193,14 +182,17 @@ namespace DfoServer.Network.Handlers
                 if (!_sessions.TryGet(id, out var recipient)) continue;
                 async Task SendCurrent()
                 {
+                    if (sender.Player.CharacterId != actor || recipient.Player.CharacterId != id
+                        || IsBlocked(id, actor)) return;
                     if (!Game.Inventory.InventoryContext.TryGetOwnedLease(sender.SessionId, actor, out _)
                         || !Game.Inventory.InventoryContext.TryGetOwnedLease(recipient.SessionId, id, out _)
                         || _guilds.GetForMember(actor)?.Id != guild.Id || _guilds.GetForMember(id)?.Id != guild.Id) return;
                     // 01173D70 reads mode, status, sender DSTR, server byte, message DSTR.
                     // Use the name-bearing form on every channel; UIDs are channel-local.
-                    await recipient.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0,
+                    await recipient.TrySendPacketAsync(GamePacketEnvelopeBuilder.Build(0,
                         (ushort)NotiPacketTypeA21.MESSAGE_OTHER_CHANNEL,
-                        BuildGuildNotificationBody(sender.Player.Name, request.MessageBytes)));
+                        BuildGuildNotificationBody(sender.Player.Name, request.MessageBytes)), default,
+                        () => !IsBlocked(id, actor));
                 }
                 if (id == actor) await _guildTransitions.RunIfCurrentAsync(sender, SendCurrent);
                 else await _guildTransitions.RunIfBothCurrentAsync(sender, recipient, SendCurrent);
@@ -258,8 +250,7 @@ namespace DfoServer.Network.Handlers
                 FileLogger.Log(
                     $"[GameProtocol] CREATE_GROUP invalid " +
                     $"cid={session?.Player?.CharacterId ?? 0} " +
-                    $"body({body?.Length ?? 0}B): " +
-                    $"{(body == null ? "null" : BitConverter.ToString(body))}");
+                    $"bodyBytes={body?.Length ?? 0}");
                 return;
             }
 
@@ -273,47 +264,32 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
-            var conversationKey = MakeConversationKey(
-                session.Player.CharacterId,
-                target.Player.CharacterId);
-            uint conversationId;
-            lock (_conversationLock)
+            var actor = new ConversationMember(session);
+            var peer = new ConversationMember(target);
+            await _transitions.RunIfBothCurrentAsync(session, target, async () =>
             {
-                if (_activeConversations.ContainsKey(conversationKey))
+                if (!actor.IsCurrent(_sessions) || !peer.IsCurrent(_sessions)) return;
+                if (IsBlocked(peer.CharacterId, actor.CharacterId) || IsBlocked(actor.CharacterId, peer.CharacterId))
                 {
-                    FileLogger.Log(
-                        $"[GameProtocol] CREATE_GROUP deduplicated " +
-                        $"from={session.Player.CharacterId} " +
-                        $"to={target.Player.CharacterId}");
+                    await session.TrySendPacketAsync(GamePacketEnvelopeBuilder.Build(0,
+                        (ushort)NotiPacketTypeA21.CREATE_GROUP, new byte[] { 77 }), default,
+                        () => actor.IsCurrent(_sessions));
                     return;
                 }
-
-                conversationId = AllocateConversationIdLocked();
-                _activeConversations.Add(conversationKey, conversationId);
-            }
-
-            // Current 86JP client reads CREATE_GROUP as:
-            // result:u8 + conversationId:u32 + memberCount:u8
-            // + memberName:dstr[]. The first entry selects the receiving
-            // player's chat UI; the complete set renders the peer as title.
-            await Task.WhenAll(
-                SendCreateGroupNotificationAsync(
-                    session,
-                    conversationId,
-                    session.Player.Name,
-                    target.Player.Name),
-                SendCreateGroupNotificationAsync(
-                    target,
-                    conversationId,
-                    target.Player.Name,
-                    session.Player.Name));
-
-            FileLogger.Log(
-                $"[GameProtocol] CREATE_GROUP relayed " +
-                $"from={session.Player.CharacterId} " +
-                $"to={target.Player.CharacterId} " +
-                $"groupId={conversationId} " +
-                $"senderNameBytes={session.Player.Name?.Length ?? 0}");
+                var key = MakeConversationKey(actor.CharacterId, peer.CharacterId);
+                Conversation conversation;
+                lock (_conversationLock)
+                {
+                    if (!_activeConversations.TryGetValue(key, out conversation)
+                        || !conversation.IsCurrent(_sessions))
+                    {
+                        conversation = new Conversation(AllocateConversationIdLocked(), actor, peer);
+                        _activeConversations[key] = conversation;
+                    }
+                }
+                await SendCreateGroupNotificationAsync(conversation, conversation.First, conversation.Second);
+                await SendCreateGroupNotificationAsync(conversation, conversation.Second, conversation.First);
+            });
         }
 
         public Task Handle_ONE_TO_ONE_CHAT_STATE(
@@ -321,81 +297,56 @@ namespace DfoServer.Network.Handlers
             GamePacketHeader header,
             byte[] body)
         {
-            FileLogger.Log(
-                $"[GameProtocol] ONE_TO_ONE_CHAT_STATE " +
-                $"cid={session?.Player?.CharacterId ?? 0} " +
-                $"body({body?.Length ?? 0}B): " +
-                $"{(body == null ? "null" : BitConverter.ToString(body))}");
             return Task.CompletedTask;
         }
 
-        private static Task SendCreateGroupNotificationAsync(
-            EnhancedClientSession recipient,
-            uint conversationId,
-            byte[] recipientName,
-            byte[] peerName)
+        private Task SendCreateGroupNotificationAsync(
+            Conversation conversation,
+            ConversationMember recipient,
+            ConversationMember peer)
         {
             var writer = new GamePacketWriter();
             writer.WriteByte(0); // success
-            writer.WriteUInt32(conversationId);
+            writer.WriteUInt32(conversation.Id);
             writer.WriteByte(2);
-            writer.WriteDstr(recipientName);
-            writer.WriteDstr(peerName);
-            return recipient.SendPacketAsync(
-                GamePacketEnvelopeBuilder.Build(
-                    0x00,
-                    (ushort)NotiPacketType.CREATE_GROUP,
-                    writer.ToArray()));
+            writer.WriteDstr(recipient.Name);
+            writer.WriteDstr(peer.Name);
+            return SessionDirectory.TrySendBestEffortAsync(token => recipient.Session.TrySendPacketAsync(
+                GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.CREATE_GROUP, writer.ToArray()),
+                token,
+                () => IsActiveConversation(conversation) && !recipient.Published,
+                () => recipient.Published = true), $"chat create cid={recipient.CharacterId}");
         }
 
-        private IReadOnlyList<EnhancedClientSession> FindConversationPeers(
-            EnhancedClientSession sender,
-            uint conversationId)
-        {
-            var peers = new List<EnhancedClientSession>();
-            var senderId = sender?.Player?.CharacterId ?? 0;
-            if (senderId <= 0)
-                return peers;
-
-            foreach (var candidate in _sessions.GetAllGameSessions())
-            {
-                var candidateId = candidate?.Player?.CharacterId ?? 0;
-                if (candidateId <= 0 || candidateId == senderId)
-                    continue;
-                lock (_conversationLock)
-                {
-                    if (_activeConversations.TryGetValue(
-                            MakeConversationKey(senderId, candidateId),
-                            out var activeConversationId)
-                        && activeConversationId == conversationId)
-                    {
-                        peers.Add(candidate);
-                    }
-                }
-            }
-            return peers;
-        }
-
-        private Task OnSessionEndingAsync(
-            int characterId,
-            EnhancedClientSession session)
+        private Conversation FindConversation(EnhancedClientSession sender, uint id)
         {
             lock (_conversationLock)
             {
-                foreach (var key in _activeConversations.Keys
-                             .Where(key => ConversationKeyContains(key, characterId))
-                             .ToArray())
-                {
-                    _activeConversations.Remove(key);
-                }
+                return _activeConversations.Values.FirstOrDefault(c => c.Id == id
+                    && c.Member(sender)?.IsCurrent(_sessions) == true);
             }
-            return Task.CompletedTask;
+        }
+
+        private async Task OnSessionEndingAsync(
+            int characterId,
+            EnhancedClientSession session)
+        {
+            Conversation[] removed;
+            lock (_conversationLock)
+            {
+                removed = _activeConversations.Values.Where(c =>
+                    c.Member(session)?.CharacterId == characterId).ToArray();
+                foreach (var conversation in removed) _activeConversations.Remove(conversation.Key);
+            }
+            foreach (var conversation in removed)
+                await SendConversationLeftAsync(conversation, conversation.Member(session));
         }
 
         private uint AllocateConversationIdLocked()
         {
             while (_nextConversationId == 0
-                || _activeConversations.ContainsValue(_nextConversationId))
+                || _nextConversationId == uint.MaxValue
+                || _activeConversations.Values.Any(c => c.Id == _nextConversationId))
             {
                 _nextConversationId++;
             }
@@ -409,10 +360,6 @@ namespace DfoServer.Network.Handlers
             var high = (uint)Math.Max(first, second);
             return ((ulong)low << 32) | high;
         }
-
-        private static bool ConversationKeyContains(ulong key, int id)
-            => (uint)(key >> 32) == (uint)id
-                || (uint)key == (uint)id;
 
         private EnhancedClientSession FindSessionByName(byte[] nameBytes)
         {
@@ -439,12 +386,13 @@ namespace DfoServer.Network.Handlers
                 return false;
 
             var length = BitConverter.ToInt32(body, 0);
-            if (length <= 0 || length > 30 || body.Length != 4 + length)
+            if (length <= 0 || length > 255 || body.Length != 4 + length)
                 return false;
 
             nameBytes = new byte[length];
             Buffer.BlockCopy(body, 4, nameBytes, 0, length);
-            return Array.IndexOf(nameBytes, (byte)0) < 0;
+            return Infrastructure.ClientTextEncoding.TryGetStringStrict(nameBytes, out var name)
+                && !string.IsNullOrWhiteSpace(name) && !name.Any(char.IsControl);
         }
 
         private static bool IsDirectMessageMode(byte mode)
@@ -520,9 +468,7 @@ namespace DfoServer.Network.Handlers
                         return false;
                     var nameLength = BitConverter.ToInt32(body, offset);
                     if (nameLength < 0
-                        || nameLength > 30
-                        // 86JP appends a one-byte direct-conversation flag
-                        // after targetName. Older clients omit it.
+                        || nameLength > (mode == OneToOneConversationMode ? 255 : 30)
                         || (body.Length != offset + 4 + nameLength
                             && body.Length != offset + 5 + nameLength))
                     {
@@ -545,12 +491,21 @@ namespace DfoServer.Network.Handlers
                 return false;
             }
 
+            // A21 conversation messages end with a name DSTR and server byte.
+            if (mode == OneToOneConversationMode
+                && (targetCharacterId == 0 || targetCharacterId == uint.MaxValue
+                    || targetNameBytes.Length == 0 || body.Length != offset + 5 + targetNameBytes.Length
+                    || !Infrastructure.ClientTextEncoding.TryGetStringStrict(targetNameBytes, out var name)
+                    || name.Any(char.IsControl)
+                    || !Infrastructure.ClientTextEncoding.TryGetStringStrict(messageBytes, out _)))
+                return false;
+
             request = new ChatMessageRequest(
                 mode,
                 targetUniqueId,
                 targetCharacterId,
                 mode == OneToOneConversationMode
-                    // Mode 45 uses the target-character field as its
+                    // Mode 43 uses the target-character field as its
                     // server-assigned conversation id.
                     ? targetCharacterId
                     : 0,

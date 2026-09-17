@@ -1781,6 +1781,10 @@ WHERE message_id = @messageId
             if (deferredPolicyError != MailboxSendError.None)
                 return MailboxSendResult.Fail(deferredPolicyError);
 
+            if (Game.Friends.BlacklistRepository.IsBlocked(connection, transaction,
+                    request.ReceiverCharacterId, request.SenderCharacterId))
+                return MailboxSendResult.Fail(MailboxSendError.Blacklisted);
+
             var goldPolicyError = ApplyPlayerGoldSendPolicies(connection, transaction, request);
             if (goldPolicyError != MailboxSendError.None)
                 return MailboxSendResult.Fail(goldPolicyError);

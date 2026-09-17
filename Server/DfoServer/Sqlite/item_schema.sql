@@ -1525,6 +1525,13 @@ CREATE TABLE IF NOT EXISTS guild_applications (
     message TEXT NOT NULL DEFAULT '',
     PRIMARY KEY(guild_id, character_id)
 );
+CREATE TABLE IF NOT EXISTS character_blacklist (
+    owner_character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    target_character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(owner_character_id, target_character_id),
+    CHECK(owner_character_id <> target_character_id)
+);
 CREATE TRIGGER IF NOT EXISTS guild_member_prevent_soft_delete
 BEFORE UPDATE OF delete_flag ON characters
 WHEN NEW.delete_flag <> 0 AND EXISTS (

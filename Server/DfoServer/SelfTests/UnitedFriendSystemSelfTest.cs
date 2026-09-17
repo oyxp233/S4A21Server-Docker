@@ -15,13 +15,13 @@ using System.Text;
 
 namespace DfoServer.SelfTests
 {
-    // 好友系统纯逻辑自测(零网络, 确定性):
+    // 好友系统自测（临时 SQLite + loopback socket，不连接运行服务）:
     //   - 单向存储: A 添加 B 只记 A→B, B→A 不成立; 反向单独成边。
     //   - 幂等: 重复 RecordFriendship 不破坏状态。
     //   - 移除: 只删 a→b, 不影响 b→a; 移除不存在关系返回 false。
     //   - 持久化往返: Record → 重置内存 → 从 united_friend_relations 表重载关系仍在;
     //     表内容 (owner_name, friend_name) 与内存图一致。
-    //   - builder 字节: BuildNotificationBody(record) 前 5 字节布局(uid=CharacterId)。
+    //   - builder 字节: USERINFO subtype0 固定头和 UID 字段布局。
     //   - 角色删除: HandleCharacterDeleted 清 owner+friend 两方向(内存+表), X 键消失, 好友关系归零。
     //   - 角色更名: HandleCharacterRenamed 把 X 所有出现换成 Y(内存+表事务), owner 边迁移、friend 边跟随新名,
     //       目标名已有出边时合并; 同名/空名无操作。
@@ -29,7 +29,7 @@ namespace DfoServer.SelfTests
     // 隔离: 通过反射把 UnitedFriendSystem 的 _repository 指向临时数据库(走 item_schema.sql 新库建表),
     //       不污染 bin/Debug/Data/inventory.db。好友表建表有两条路径, 自测都覆盖:
     //       新库路径(item_schema.sql 直接建表) + 旧库升级路径(v7 库走 SqliteMigrations, v8 成长列 + v9 补建好友表)。
-    public static class UnitedFriendSystemSelfTest
+    public static partial class UnitedFriendSystemSelfTest
     {
         private static int _pass;
         private static int _fail;
@@ -45,6 +45,7 @@ namespace DfoServer.SelfTests
             // Friends 是 readonly 静态字段不能 SetValue, 只能备份/恢复其内容(Clear + 回填)。
             var originalRepository = (UnitedFriendRepository)GetStatic("_repository");
             var originalLoaded = (bool)GetStatic("_loaded");
+            var originalCharacters = GetStatic("_characterRepository");
             var friendsRef = (Dictionary<string, HashSet<string>>)GetStatic("Friends");
             var originalSnapshot = friendsRef.ToDictionary(
                 kv => kv.Key,
@@ -60,6 +61,7 @@ namespace DfoServer.SelfTests
                 RunCharacterLifecycleTests(tempDir);
                 RunBuilderByteTests();
                 RunCrossAreaPartyInviteTests();
+                RunRequestTests(tempDir).GetAwaiter().GetResult();
             }
             finally
             {
@@ -69,6 +71,7 @@ namespace DfoServer.SelfTests
                         new HashSet<string>(kv.Value, StringComparer.Ordinal);
                 SetStatic("_repository", originalRepository);
                 SetStatic("_loaded", originalLoaded);
+                SetStatic("_characterRepository", originalCharacters);
                 // Microsoft.Data.Sqlite 默认连接池会持有文件句柄, 先清池才能删临时库。
                 SqliteConnection.ClearAllPools();
                 if (Directory.Exists(tempDir))

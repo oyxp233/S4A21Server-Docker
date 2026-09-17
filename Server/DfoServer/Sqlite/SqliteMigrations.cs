@@ -54,6 +54,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(29, "add_guilds", ApplyGuilds),
                 new MigrationStep(30, "add_guild_application_message", ApplyGuildApplicationMessage),
                 new MigrationStep(31, "add_guild_management", ApplyGuildManagement),
+                new MigrationStep(32, "add_character_blacklist", ApplyCharacterBlacklist),
             };
 
         internal static int CurrentVersion =>
@@ -136,6 +137,20 @@ ON CONFLICT(singleton_id) DO UPDATE SET
         {
             var metadata = ReadMetadata(connection);
             return string.Equals(metadata.BaselineId, BaselineId, StringComparison.Ordinal);
+        }
+
+        private static void ApplyCharacterBlacklist(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"CREATE TABLE IF NOT EXISTS character_blacklist (
+    owner_character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    target_character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(owner_character_id, target_character_id),
+    CHECK(owner_character_id <> target_character_id)
+);";
+            command.ExecuteNonQuery();
         }
 
         private static void ApplyGuildManagement(SqliteConnection connection, SqliteTransaction transaction)

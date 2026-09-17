@@ -370,8 +370,7 @@ namespace DfoServer.Network
 
         private void RegisterPartyHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
         {
-            d[(ushort)CmdPacketType.SEND_MESSAGE] =
-                _chatHandler.Handle_SEND_MESSAGE;
+            _chatHandler.RegisterHandlers(d);
             d[0x000C] = _partyHandler.Handle_SET_PARTY_INFO;        // 12 创建/更新队伍
             d[0x000D] = async (s, h, b) =>
             {
@@ -385,10 +384,6 @@ namespace DfoServer.Network
             d[0x000E] = _partyHandler.Handle_WALKOUT_PARTY_MEMBER;  // 14 踢人
             d[0x000A] = _partyHandler.Handle_REQUEST_PEER;          // 10 右键同屏玩家→组队/交易邀请(按uid)→给目标发 SC 0x0007 弹框
             d[0x000B] = _partyHandler.Handle_RES_PEER;              // 11 被邀请者应答: type0 7B接受/9B拒绝；仅接受才组队
-            // 419 creates a chat/1:1 conversation; party invites use 0x000A/0x000B.
-            d[0x01A3] = _chatHandler.Handle_CREATE_GROUP;
-            d[(ushort)CmdPacketType.ONE_TO_ONE_CHAT_STATE] =
-                _chatHandler.Handle_ONE_TO_ONE_CHAT_STATE;
             d[0x00A6] = _partyHandler.Handle_CALL_PARTY_MEMBER_REALTIME_INFO;  // 166 请求成员实时信息(HP%)
             d[0x0079] = _partyHandler.Handle_CHANGE_HOST;           // 121 委托队长(body=1字节槽位)
             // P2P 上报类: df 只喂统计计数器, 不回包不转发。收下即忽略, 消掉 Unhandled 日志。
@@ -945,12 +940,12 @@ namespace DfoServer.Network
         private void RegisterFriendHandlers(
             GameCommandRegistry.GameCommandRegistrationGroup d)
         {
-            d[(ushort)CmdPacketTypeA21.ADD_UNITED_SERVER_FRIEND] =
-                (s, h, b) => UnitedFriendSystem.HandleAddUnitedServerFriend(
-                    s, h, b, _worldDependencies.Sessions);
-            d[(ushort)CmdPacketTypeA21.DELETE_UNITED_SERVER_FRIEND] =
-                (s, h, b) => UnitedFriendSystem.HandleDeleteUnitedServerFriend(
-                    s, h, b, _worldDependencies.Sessions);
+            UnitedFriendSystem.RegisterHandlers(d, _worldDependencies.Sessions, _characterTransitions);
+            var repository = new Game.Friends.BlacklistRepository(_database);
+            var projection = new Game.Friends.BlacklistProjection(repository, _worldDependencies.Sessions);
+            UnitedFriendSystem.ConfigureBlacklist(_worldDependencies.Sessions, projection);
+            new BlacklistHandler(repository, _characterTransitions, projection).RegisterHandlers(d);
+            new UserChannelHandler(_worldDependencies.Sessions, _characterTransitions).RegisterHandlers(d);
         }
 
         private void RegisterEventJoustHandlers(

@@ -34,7 +34,7 @@ namespace DfoServer.SelfTests
             using var leader=await Peer.Create(database,sessions,201,10010);
             using var member=await Peer.Create(database,sessions,202,10011);
             using var outsider=await Peer.Create(database,sessions,203,10010);
-            using var chat=new ChatHandler(sessions,new PartyManager());
+            using var chat=new ChatHandler(sessions,new PartyManager(),transitions);
             chat.ConfigureGuilds(repository,transitions);
             var characters=new SqliteCharacterRepository(database);
             var appearance=new InventoryRefreshSender(new SqliteSelectCharacterDataSource(database,characters),characters,database);

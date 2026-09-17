@@ -88,6 +88,11 @@ namespace DfoServer.Network.Handlers
         private readonly PvpRelayLifecycleCoordinator
             _pvpRelayLifecycle;
         private readonly IGameDatabase _database;
+        private readonly Game.Friends.BlacklistRepository _blacklist;
+
+        private bool IsBlacklistPair(EnhancedClientSession first, EnhancedClientSession second)
+            => _blacklist != null && (_blacklist.IsBlocked(first.Player.CharacterId, second.Player.CharacterId)
+                || _blacklist.IsBlocked(second.Player.CharacterId, first.Player.CharacterId));
         private readonly byte[] _pvpRelayIpBytes;
         private readonly PvpRoomAdmissionCoordinator
             _roomAdmission;
@@ -188,6 +193,7 @@ namespace DfoServer.Network.Handlers
                 ?? throw new ArgumentNullException(
                     nameof(characterTransitions));
             _database = database;
+            _blacklist = database == null ? null : new Game.Friends.BlacklistRepository(database);
             _announceTownArrivalWithinTransition =
                 announceTownArrivalWithinTransition;
             _sendTownPacket =
@@ -297,6 +303,7 @@ namespace DfoServer.Network.Handlers
                             if (_disposed ||
                                 inviter?.Player == null ||
                                 target?.Player == null ||
+                                IsBlacklistPair(inviter, target) ||
                                 inviter.ListenerPort !=
                                     target.ListenerPort ||
                                 !GameNetworkConfig.IsPvpListener(
@@ -424,7 +431,7 @@ namespace DfoServer.Network.Handlers
                         await _roomPublicationGate.WaitAsync();
                         try
                         {
-                            if (_disposed)
+                            if (_disposed || IsBlacklistPair(inviter, target))
                             {
                                 responseAborted = true;
                                 return;
