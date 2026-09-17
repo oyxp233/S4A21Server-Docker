@@ -1,4 +1,4 @@
-using DfoServer.Network.Handlers;
+﻿using DfoServer.Network.Handlers;
 using DfoServer.Network.Handlers.Dungeon;
 using System;
 
@@ -16,8 +16,16 @@ namespace DfoServer.Infrastructure
             DungeonLoadingCoordinator dungeonLoading,
             DungeonRejoinCoordinator dungeonRejoin,
             PvpChannelInfoHandler pvpChannelInfo,
-            PvpRoomHandler pvpRoom)
+            PvpRoomHandler pvpRoom,
+            GuildCreationHandler guildCreation,
+            GuildMemberHandler guildMembers,
+            GuildJoinHandler guildJoin,
+            GuildManagementHandler guildManagement)
         {
+            GuildJoin = guildJoin ?? throw new ArgumentNullException(nameof(guildJoin));
+            GuildManagement = guildManagement ?? throw new ArgumentNullException(nameof(guildManagement));
+            GuildMembers = guildMembers ?? throw new ArgumentNullException(nameof(guildMembers));
+            GuildCreation = guildCreation ?? throw new ArgumentNullException(nameof(guildCreation));
             Party = party ?? throw new ArgumentNullException(nameof(party));
             Raid = raid ?? throw new ArgumentNullException(nameof(raid));
             Chat = chat ?? throw new ArgumentNullException(nameof(chat));
@@ -30,6 +38,11 @@ namespace DfoServer.Infrastructure
             PvpRoom = pvpRoom
                 ?? throw new ArgumentNullException(nameof(pvpRoom));
         }
+
+        internal GuildCreationHandler GuildCreation { get; }
+        internal GuildMemberHandler GuildMembers { get; }
+        internal GuildJoinHandler GuildJoin { get; }
+        internal GuildManagementHandler GuildManagement { get; }
 
         internal PartyHandler Party { get; }
 

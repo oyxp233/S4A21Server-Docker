@@ -1500,3 +1500,36 @@ CREATE TABLE IF NOT EXISTS schema_metadata (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 公会身份和申请的持久化真源。
+CREATE TABLE IF NOT EXISTS guilds (
+    guild_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    promotion TEXT NOT NULL DEFAULT '',
+    announcement TEXT NOT NULL DEFAULT '',
+    leader_character_id INTEGER NOT NULL UNIQUE REFERENCES characters(character_id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS guild_members (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(character_id),
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    rank INTEGER NOT NULL DEFAULT 4 CHECK(rank BETWEEN 2 AND 5),
+    memo TEXT NOT NULL DEFAULT '',
+    joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members(guild_id);
+CREATE TABLE IF NOT EXISTS guild_applications (
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    message TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(guild_id, character_id)
+);
+CREATE TRIGGER IF NOT EXISTS guild_member_prevent_soft_delete
+BEFORE UPDATE OF delete_flag ON characters
+WHEN NEW.delete_flag <> 0 AND EXISTS (
+    SELECT 1 FROM guild_members WHERE character_id = OLD.character_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'leave guild before deleting character');
+END;

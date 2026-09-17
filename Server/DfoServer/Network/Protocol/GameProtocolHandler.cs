@@ -1,4 +1,4 @@
-using DfoServer.Game.Accounts;
+﻿using DfoServer.Game.Accounts;
 using DfoServer.Game.Appearance;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
@@ -144,7 +144,8 @@ namespace DfoServer.Network
                     world,
                     townDungeonHandlers,
                     udpRelay,
-                    pvpUdpRelay);
+                    pvpUdpRelay,
+                    inventory.InventoryRefreshSender);
             featureHandlers ??= ServerRuntimeBuilder
                 .CreateGameProtocolFeatureHandlers(
                     core,
@@ -251,6 +252,32 @@ namespace DfoServer.Network
                 "shop-coin-event",
                 d => d[0x00CF] = _shopCoinEventHandler.HandleShopCoinEvent);
             _cmdDispatch.RegisterGroup("friend", RegisterFriendHandlers);
+            _cmdDispatch.RegisterGroup("guild-members", d =>
+                d[(ushort)CmdPacketTypeA21.GUILD_MEMER_LIST] = _socialHandlers.GuildMembers.Handle);
+            _cmdDispatch.RegisterGroup("guild-join", d =>
+            {
+                d[(ushort)CmdPacketTypeA21.REQ_GUILD_SERCH_FOR_JOIN] = _socialHandlers.GuildJoin.Handle;
+                d[(ushort)CmdPacketTypeA21.REQUEST_JOIN_GUILD] = _socialHandlers.GuildJoin.Handle;
+                d[(ushort)CmdPacketTypeA21.GUILD_JOIN_LIST] = _socialHandlers.GuildJoin.Handle;
+                d[(ushort)CmdPacketTypeA21.APPROVE_JOIN_GUILD] = _socialHandlers.GuildJoin.Handle;
+                d[(ushort)CmdPacketTypeA21.REFRESH_GUILD_INFO] = _socialHandlers.GuildJoin.Handle;
+            });
+            _cmdDispatch.RegisterGroup("guild-creation", d =>
+            {
+                d[(ushort)CmdPacketTypeA21.CHECK_GUILD_NAME_DOUBLE] = _socialHandlers.GuildCreation.Handle;
+                d[(ushort)CmdPacketTypeA21.CHECK_GUILD_CREATE_PROMOTE_MSG] = _socialHandlers.GuildCreation.Handle;
+                d[(ushort)CmdPacketTypeA21.REQUEST_GUILD_CREATE_PERMIT] = _socialHandlers.GuildCreation.Handle;
+                d[(ushort)CmdPacketTypeA21.CANCEL_GUILD_CREATE] = _socialHandlers.GuildCreation.Handle;
+                d[(ushort)CmdPacketTypeA21.CALL_GUILD_CREATE_RIGHT] = _socialHandlers.GuildCreation.Handle;
+            });
+            _cmdDispatch.RegisterGroup("guild-management", d =>
+            {
+                foreach (var command in new[] { CmdPacketTypeA21.CANCEL_JOIN_GUILD, CmdPacketTypeA21.DENY_JOIN_GUILD,
+                    CmdPacketTypeA21.JOIN_GUILD_INFO, CmdPacketTypeA21.REQ_GUILD_SECEDE, CmdPacketTypeA21.SET_SUB_GUILD_MASTER,
+                    CmdPacketTypeA21.NOTIFY_MESSAGE_TO_GUILD, CmdPacketTypeA21.MODIFY_GUILD_PROMOTE_MSG,
+                    CmdPacketTypeA21.WRITE_GUILD_MEMBER_MEMO, CmdPacketTypeA21.BREAK_GUILD })
+                    d[(ushort)command] = _socialHandlers.GuildManagement.Handle;
+            });
             _cmdDispatch.RegisterGroup("event-joust", RegisterEventJoustHandlers);
         }
 

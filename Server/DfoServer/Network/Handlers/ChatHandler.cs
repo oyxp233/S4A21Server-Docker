@@ -15,6 +15,7 @@ namespace DfoServer.Network.Handlers
         private const byte DirectMessageMode = 1;
         private const byte PartyMessageMode = 2;
         private const byte AreaMessageMode = 3;
+        internal const byte GuildMessageMode = 6; // 01A63239 jump table -> 01A63312 guild identity check.
         private const byte AlternateDirectMessageMode = 7;
         private const byte OneToOneConversationMode = 45;
 
@@ -24,6 +25,11 @@ namespace DfoServer.Network.Handlers
         private readonly Dictionary<ulong, uint> _activeConversations =
             new Dictionary<ulong, uint>();
         private uint _nextConversationId = 1;
+        private Game.Guilds.GuildRepository _guilds;
+        private CharacterTransitionCoordinator _guildTransitions;
+
+        internal void ConfigureGuilds(Game.Guilds.GuildRepository guilds, CharacterTransitionCoordinator transitions)
+        { _guilds = guilds; _guildTransitions = transitions; }
 
         public ChatHandler(
             ISessionDirectory sessions,
@@ -58,6 +64,11 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            if (request.Mode == GuildMessageMode)
+            {
+                await SendGuildMessageAsync(session, request);
+                return;
+            }
             var recipients = ResolveRecipients(session, request);
             var sendTasks = new List<Task>(recipients.Count);
             foreach (var recipient in recipients)
@@ -109,6 +120,7 @@ namespace DfoServer.Network.Handlers
             ChatMessageRequest request)
         {
             var result = new Dictionary<Guid, EnhancedClientSession>();
+            if (request.Mode == GuildMessageMode) return result.Values.ToList(); // Dedicated durable membership path, including in dungeons.
             AddIfCurrentChannel(result, sender, sender);
 
             if (IsDirectMessageMode(request.Mode))
@@ -166,6 +178,40 @@ namespace DfoServer.Network.Handlers
             // free cross-channel broadcast merely because their wire shape is
             // shared with ordinary chat.
             return result.Values.ToList();
+        }
+
+        private async Task SendGuildMessageAsync(EnhancedClientSession sender, ChatMessageRequest request)
+        {
+            if (_guilds == null || _guildTransitions == null
+                || !Infrastructure.ClientTextEncoding.TryGetStringStrict(request.MessageBytes, out var text)
+                || text.IndexOf('\0') >= 0 || string.IsNullOrWhiteSpace(text)) return;
+            int actor = sender.Player.CharacterId;
+            var guild = _guilds.GetForMember(actor);
+            if (guild == null) return;
+            foreach (int id in _guilds.GetMemberIds(guild.Id))
+            {
+                if (!_sessions.TryGet(id, out var recipient)) continue;
+                async Task SendCurrent()
+                {
+                    if (!Game.Inventory.InventoryContext.TryGetOwnedLease(sender.SessionId, actor, out _)
+                        || !Game.Inventory.InventoryContext.TryGetOwnedLease(recipient.SessionId, id, out _)
+                        || _guilds.GetForMember(actor)?.Id != guild.Id || _guilds.GetForMember(id)?.Id != guild.Id) return;
+                    // 01173D70 reads mode, status, sender DSTR, server byte, message DSTR.
+                    // Use the name-bearing form on every channel; UIDs are channel-local.
+                    await recipient.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0,
+                        (ushort)NotiPacketTypeA21.MESSAGE_OTHER_CHANNEL,
+                        BuildGuildNotificationBody(sender.Player.Name, request.MessageBytes)));
+                }
+                if (id == actor) await _guildTransitions.RunIfCurrentAsync(sender, SendCurrent);
+                else await _guildTransitions.RunIfBothCurrentAsync(sender, recipient, SendCurrent);
+            }
+        }
+
+        internal static byte[] BuildGuildNotificationBody(byte[] senderName, byte[] message)
+        {
+            var w = new GamePacketWriter(); w.WriteByte(GuildMessageMode); w.WriteByte(0);
+            w.WriteDstr(senderName); w.WriteByte(GameNetworkConfig.ChannelServerIndex); w.WriteDstr(message);
+            return w.ToArray();
         }
 
         private EnhancedClientSession FindDirectTarget(

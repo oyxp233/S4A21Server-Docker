@@ -26,6 +26,7 @@ namespace DfoServer.Game.SelectCharacter
         public uint NameTagExpireTime { get; set; }
         public byte Stamina { get; set; }                    
         public uint FatiguePenalty { get; set; }             
+        public uint GuildId { get; set; }
         public byte IsEventCharacter { get; set; }           
         public uint EquippedCreatureItemId { get; set; }
         public byte[] EquippedCreatureNameBytes { get; set; } = new byte[0];

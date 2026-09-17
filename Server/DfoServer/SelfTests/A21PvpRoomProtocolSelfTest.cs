@@ -72,7 +72,7 @@ namespace DfoServer.SelfTests
         private static void CheckSchema(string path)
         {
             var database = new GameDatabase(path, ServerPaths.SchemaFilePath);
-            Require(Scalar(database, "PRAGMA user_version;") == 28
+            Require(Scalar(database, "PRAGMA user_version;") == SqliteMigrations.CurrentVersion
                 && Scalar(database, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('character_pvp_records','account_pvp_total_match_teams');") == 2,
                 "fresh schema includes PvP progress and account team ownership");
             Execute(database, @"
@@ -99,9 +99,9 @@ BEGIN SELECT RAISE(ABORT, 'selftest migration rollback'); END;");
                 SqliteMigrations.Apply(connection);
                 SqliteMigrations.Apply(connection);
             }
-            Require(Scalar(database, "PRAGMA user_version;") == 28
-                && Scalar(database, "SELECT schema_version FROM schema_metadata;") == 28,
-                "v26 upgrades to v28 and repeated migration is idempotent");
+            Require(Scalar(database, "PRAGMA user_version;") == SqliteMigrations.CurrentVersion
+                && Scalar(database, "SELECT schema_version FROM schema_metadata;") == DfoServer.Sqlite.SqliteMigrations.CurrentVersion,
+                "v26 upgrades to current schema and repeated migration is idempotent");
             Execute(database, @"
 DROP TABLE pvp_match_results;
 DROP TABLE pvp_matches;
@@ -120,8 +120,8 @@ BEGIN SELECT RAISE(ABORT, 'selftest v28 rollback'); END;");
                 "v28 failure rolls back match tables and version together");
             Execute(database, "DROP TRIGGER reject_pvp_migration;");
             using (var connection = database.OpenConnection()) SqliteMigrations.Apply(connection);
-            Require(Scalar(database, "PRAGMA user_version;") == 28,
-                "v27 can retry v28 successfully after migration rollback");
+            Require(Scalar(database, "PRAGMA user_version;") == SqliteMigrations.CurrentVersion,
+                "v27 can retry to current schema after migration rollback");
         }
 
         private static void Seed(IGameDatabase database)

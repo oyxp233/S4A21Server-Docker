@@ -156,6 +156,8 @@ namespace DfoServer.Game.CharacterData
                 return;
 
             ClearDynamicTailFields(snapshot);
+            var guild = DfoServer.Game.Guilds.GuildRepository.GetForMember(conn, null, characterId);
+            DfoServer.Game.Guilds.GuildIdentityProjection.Apply(guild, snapshot);
             LoadNameTagFields(conn, characterId, snapshot);
             var projectionBuilder = new Noti2InventoryProjectionBuilder();
             if (InventoryContext.TryGetLease(characterId, out var lease))

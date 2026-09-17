@@ -1,4 +1,4 @@
-using DfoServer.Game.Accounts;
+﻿using DfoServer.Game.Accounts;
 using DfoServer.Game.CharacterData;
 using DfoServer.Game.Characters;
 using DfoServer.Game.DailyReset;
@@ -592,7 +592,8 @@ namespace DfoServer.Infrastructure
                 world,
                 townDungeon,
                 udpRelay,
-                pvpUdpRelay);
+                pvpUdpRelay,
+                GetOrCreateGameProtocolInventoryDependencies(core).InventoryRefreshSender);
             return _gameProtocolSocialHandlers;
         }
 
@@ -601,7 +602,8 @@ namespace DfoServer.Infrastructure
             GameProtocolWorldDependencies world,
             GameProtocolTownDungeonHandlers townDungeon,
             PartyUdpRelay udpRelay,
-            PartyUdpRelay pvpUdpRelay)
+            PartyUdpRelay pvpUdpRelay,
+            InventoryRefreshSender inventoryRefresh)
         {
             if (core == null) throw new ArgumentNullException(nameof(core));
             if (world == null) throw new ArgumentNullException(nameof(world));
@@ -654,6 +656,10 @@ namespace DfoServer.Infrastructure
                 database: core.Database);
             party.AttachPvpRoomHandler(pvpRoom);
 
+            var guildRepository = new DfoServer.Game.Guilds.GuildRepository(core.Database);
+            var guildPublisher = new GuildStatePublisher(guildRepository, world.CharacterTransitions, world.Sessions, inventoryRefresh);
+            chat.ConfigureGuilds(guildRepository, world.CharacterTransitions);
+
             return new GameProtocolSocialHandlers(
                 party,
                 raid,
@@ -661,7 +667,18 @@ namespace DfoServer.Infrastructure
                 dungeonLoading,
                 dungeonRejoin,
                 new PvpChannelInfoHandler(),
-                pvpRoom);
+                pvpRoom,
+                new GuildCreationHandler(
+                    new DfoServer.Game.Guilds.GuildRepository(core.Database),
+                    world.CharacterTransitions,
+                    inventoryRefresh),
+                new GuildMemberHandler(
+                    new DfoServer.Game.Guilds.GuildRepository(core.Database),
+                    world.CharacterTransitions,
+                    world.Sessions),
+                new GuildJoinHandler(guildRepository,
+                    world.CharacterTransitions, world.Sessions, inventoryRefresh, guildPublisher),
+                new GuildManagementHandler(guildRepository, world.CharacterTransitions, guildPublisher));
         }
 
         internal GameProtocolFeatureHandlers GetOrCreateGameProtocolFeatureHandlers(

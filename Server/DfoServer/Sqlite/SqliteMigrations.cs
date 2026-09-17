@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -51,6 +51,9 @@ namespace DfoServer.Sqlite
                 new MigrationStep(26, "add_license_dungeon_unlock_conditions", ApplyLicenseDungeonUnlockConditions),
                 new MigrationStep(27, "add_pvp_records_and_total_match_teams", ApplyPvpRecordsAndTeams),
                 new MigrationStep(28, "add_pvp_match_settlements", ApplyPvpMatchSettlements),
+                new MigrationStep(29, "add_guilds", ApplyGuilds),
+                new MigrationStep(30, "add_guild_application_message", ApplyGuildApplicationMessage),
+                new MigrationStep(31, "add_guild_management", ApplyGuildManagement),
             };
 
         internal static int CurrentVersion =>
@@ -133,6 +136,54 @@ ON CONFLICT(singleton_id) DO UPDATE SET
         {
             var metadata = ReadMetadata(connection);
             return string.Equals(metadata.BaselineId, BaselineId, StringComparison.Ordinal);
+        }
+
+        private static void ApplyGuildManagement(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            AddColumnIfMissing(connection, transaction, "guilds", "announcement", "TEXT NOT NULL DEFAULT ''");
+            AddColumnIfMissing(connection, transaction, "guild_members", "rank", "INTEGER NOT NULL DEFAULT 4 CHECK(rank BETWEEN 2 AND 5)");
+            AddColumnIfMissing(connection, transaction, "guild_members", "memo", "TEXT NOT NULL DEFAULT ''");
+        }
+
+        private static void ApplyGuildApplicationMessage(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            AddColumnIfMissing(connection, transaction, "guild_applications", "message",
+                "TEXT NOT NULL DEFAULT ''");
+        }
+
+        private static void ApplyGuilds(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = @"CREATE TABLE IF NOT EXISTS guilds (
+    guild_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    promotion TEXT NOT NULL DEFAULT '',
+    leader_character_id INTEGER NOT NULL UNIQUE REFERENCES characters(character_id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS guild_members (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(character_id),
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members(guild_id);
+CREATE TABLE IF NOT EXISTS guild_applications (
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(guild_id, character_id)
+);
+CREATE TRIGGER IF NOT EXISTS guild_member_prevent_soft_delete
+BEFORE UPDATE OF delete_flag ON characters
+WHEN NEW.delete_flag <> 0 AND EXISTS (
+    SELECT 1 FROM guild_members WHERE character_id = OLD.character_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'leave guild before deleting character');
+END;
+";
+            command.ExecuteNonQuery();
         }
 
         private static void ApplyPvpMatchSettlements(SqliteConnection connection, SqliteTransaction transaction)

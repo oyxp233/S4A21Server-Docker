@@ -71,7 +71,8 @@ namespace DfoServer.Network.Builders
             writer.WriteUInt32(t.NameTagItemId); // 名称装饰卡ID
             writer.WriteUInt32(t.NameTagExpireTime); // 名称装饰卡到期时间戳
             writer.WriteByte(t.Stamina);                    
-            writer.WriteUInt32(t.FatiguePenalty);           
+            // Current client 013E758E -> 013E2BF0 stores this u32 at user+2C8 (guild ID).
+            writer.WriteUInt32(t.GuildId);
             writer.WriteByte(t.IsEventCharacter);           
             if (t.EquippedCreatureItemId == 0)
             {
@@ -87,8 +88,7 @@ namespace DfoServer.Network.Builders
                 writer.WriteByte(t.EquippedCreatureAliveState); // 宠物存活状态
             }
 
-            // A21 无工会路径使用固定 64B 尾，避免客户端把旧 ProgressB 当作 dstr 长度。
-            writer.WriteBytes(BuildA21AfterAliveNoGuild(t));
+            writer.WriteBytes(BuildA21AfterAlive(t));
         }
 
         private static void ApplyOnlineInventoryTailFields(int characterId, UserInfoMinimumTailSnapshot tail)
@@ -124,7 +124,7 @@ namespace DfoServer.Network.Builders
             0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00,
         };
 
-        private static byte[] BuildA21AfterAliveNoGuild(UserInfoMinimumTailSnapshot tail)
+        internal static byte[] BuildA21AfterAlive(UserInfoMinimumTailSnapshot tail)
         {
             var body = (byte[])A21AfterAliveNoGuild.Clone();
             if (tail == null)
@@ -159,7 +159,18 @@ namespace DfoServer.Network.Builders
                 A21AfterAliveMoodValueOffset,
                 sizeof(ushort));
             body[A21AfterAliveSkillTreeIndexOffset] = tail.SkillTreeIndex;
-            return body;
+            if (tail.GuildId == 0)
+                return body;
+
+            // 013E75CB/75D7 consume two bytes, 75E9 consumes u32; 013E2E60
+            // then consumes guild-name DSTR and u32 level. Preserve the rest of
+            // the verified no-guild tail after replacing these variable fields.
+            var writer = new GamePacketWriter();
+            writer.WriteBytes(body[..6]);
+            writer.WriteDstr(tail.GuildNameBytes);
+            writer.WriteUInt32(tail.GuildLevel);
+            writer.WriteBytes(body[16..]);
+            return writer.ToArray();
         }
 
         // A21 无副职业时经验为 0，不发历史 -1 / uint.MaxValue。
