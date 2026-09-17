@@ -33,6 +33,12 @@ namespace DfoServer.Game.Shop
             return Data.Value.Products.TryGetValue(productId, out entry);
         }
 
+        // 供运行时按商品内容(如扩容工具对应档位)建索引时枚举全部目录项。
+        internal static IEnumerable<CeraShopProductEntry> EnumerateProducts()
+        {
+            return Data.Value.Products.Values;
+        }
+
         // [buy only cera]: 仅可用点券(cera)购买的物品。
         public static bool IsBuyOnlyCera(int itemTemplateId)
         {

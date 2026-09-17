@@ -1,5 +1,6 @@
 using DfoServer.Game.CharacterData;
 using DfoServer.Game.Dungeon;
+using System;
 using System.Threading.Tasks;
 
 namespace DfoServer.Network.Handlers.Dungeon
@@ -10,12 +11,16 @@ namespace DfoServer.Network.Handlers.Dungeon
     internal sealed class DungeonPersistentMechanismCoordinator
     {
         private readonly AntonNormalConquestNotifier _antonNormal;
+        private readonly AntonAwakeningDailyProgressService _awakeningProgress;
 
         internal DungeonPersistentMechanismCoordinator(
-            SqliteCharacterStateRepository characterStateRepository)
+            SqliteCharacterStateRepository characterStateRepository,
+            AntonAwakeningDailyProgressService awakeningProgress = null)
         {
             _antonNormal = new AntonNormalConquestNotifier(
-                characterStateRepository);
+                characterStateRepository,
+                awakeningProgress);
+            _awakeningProgress = awakeningProgress;
         }
 
         internal Task RestoreBeforeSelectionAsync(
@@ -27,6 +32,29 @@ namespace DfoServer.Network.Handlers.Dungeon
 
         internal byte ResolveSequentialProgress(int characterId, int configKey)
             => _antonNormal.ResolveSequentialProgress(characterId, configKey);
+
+        internal bool TryResolveSequentialState(
+            int characterId,
+            int configKey,
+            out AntonNormalSyncState state)
+            => _antonNormal.TryResolveSequentialState(
+                characterId,
+                configKey,
+                out state);
+
+        internal AntonAwakeningAdmissionDecision EvaluateEntryAdmission(
+            int characterId,
+            int dungeonId)
+        {
+            if (_awakeningProgress == null)
+            {
+                throw new InvalidOperationException(
+                    "Sequential daily progress service is unavailable.");
+            }
+            return _awakeningProgress.EvaluateAdmission(
+                characterId,
+                dungeonId);
+        }
 
         internal Task ApplyDungeonClearAsync(
             EnhancedClientSession session,

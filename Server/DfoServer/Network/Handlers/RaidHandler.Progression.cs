@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Raid;
+using DfoServer.Infrastructure;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Builders.Raid;
 
@@ -14,61 +15,38 @@ public sealed partial class RaidHandler
 {
 	public async Task HandleStartRaid(EnhancedClientSession session, GamePacketHeader header, byte[] body)
 	{
-		bool emptyBody = body == null || body.Length == 0;
-		if (emptyBody && TryResolveUserId(session, out var waitingUserId) && _raids.TryGetByUser(waitingUserId, out var waitingRaid) && waitingRaid.State == 5 && waitingRaid.StateArgument == 0 && waitingRaid.PhaseIndex == 0)
+		bool flag = body == null || body.Length == 0;
+		if (flag && TryResolveUserId(session, out var userId) && _raids.TryGetByUser(userId, out var raid) && raid.State == 5 && raid.StateArgument == 0 && raid.PhaseIndex == 0)
 		{
 			await HandleStartNextRaidPhaseAsync(session, header, body);
 			return;
 		}
-		if (!emptyBody || !TryResolveUserId(session, out var userId) || !_raids.TryGetByUser(userId, out var candidate) || !HasAllEntryCosts(candidate) || !_raids.TryBeginStart(userId, out var raid))
+		if (flag && TryResolveUserId(session, out var checkUserId) && _raids.TryGetByUser(checkUserId, out var costCheckRaid) && !HasAllEntryCosts(costCheckRaid))
+		{
+			await SendAckAsync(session, header.type, success: false);
+			await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.SERVER_NOTICE_MESSAGE, ServerNoticeMessageBuilder.BuildRaidNotice("攻坚队中存在未准备入场材料的队员。", 0)));
+			FileLogger.Log($"[GameProtocol] START_RAID rejected entry-cost raid={costCheckRaid.RaidId} user={checkUserId}");
+			return;
+		}
+		if (!flag || !TryResolveUserId(session, out var userId2) || !_raids.TryGetByUser(userId2, out var raid2) || !HasAllEntryCosts(raid2) || !_raids.TryBeginStart(userId2, out var raid3))
 		{
 			await SendAckAsync(session, header.type, success: false);
 			return;
 		}
 		await SendAckAsync(session, header.type, success: true);
-		FileLogger.Log($"[GameProtocol] START_RAID_READY raid={raid.RaidId} leader={userId}");
-		await BroadcastRaidNotificationAsync(raid, NotiPacketType.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, 3u));
-		await BroadcastRaidNotificationAsync(raid, NotiPacketType.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(0, 3u));
-		await BroadcastRaidNotificationAsync(raid, NotiPacketType.PREPARE_START_RAID, Array.Empty<byte>());
-		await Task.Delay(3000);
-		if (!TryConsumeEntryCosts(raid, out var consumedCosts))
-		{
-			_raids.TryCancelStart(raid.RaidId, userId, out var cancelled);
-			if (cancelled != null)
-			{
-				await BroadcastRaidNotificationAsync(cancelled, NotiPacketType.RAID_ENTRY_COST_INFO, RaidPacketBuilder.BuildEntryCostInfo(BuildEntryCostStatuses(cancelled)));
-			}
-			FileLogger.Log($"[GameProtocol] START_RAID material check failed raid={raid.RaidId} leader={userId}");
-			return;
-		}
-		if (!_raids.TryCompleteStart(raid.RaidId, userId, out var started))
-		{
-			FileLogger.Log($"[GameProtocol] START_RAID aborted raid={raid.RaidId} leader={userId}");
-			return;
-		}
-		foreach (RaidConsumedEntryCost consumed in consumedCosts)
-		{
-			await InventoryRefreshSender.SendOnlineUpdateItemList(consumed.Session, InventoryListType.Main, consumed.SlotIndex);
-		}
-		await BroadcastRaidStateAsync(started);
-		// Publish the final party assignment once at attack start. The client uses
-		// this operation=3 cache to build situation rows after entering a dungeon.
-		await BroadcastRaidObjectAsync(started);
-		await BroadcastRaidMembersAsync(started);
-		await BroadcastRaidNotificationAsync(started, NotiPacketType.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(AntonFirstPhaseInitialDungeonStates));
-		await BroadcastRaidSituationAsync(started);
-		await BroadcastRaidNotificationAsync(started, NotiPacketType.RAID_SET_SYMBOL, RaidPacketBuilder.BuildSetSymbols(AntonFirstPhaseInitialSymbols));
-		await BroadcastRaidNotificationAsync(started, NotiPacketType.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, AttackSeconds));
-		await BroadcastRaidNotificationAsync(started, NotiPacketType.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(0, AttackSeconds));
-		StartAttackTimeoutTimer(started, AttackSeconds);
-		FileLogger.Log($"[GameProtocol] START_RAID_ATTACK raid={started.RaidId} state={started.State} dungeon={210u} seconds={AttackSeconds}");
+		FileLogger.Log($"[GameProtocol] START_RAID_READY raid={raid3.RaidId} leader={userId2}");
+		await BroadcastRaidObjectAsync(raid3);
+		await BroadcastRaidNotificationAsync(raid3, NotiPacketTypeA21.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, 3u));
+		await BroadcastRaidNotificationAsync(raid3, NotiPacketTypeA21.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(0, 3u));
+		await BroadcastRaidNotificationAsync(raid3, NotiPacketTypeA21.PREPARE_START_RAID, Array.Empty<byte>());
+		ClockService.Instance.ScheduleOneShotAfterAsync($"raid-preparation:{raid3.InstanceId}:{raid3.PreparationGeneration}", TimeSpan.FromSeconds(3L), (DateTime _) => CompleteRaidPreparationAsync(raid3));
 	}
 
 	private async Task HandleStartNextRaidPhaseAsync(EnhancedClientSession session, GamePacketHeader header, byte[] body)
 	{
 		ushort userId = 0;
 		RaidSnapshot prepared = null;
-		bool ok = IsAntonPhaseTwoStartRequest(body) && TryResolveUserId(session, out userId) && _raids.TryPrepareNextPhase(userId, out prepared);
+		bool ok = IsAntonPhaseTwoStartRequest(body) && TryResolveUserId(session, out userId) && _raids.TryPrepareNextPhase(userId, out prepared, (IReadOnlyList<RaidMember> members) => PreparationPartyOrder?.Invoke(members));
 		await SendAckAsync(session, header.type, ok);
 		if (!ok)
 		{
@@ -81,107 +59,87 @@ public sealed partial class RaidHandler
 
 	internal static bool IsAntonPhaseTwoStartRequest(byte[] body)
 	{
-		return body == null || body.Length == 0;
+		if (body != null)
+		{
+			return body.Length == 0;
+		}
+		return true;
 	}
 
 	private async Task PrepareAndStartAntonPhaseTwoAsync(RaidSnapshot prepared, string reason)
 	{
+		await BroadcastRaidObjectAsync(prepared);
 		uint readySeconds = AntonRaidRewardProvider.GetStartDelaySeconds();
-		await BroadcastRaidNotificationAsync(prepared, NotiPacketType.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, readySeconds));
-		await BroadcastRaidNotificationAsync(prepared, NotiPacketType.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(0, readySeconds));
-		await BroadcastRaidNotificationAsync(prepared, NotiPacketType.PREPARE_START_RAID, Array.Empty<byte>());
+		await BroadcastRaidNotificationAsync(prepared, NotiPacketTypeA21.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, readySeconds));
+		await BroadcastRaidNotificationAsync(prepared, NotiPacketTypeA21.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(0, readySeconds));
+		await BroadcastRaidNotificationAsync(prepared, NotiPacketTypeA21.PREPARE_START_RAID, Array.Empty<byte>());
 		FileLogger.Log($"[GameProtocol] START_RAID_PHASE2_READY raid={prepared.RaidId} reason={reason} seconds={readySeconds}");
-		await Task.Delay(checked((int)readySeconds * 1000));
-		if (!_raids.TryCompletePreparedNextPhase(prepared.RaidId, out var started))
-		{
-			FileLogger.Log($"[GameProtocol] START_RAID_PHASE2 aborted raid={prepared.RaidId}");
-			return;
-		}
-		await BroadcastRaidStateAsync(started);
-		_blackVolcanoBarrierBroken[started.RaidId] = 0;
-		await SetSymbolsAsync(started, AntonSecondPhaseInitialSymbols);
-		await BroadcastRaidNotificationAsync(started, NotiPacketType.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(AntonSecondPhaseInitialDungeonStates));
-		await BroadcastRaidSituationAsync(started);
-		await PulseSymbolAsync(started, 127u);
-		await BroadcastRaidNotificationAsync(started, NotiPacketType.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, AttackSeconds));
-		await BroadcastRaidNotificationAsync(started, NotiPacketType.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(0, AttackSeconds));
-		StartAttackTimeoutTimer(started, AttackSeconds);
-		await StartHatcheryOpenTimerAsync(started);
-		StartBarrierRecoveryTimer(started);
-		FileLogger.Log($"[GameProtocol] START_RAID_PHASE2_ATTACK raid={started.RaidId} reason={reason} seconds={AttackSeconds}");
-	}
-
-	private async Task RunPhaseBreakTimerAsync(uint raidId, uint seconds)
-	{
-		int version = AdvanceTimer(raidId, 0u, 1u);
-		try
-		{
-			await Task.Delay(checked((int)seconds * 1000));
-			if (TimerCurrent(raidId, 0u, 1u, version) && _raids.TryPrepareNextPhaseAutomatically(raidId, out var prepared))
-			{
-				await PrepareAndStartAntonPhaseTwoAsync(prepared, "phase-break-timeout");
-			}
-		}
-		catch (Exception ex)
-		{
-			Exception ex2 = ex;
-			FileLogger.Log($"[GameProtocol] RAID_PHASE_BREAK_TIMER failed raid={raidId} error={ex2.Message}");
-		}
+		ClockService.Instance.ScheduleOneShotAfterAsync($"raid-phase2-preparation:{prepared.InstanceId}:{prepared.PreparationGeneration}", TimeSpan.FromSeconds(readySeconds), (DateTime _) => CompletePhaseTwoPreparationAsync(prepared, reason));
 	}
 
 	public async Task HandleDungeonLoadedAsync(EnhancedClientSession session)
 	{
 		DungeonRun run = session?.Player?.CurrentRun;
-		if (run != null && IsAntonRaidDungeon(run.DungeonId) && TryResolveUserId(session, out var userId) && _raids.TryGetByUser(userId, out var currentRaid) && IsAntonDungeonForPhase(currentRaid.PhaseIndex, run.DungeonId) && _raids.TryEnterDungeon(userId, (uint)run.DungeonId, out var raid, out var memberKeys))
+		if (run == null || !IsAntonRaidDungeon(run.DungeonId) || !TryResolveUserId(session, out var userId) || !_raids.TryGetByUser(userId, out var raid) || !IsAntonDungeonForPhase(raid.PhaseIndex, run.DungeonId) || !_raids.TryEnterDungeon(userId, (uint)run.DungeonId, out var raid2, out var memberKeys))
 		{
-			await Task.Delay(300);
+			return;
+		}
+		await Task.Delay(300);
+		if (session.Player.CurrentRun == run && TryGetCurrentRaid(raid2, out var current) && current.Members.Any((RaidMember m) => m.UserId == userId && m.SessionId == session.SessionId) && _sessions.TryGet(session.Player.CharacterId, out var session2) && session2 == session)
+		{
 			if ((long)run.DungeonId == 219)
 			{
-				await SyncBlackVolcanoBarrierStateAsync(session, raid);
+				await SyncBlackVolcanoBarrierStateAsync(session, raid2);
 			}
-			ResetRaidMonsterRuntimeValues(raid, userId, (uint)run.DungeonId);
-			await BroadcastRaidParticipationEnterAsync(raid, (uint)run.DungeonId, memberKeys);
-			await BroadcastRaidMonsterStatusAsync(raid);
-			FileLogger.Log($"[GameProtocol] RAID_DUNGEON_ENTER raid={raid.RaidId} phase={raid.PhaseIndex} dungeon={run.DungeonId} memberKeys={string.Join(",", memberKeys)}");
+			ResetRaidMonsterRuntimeValues(raid2, userId, (uint)run.DungeonId);
+			await BroadcastRaidParticipationEnterAsync(raid2, (uint)run.DungeonId, memberKeys);
+			await BroadcastRaidMonsterStatusAsync(raid2);
+			FileLogger.Log($"[GameProtocol] RAID_DUNGEON_ENTER raid={raid2.RaidId} phase={raid2.PhaseIndex} dungeon={run.DungeonId} memberKeys={string.Join(",", memberKeys)}");
 		}
 	}
 
 	public async Task HandleDungeonClearedAsync(EnhancedClientSession session, int dungeonId)
 	{
-		if (!IsAntonRaidDungeon(dungeonId) || !TryResolveUserId(session, out var userId) || !_raids.TryGetByUser(userId, out var currentRaid) || !IsAntonDungeonForPhase(currentRaid.PhaseIndex, dungeonId) || !_raids.TryClearDungeon(userId, (uint)dungeonId, GetAntonRequiredClears((uint)dungeonId), out var raid, out var memberKeys, out var clearCount))
+		if (!IsAntonRaidDungeon(dungeonId) || !TryResolveUserId(session, out var userId) || !_raids.TryGetByUser(userId, out var raid) || !IsAntonDungeonForPhase(raid.PhaseIndex, dungeonId) || !_raids.TryClearDungeon(userId, (uint)dungeonId, GetAntonRequiredClears((uint)dungeonId), out var raid2, out var memberKeys, out var clearCount))
 		{
 			return;
 		}
-		if (raid.PhaseIndex == 1 && dungeonId switch
+		bool flag = raid2.PhaseIndex == 1;
+		await BroadcastRaidMembersAsync(raid2);
+		if (flag)
 		{
-			220 => clearCount >= 5,
-			219 => true,
-			_ => false,
-		})
-		{
-			await SetDungeonStateAsync(raid, (uint)dungeonId, 3u);
+			flag = dungeonId switch
+			{
+				220 => clearCount >= 5,
+				219 => true,
+				_ => false,
+			};
 		}
-		await BroadcastRaidNotificationAsync(raid, NotiPacketType.RAID_DUNGEON_PARTICIPATION_INFO, RaidPacketBuilder.BuildRaidDungeonParticipationInfo((uint)dungeonId, 4u, memberKeys));
-		if (raid.PhaseIndex == 0)
+		if (flag)
+		{
+			await SetDungeonStateAsync(raid2, (uint)dungeonId, 3u);
+		}
+		await BroadcastRaidNotificationAsync(raid2, NotiPacketTypeA21.RAID_DUNGEON_PARTICIPATION_INFO, RaidPacketBuilder.BuildRaidDungeonParticipationInfo((uint)dungeonId, 4u, memberKeys));
+		if (raid2.PhaseIndex == 0)
 		{
 			switch ((uint)dungeonId)
 			{
 			case 210u:
-				await ClearBlackFogSourceAsync(raid, clearCount);
+				await ClearBlackFogSourceAsync(raid2, clearCount);
 				break;
 			case 211u:
-				await ClearRegeneratedBlackFogAsync(raid);
+				await ClearRegeneratedBlackFogAsync(raid2);
 				break;
 			case 212u:
 			case 214u:
-				await ClearQuakeAsync(raid, (uint)dungeonId);
+				await ClearQuakeAsync(raid2, (uint)dungeonId);
 				break;
 			case 213u:
 			case 215u:
-				await ClearLegAsync(raid, (uint)dungeonId, clearCount);
+				await ClearLegAsync(raid2, (uint)dungeonId, clearCount);
 				break;
 			case 216u:
-				await ClearNavalCannonAsync(raid);
+				await ClearNavalCannonAsync(raid2);
 				break;
 			}
 		}
@@ -190,95 +148,72 @@ public sealed partial class RaidHandler
 			switch ((uint)dungeonId)
 			{
 			case 218u:
-				await ClearEnergyAsync(raid);
+				await ClearEnergyAsync(raid2);
 				break;
 			case 219u:
-				await ClearBlackVolcanoAsync(raid);
+				await ClearBlackVolcanoAsync(raid2);
 				break;
 			case 220u:
-				await ClearAntonHeartAsync(raid, clearCount);
+				await ClearAntonHeartAsync(raid2, clearCount);
 				break;
 			default:
 				if (AntonRaidRewardProvider.GetHatcheryIndex((uint)dungeonId) >= 0)
 				{
-					await ClearHatcheryAsync(raid, (uint)dungeonId);
+					await ClearHatcheryAsync(raid2, (uint)dungeonId);
 				}
 				break;
 			}
 		}
-		await BroadcastRaidMonsterStatusAsync(raid);
-		FileLogger.Log($"[GameProtocol] RAID_DUNGEON_CLEAR raid={raid.RaidId} phase={raid.PhaseIndex} dungeon={dungeonId} clear={clearCount}/{GetAntonRequiredClears((uint)dungeonId)} members={string.Join(",", memberKeys)}");
+		await BroadcastRaidMonsterStatusAsync(raid2);
+		FileLogger.Log($"[GameProtocol] RAID_DUNGEON_CLEAR raid={raid2.RaidId} phase={raid2.PhaseIndex} dungeon={dungeonId} clear={clearCount}/{GetAntonRequiredClears((uint)dungeonId)} members={string.Join(",", memberKeys)}");
 	}
 
 	public async Task HandleDungeonCharacterDeathAsync(EnhancedClientSession session, int dungeonId)
 	{
-		if (!IsAntonRaidDungeon(dungeonId)
-			|| !TryResolveUserId(session, out var userId)
-			|| !_raids.TryGetByUser(userId, out var currentRaid)
-			|| !IsAntonDungeonForPhase(currentRaid.PhaseIndex, dungeonId)
-			|| !_raids.TryRecordDeath(userId, out var raid))
-			return;
-
-		RaidMember deadMember = raid.Members.FirstOrDefault(member => member.UserId == userId);
-		if (deadMember == null)
-			return;
-
-		await BroadcastRaidNotificationAsync(
-			raid,
-			NotiPacketType.RAID_MEMBER_STATE,
-			RaidPacketBuilder.BuildRaidMemberState(deadMember.UserId, 0));
-		FileLogger.Log(
-			$"[GameProtocol] RAID_PHASE_DEATH raid={raid.RaidId} phase={raid.PhaseIndex} " +
-			$"user={userId} dungeon={dungeonId} deaths={raid.PhaseDeathCount}");
+		if (IsAntonRaidDungeon(dungeonId) && TryResolveUserId(session, out var userId) && _raids.TryGetByUser(userId, out var raid) && IsAntonDungeonForPhase(raid.PhaseIndex, dungeonId) && _raids.TryRecordDeath(userId, out var raid2))
+		{
+			RaidMember raidMember = raid2.Members.FirstOrDefault((RaidMember member) => member.UserId == userId);
+			if (raidMember != null)
+			{
+				await BroadcastRaidNotificationAsync(raid2, NotiPacketTypeA21.RAID_MEMBER_STATE, RaidPacketBuilder.BuildRaidMemberState(raidMember.UserId, 0));
+				FileLogger.Log($"[GameProtocol] RAID_PHASE_DEATH raid={raid2.RaidId} phase={raid2.PhaseIndex} user={userId} dungeon={dungeonId} deaths={raid2.PhaseDeathCount}");
+			}
+		}
 	}
 
-	public async Task HandleDungeonCharacterReviveAsync(
-		EnhancedClientSession session,
-		int dungeonId,
-		ushort targetActorId)
+	public async Task HandleDungeonCharacterReviveAsync(EnhancedClientSession session, int dungeonId, ushort targetActorId)
 	{
-		if (!IsAntonRaidDungeon(dungeonId)
-			|| !TryResolveUserId(session, out var usingUserId)
-			|| !_raids.TryGetByUser(usingUserId, out var currentRaid)
-			|| !IsAntonDungeonForPhase(currentRaid.PhaseIndex, dungeonId)
-			|| !currentRaid.Members.Any(member => member.UserId == targetActorId)
-			|| !_raids.TryRecordCoinUse(usingUserId, checked((uint)dungeonId), out var raid))
-			return;
-
-		ushort targetUserId = targetActorId;
-		RaidMember revivedMember = raid.Members.First(member => member.UserId == targetUserId);
-		await BroadcastRaidNotificationAsync(
-			raid,
-			NotiPacketType.RAID_MEMBER_STATE,
-			RaidPacketBuilder.BuildRaidMemberState(revivedMember.UserId, 1));
-		await BroadcastRaidMonsterStatusAsync(raid);
-		FileLogger.Log(
-			$"[GameProtocol] RAID_PHASE_REVIVE raid={raid.RaidId} phase={raid.PhaseIndex} " +
-			$"user={targetUserId} actor={targetActorId} coinUser={usingUserId} dungeon={dungeonId}");
+		if (IsAntonRaidDungeon(dungeonId) && TryResolveUserId(session, out var usingUserId) && _raids.TryGetByUser(usingUserId, out var raid) && IsAntonDungeonForPhase(raid.PhaseIndex, dungeonId) && raid.Members.Any((RaidMember member) => member.UserId == targetActorId) && _raids.TryRecordCoinUse(usingUserId, checked((uint)dungeonId), out var raid2))
+		{
+			ushort targetUserId = targetActorId;
+			RaidMember raidMember = raid2.Members.First((RaidMember member) => member.UserId == targetUserId);
+			await BroadcastRaidNotificationAsync(raid2, NotiPacketTypeA21.RAID_MEMBER_STATE, RaidPacketBuilder.BuildRaidMemberState(raidMember.UserId, 1));
+			await BroadcastRaidMonsterStatusAsync(raid2);
+			FileLogger.Log($"[GameProtocol] RAID_PHASE_REVIVE raid={raid2.RaidId} phase={raid2.PhaseIndex} user={targetUserId} actor={targetActorId} coinUser={usingUserId} dungeon={dungeonId}");
+		}
 	}
 	private async Task ClearBlackFogSourceAsync(RaidSnapshot raid, uint count)
 	{
-		if (count < 4)
+		await SetSymbolAsync(raid, 50u, count);
+		if (count >= 4)
 		{
-			await SetSymbolAsync(raid, 50u, count);
-			return;
+			await SetDungeonStateAsync(raid, 210u, 3u);
+			KeyValuePair<uint, uint>[] antonFirstPhaseSmokeClearedStates = AntonFirstPhaseSmokeClearedStates;
+			for (int i = 0; i < antonFirstPhaseSmokeClearedStates.Length; i++)
+			{
+				KeyValuePair<uint, uint> keyValuePair = antonFirstPhaseSmokeClearedStates[i];
+				await SetDungeonStateAsync(raid, keyValuePair.Key, keyValuePair.Value);
+			}
+			await SetSymbolsAsync(raid, new KeyValuePair<uint, uint>[2]
+			{
+				new KeyValuePair<uint, uint>(120u, 1u),
+				new KeyValuePair<uint, uint>(122u, 1u)
+			});
+			await StartActiveTimerAsync(raid, 212u, 300u, ResetPhaseOneAsync);
+			await StartActiveTimerAsync(raid, 214u, 300u, ResetPhaseOneAsync);
+			await StartRecoveryTimerAsync(raid, 211u, 300u, 480u, ResetPhaseOneAsync);
+			RunInBackground(OpenNavalCannonAfterDelayAsync(raid), "open-naval-cannon");
 		}
-		await SetDungeonStateAsync(raid, 210u, 3u);
-		KeyValuePair<uint, uint>[] antonFirstPhaseSmokeClearedStates = AntonFirstPhaseSmokeClearedStates;
-		for (int i = 0; i < antonFirstPhaseSmokeClearedStates.Length; i++)
-		{
-			KeyValuePair<uint, uint> state = antonFirstPhaseSmokeClearedStates[i];
-			await SetDungeonStateAsync(raid, state.Key, state.Value);
-		}
-		await SetSymbolsAsync(raid, new KeyValuePair<uint, uint>[2]
-		{
-			new KeyValuePair<uint, uint>(120u, 1u),
-			new KeyValuePair<uint, uint>(122u, 1u)
-		});
-		await StartActiveTimerAsync(raid, 212u, 300u, ResetPhaseOneAsync);
-		await StartActiveTimerAsync(raid, 214u, 300u, ResetPhaseOneAsync);
-		await StartRecoveryTimerAsync(raid, 211u, 300u, 480u, ResetPhaseOneAsync);
-		RunInBackground(OpenNavalCannonAfterDelayAsync(raid), "open-naval-cannon");
 	}
 
 	private async Task ClearRegeneratedBlackFogAsync(RaidSnapshot raid)
@@ -299,17 +234,16 @@ public sealed partial class RaidHandler
 
 	private async Task ClearLegAsync(RaidSnapshot raid, uint dungeonId, uint count)
 	{
-		if (count < 2)
+		await SetSymbolAsync(raid, GetAntonHpSymbolId(dungeonId), count);
+		if (count >= 2)
 		{
-			await SetSymbolAsync(raid, GetAntonHpSymbolId(dungeonId), count);
-			return;
-		}
-		await SetDungeonStateAsync(raid, dungeonId, 3u);
-		uint other = ((dungeonId == 213) ? 215u : 213u);
-		_raids.TryGetClearCount(raid.RaidId, other, out var otherCount);
-		if (otherCount >= 2)
-		{
-			await CompletePhaseOneAsync(raid);
+			await SetDungeonStateAsync(raid, dungeonId, 3u);
+			uint dungeonId2 = ((dungeonId == 213) ? 215u : 213u);
+			_raids.TryGetClearCount(raid.RaidId, dungeonId2, out var clearCount);
+			if (clearCount >= 2)
+			{
+				await CompletePhaseOneAsync(raid);
+			}
 		}
 	}
 
@@ -328,6 +262,7 @@ public sealed partial class RaidHandler
 
 	private async Task OpenNavalCannonAfterDelayAsync(RaidSnapshot raid)
 	{
+		_ = 4;
 		try
 		{
 			await Task.Delay(20000);
@@ -341,8 +276,7 @@ public sealed partial class RaidHandler
 		}
 		catch (Exception ex)
 		{
-			Exception ex2 = ex;
-			FileLogger.Log($"[GameProtocol] RAID_NAVAL_OPEN failed raid={raid?.RaidId} error={ex2.Message}");
+			FileLogger.Log($"[GameProtocol] RAID_NAVAL_OPEN failed raid={raid?.RaidId} error={ex.Message}");
 		}
 	}
 
@@ -378,10 +312,10 @@ public sealed partial class RaidHandler
 		KeyValuePair<uint, uint>[] antonFirstPhaseInitialDungeonStates = AntonFirstPhaseInitialDungeonStates;
 		for (int i = 0; i < antonFirstPhaseInitialDungeonStates.Length; i++)
 		{
-			KeyValuePair<uint, uint> state = antonFirstPhaseInitialDungeonStates[i];
-			if (state.Key != 210)
+			KeyValuePair<uint, uint> keyValuePair = antonFirstPhaseInitialDungeonStates[i];
+			if (keyValuePair.Key != 210)
 			{
-				await SetDungeonStateAsync(raid, state.Key, state.Value);
+				await SetDungeonStateAsync(raid, keyValuePair.Key, keyValuePair.Value);
 			}
 		}
 		await SetDungeonStateAsync(raid, 210u, 0u);
@@ -407,17 +341,19 @@ public sealed partial class RaidHandler
 			new KeyValuePair<uint, uint>(8u, 0u)
 		});
 		uint[] array = new uint[2] { 218u, 219u };
-		foreach (uint dungeonId in array)
+		uint[] array2 = array;
+		foreach (uint dungeonId in array2)
 		{
 			await SetDungeonStateAsync(raid, dungeonId, 2u);
 		}
 		await SetDungeonStateAsync(raid, 220u, 0u);
-		uint[] hatcheryDungeonIds = AntonRaidRewardProvider.GetHatcheryDungeonIds();
-		foreach (uint hatcheryId in hatcheryDungeonIds)
+		array = AntonRaidRewardProvider.GetHatcheryDungeonIds();
+		array2 = array;
+		foreach (uint hatcheryId in array2)
 		{
-			for (uint timerType = 1u; timerType <= 3; timerType++)
+			for (uint num = 1u; num <= 3; num++)
 			{
-				CancelTimer(raid.RaidId, timerType, hatcheryId);
+				CancelTimer(raid.RaidId, num, hatcheryId);
 			}
 			await SetDungeonStateAsync(raid, hatcheryId, 2u);
 			await SetSymbolsAsync(raid, new KeyValuePair<uint, uint>[2]
@@ -430,13 +366,12 @@ public sealed partial class RaidHandler
 
 	private async Task ClearAntonHeartAsync(RaidSnapshot raid, uint clearCount)
 	{
-		if (clearCount < 5)
+		await SetSymbolAsync(raid, GetAntonHpSymbolId(220u), clearCount);
+		if (clearCount >= 5)
 		{
-			await SetSymbolAsync(raid, GetAntonHpSymbolId(220u), clearCount);
-			return;
+			await Task.Delay(2000);
+			await CompletePhaseTwoAsync(raid);
 		}
-		await Task.Delay(2000);
-		await CompletePhaseTwoAsync(raid);
 	}
 
 	private async Task ClearHatcheryAsync(RaidSnapshot raid, uint dungeonId)
@@ -453,7 +388,7 @@ public sealed partial class RaidHandler
 			{
 				new KeyValuePair<uint, uint>(7u, 0u)
 			});
-			await BroadcastRaidNotificationAsync(raid, NotiPacketType.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(dungeonId, 3u, infectionDungeonId));
+			await BroadcastRaidNotificationAsync(raid, NotiPacketTypeA21.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(dungeonId, 3u, infectionDungeonId));
 		}
 		await SetSymbolsAsync(raid, new KeyValuePair<uint, uint>[2]
 		{
@@ -465,9 +400,9 @@ public sealed partial class RaidHandler
 
 	private async Task CompletePhaseTwoAsync(RaidSnapshot raid)
 	{
-		if (_raids.TryEnterPhaseBreak(raid.RaidId, out var result))
+		if (_raids.TryEnterPhaseBreak(raid, out var result))
 		{
-			CancelTimer(result.RaidId, AttackTimerType, AttackTimerDungeonId);
+			CancelTimer(result.RaidId, 0u, 0u);
 			CancelAllPhaseTwoTimers(result.RaidId);
 			uint[] antonSecondPhaseDungeonIds = AntonSecondPhaseDungeonIds;
 			for (int i = 0; i < antonSecondPhaseDungeonIds.Length; i++)
@@ -484,41 +419,40 @@ public sealed partial class RaidHandler
 
 	private void StartBarrierRecoveryTimer(RaidSnapshot raid)
 	{
-		int version = AdvanceTimer(raid.RaidId, 4u, 219u);
+		Guid version = AdvanceTimer(raid.RaidId, 4u, 219u);
 		RunInBackground(RunBarrierRecoveryTimerAsync(raid, version), "barrier-recovery");
 	}
 
-	private async Task RunBarrierRecoveryTimerAsync(RaidSnapshot raid, int version)
+	private async Task RunBarrierRecoveryTimerAsync(RaidSnapshot raid, Guid version)
 	{
+		_ = 1;
 		try
 		{
 			while (true)
 			{
 				await Task.Delay(1000);
-				if (!TimerCurrent(raid.RaidId, 4u, 219u, version) || !TryGetCurrentRaid(raid, out var current) || current.PhaseIndex != 1)
+				if (TimerCurrent(raid.RaidId, 4u, 219u, version) && TryGetCurrentRaid(raid, out var current) && current.PhaseIndex == 1)
 				{
-					break;
+					bool flag = _infectionDungeonByRaid.ContainsKey(current.RaidId) && _symbolValues.TryGetValue((current.RaidId, 7u), out var value) && value != 0;
+					await ChangeBlackVolcanoBarrierAsync(operand: AntonRaidRewardProvider.GetShieldChargeRate(flag), raid: current, operation: 1, reason: flag ? "infection-recovery" : "normal-recovery");
+					current = null;
+					continue;
 				}
-				uint infectionExists;
-				bool infectionActive = _infectionDungeonByRaid.ContainsKey(current.RaidId) && _symbolValues.TryGetValue((current.RaidId, 7u), out infectionExists) && infectionExists != 0;
-				await ChangeBlackVolcanoBarrierAsync(operand: AntonRaidRewardProvider.GetShieldChargeRate(infectionActive), raid: current, operation: 1, reason: infectionActive ? "infection-recovery" : "normal-recovery");
-				current = null;
+				break;
 			}
 		}
 		catch (Exception ex)
 		{
-			Exception ex2 = ex;
-			FileLogger.Log($"[GameProtocol] RAID_PHASE2_BARRIER_TIMER failed raid={raid?.RaidId} error={ex2.Message}");
+			FileLogger.Log($"[GameProtocol] RAID_PHASE2_BARRIER_TIMER failed raid={raid?.RaidId} error={ex.Message}");
 		}
 	}
 
 	private async Task ChangeBlackVolcanoBarrierAsync(RaidSnapshot raid, uint operand, byte operation, string reason)
 	{
-		(uint RaidId, uint AntonBlackVolcanoBarrierSymbolId) key = (RaidId: raid.RaidId, AntonBlackVolcanoBarrierSymbolId: 110u);
-		object syncRoot = _raidRuntimeLocks.GetOrAdd(raid.RaidId, (uint _) => new object());
+		(uint, uint) key = (raid.RaidId, 110u);
 		uint previousValue;
 		uint nextValue;
-		lock (syncRoot)
+		lock (_raidRuntimeLocks.GetOrAdd(raid.RaidId, (uint _) => new object()))
 		{
 			if (!_symbolValues.TryGetValue(key, out previousValue) || !TryApplyRaidSymbolOperation(previousValue, operand, operation, out nextValue))
 			{
@@ -549,7 +483,7 @@ public sealed partial class RaidHandler
 		}
 		else if (nextValue != 10000 || previousValue == 10000)
 		{
-			await BroadcastRaidNotificationAsync(raid, NotiPacketType.RAID_SET_SYMBOL, RaidPacketBuilder.BuildSetSymbol(110u, nextValue));
+			await BroadcastRaidNotificationAsync(raid, NotiPacketTypeA21.RAID_SET_SYMBOL, RaidPacketBuilder.BuildSetSymbol(110u, nextValue));
 		}
 		else
 		{
@@ -579,30 +513,30 @@ public sealed partial class RaidHandler
 	private async Task SyncBlackVolcanoBarrierStateAsync(EnhancedClientSession session, RaidSnapshot raid)
 	{
 		_symbolValues.TryGetValue((raid.RaidId, 110u), out var barrierValue);
-		byte broken;
-		bool barrierBroken = _blackVolcanoBarrierBroken.TryGetValue(raid.RaidId, out broken) && broken != 0;
+		bool barrierBroken = _blackVolcanoBarrierBroken.TryGetValue(raid.RaidId, out var value) && value != 0;
 		uint activeMovieSymbol = (barrierBroken ? 126u : 127u);
-		uint inactiveMovieSymbol = (barrierBroken ? 127u : 126u);
-		byte[] statePacket = GamePacketEnvelopeBuilder.Build(0, 584, RaidPacketBuilder.BuildSetSymbols(new KeyValuePair<uint, uint>[4]
+		uint key = (barrierBroken ? 127u : 126u);
+		byte[] data = GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.RAID_SET_SYMBOL, RaidPacketBuilder.BuildSetSymbols(new KeyValuePair<uint, uint>[4]
 		{
-			new KeyValuePair<uint, uint>(inactiveMovieSymbol, 0u),
+			new KeyValuePair<uint, uint>(key, 0u),
 			new KeyValuePair<uint, uint>(110u, barrierValue),
 			new KeyValuePair<uint, uint>(111u, barrierBroken ? 1u : 0u),
 			new KeyValuePair<uint, uint>(activeMovieSymbol, 1u)
 		}));
-		await session.SendPacketAsync(statePacket);
+		await session.SendPacketAsync(data);
 		FileLogger.Log($"[GameProtocol] RAID_VOLCANO_SYNC raid={raid.RaidId} barrier={barrierValue} broken={barrierBroken} symbol={activeMovieSymbol}");
 	}
 
 	private async Task StartHatcheryOpenTimerAsync(RaidSnapshot raid)
 	{
-		int version = AdvanceTimer(raid.RaidId, 3u, 219u);
+		Guid version = AdvanceTimer(raid.RaidId, 3u, 219u);
 		await SendTimerAsync(raid, 3u, 219u, 180u);
 		RunInBackground(RunHatcheryOpenTimerAsync(raid, version), "hatchery-open");
 	}
 
-	private async Task RunHatcheryOpenTimerAsync(RaidSnapshot raid, int version)
+	private async Task RunHatcheryOpenTimerAsync(RaidSnapshot raid, Guid version)
 	{
+		_ = 3;
 		try
 		{
 			await Task.Delay(180000);
@@ -616,7 +550,7 @@ public sealed partial class RaidHandler
 				_symbolValues[(current.RaidId, 7u)] = 1u;
 				_symbolValues[(current.RaidId, 8u)] = infectionDungeonId;
 				await SetSymbolAsync(current, 128u, 1u);
-				await BroadcastRaidNotificationAsync(current, NotiPacketType.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(openHatcheries.Select((uint id) => new KeyValuePair<uint, uint>(id, 0u)).ToArray(), infectionDungeonId));
+				await BroadcastRaidNotificationAsync(current, NotiPacketTypeA21.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(openHatcheries.Select((uint id) => new KeyValuePair<uint, uint>(id, 0u)).ToArray(), infectionDungeonId));
 				uint[] array = openHatcheries;
 				for (int num = 0; num < array.Length; num++)
 				{
@@ -627,8 +561,7 @@ public sealed partial class RaidHandler
 		}
 		catch (Exception ex)
 		{
-			Exception ex2 = ex;
-			FileLogger.Log($"[GameProtocol] RAID_PHASE2_HATCHERY_OPEN_TIMER failed raid={raid?.RaidId} error={ex2.Message}");
+			FileLogger.Log($"[GameProtocol] RAID_PHASE2_HATCHERY_OPEN_TIMER failed raid={raid?.RaidId} error={ex.Message}");
 		}
 	}
 
@@ -639,8 +572,8 @@ public sealed partial class RaidHandler
 		{
 			throw new ArgumentOutOfRangeException("omittedIndex");
 		}
-		int openCount = checked((int)AntonRaidRewardProvider.GetHatcheryOpenCount());
-		return hatcheryDungeonIds.Where((uint _, int index) => index != omittedIndex).Take(openCount).ToArray();
+		int count = checked((int)AntonRaidRewardProvider.GetHatcheryOpenCount());
+		return hatcheryDungeonIds.Where((uint _, int index) => index != omittedIndex).Take(count).ToArray();
 	}
 
 	internal static uint SelectAntonInfectionHatchery(IReadOnlyList<uint> openHatcheries, int selectedIndex)
@@ -661,45 +594,45 @@ public sealed partial class RaidHandler
 
 	private void StartRepeatingHatcherySymbolTimer(RaidSnapshot raid, uint dungeonId, uint timerType, uint initialSeconds, uint repeatSeconds, uint symbolId)
 	{
-		int version = AdvanceTimer(raid.RaidId, timerType, dungeonId);
+		Guid version = AdvanceTimer(raid.RaidId, timerType, dungeonId);
 		RunInBackground(SendTimerAsync(raid, timerType, dungeonId, initialSeconds), "hatchery-symbol-send-timer");
 		RunInBackground(RunRepeatingHatcherySymbolTimerAsync(raid, dungeonId, timerType, initialSeconds, repeatSeconds, symbolId, version), "hatchery-symbol-repeat");
 	}
 
-	private async Task RunRepeatingHatcherySymbolTimerAsync(RaidSnapshot raid, uint dungeonId, uint timerType, uint initialSeconds, uint repeatSeconds, uint symbolId, int version)
+	private async Task RunRepeatingHatcherySymbolTimerAsync(RaidSnapshot raid, uint dungeonId, uint timerType, uint initialSeconds, uint repeatSeconds, uint symbolId, Guid version)
 	{
-		uint delaySeconds = initialSeconds;
+		uint num = initialSeconds;
 		try
 		{
 			while (true)
 			{
-				await Task.Delay(checked((int)delaySeconds * 1000));
+				await Task.Delay(checked((int)num * 1000));
 				if (!TimerCurrent(raid.RaidId, timerType, dungeonId, version) || !TryGetCurrentRaid(raid, out var current) || current.PhaseIndex != 1)
 				{
 					break;
 				}
 				await SetSymbolAsync(current, symbolId, 1u);
 				await SendTimerAsync(current, timerType, dungeonId, repeatSeconds);
-				delaySeconds = repeatSeconds;
+				num = repeatSeconds;
 				current = null;
 			}
 		}
 		catch (Exception ex)
 		{
-			Exception ex2 = ex;
-			FileLogger.Log($"[GameProtocol] RAID_PHASE2_HATCHERY_EFFECT_TIMER failed raid={raid?.RaidId} dungeon={dungeonId} type={timerType} error={ex2.Message}");
+			FileLogger.Log($"[GameProtocol] RAID_PHASE2_HATCHERY_EFFECT_TIMER failed raid={raid?.RaidId} dungeon={dungeonId} type={timerType} error={ex.Message}");
 		}
 	}
 
 	private async Task StartHatcheryRecoveryTimerAsync(RaidSnapshot raid, uint dungeonId)
 	{
-		int version = AdvanceTimer(raid.RaidId, 2u, dungeonId);
+		Guid version = AdvanceTimer(raid.RaidId, 2u, dungeonId);
 		await SendTimerAsync(raid, 2u, dungeonId, 240u);
 		RunInBackground(RunHatcheryRecoveryTimerAsync(raid, dungeonId, version), "hatchery-recovery");
 	}
 
-	private async Task RunHatcheryRecoveryTimerAsync(RaidSnapshot raid, uint dungeonId, int version)
+	private async Task RunHatcheryRecoveryTimerAsync(RaidSnapshot raid, uint dungeonId, Guid version)
 	{
+		_ = 5;
 		try
 		{
 			await Task.Delay(240000);
@@ -714,15 +647,14 @@ public sealed partial class RaidHandler
 				else
 				{
 					await SetSymbolAsync(current, 7u, 1u);
-					await BroadcastRaidNotificationAsync(current, NotiPacketType.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(dungeonId, 0u, infectionDungeonId));
+					await BroadcastRaidNotificationAsync(current, NotiPacketTypeA21.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(dungeonId, 0u, infectionDungeonId));
 				}
 				await StartHatcheryEffectTimersAsync(current, dungeonId);
 			}
 		}
 		catch (Exception ex)
 		{
-			Exception ex2 = ex;
-			FileLogger.Log($"[GameProtocol] RAID_PHASE2_HATCHERY_RECOVERY_TIMER failed raid={raid?.RaidId} dungeon={dungeonId} error={ex2.Message}");
+			FileLogger.Log($"[GameProtocol] RAID_PHASE2_HATCHERY_RECOVERY_TIMER failed raid={raid?.RaidId} dungeon={dungeonId} error={ex.Message}");
 		}
 	}
 
@@ -748,9 +680,9 @@ public sealed partial class RaidHandler
 
 	private async Task CompletePhaseOneAsync(RaidSnapshot raid)
 	{
-		if (_raids.TryEnterPhaseBreak(raid.RaidId, out var waiting))
+		if (_raids.TryEnterPhaseBreak(raid, out var waiting))
 		{
-			CancelTimer(waiting.RaidId, AttackTimerType, AttackTimerDungeonId);
+			CancelTimer(waiting.RaidId, 0u, 0u);
 			CancelAllPhaseOneTimers(raid.RaidId);
 			uint[] antonFirstPhaseDungeonIds = AntonFirstPhaseDungeonIds;
 			for (int i = 0; i < antonFirstPhaseDungeonIds.Length; i++)
@@ -770,5 +702,130 @@ public sealed partial class RaidHandler
 			await SetSymbolAsync(waiting, 105u, 1u);
 			await StartPhaseOneResultMovieAsync(waiting.RaidId);
 		}
+	}
+
+	private async Task CompleteRaidPreparationAsync(RaidSnapshot raid)
+	{
+		ushort userId = raid.LeaderUserId;
+		if (!_sessions.TryGet(checked((int)raid.Leader.CharacterId), out var session) || session.SessionId != raid.Leader.SessionId || !IsRaidSession(session))
+		{
+			if (_raids.TryCancelPreparation(raid, out var raid2))
+			{
+				await BroadcastRaidStateAsync(raid2);
+			}
+			return;
+		}
+		RaidSnapshot notPrepared;
+		if (!_raids.IsPreparationReady(raid, (IReadOnlyList<RaidMember> members) => PreparationPartiesReady?.Invoke(members) ?? false))
+		{
+			if (_raids.TryCancelPreparation(raid, out notPrepared))
+			{
+				await BroadcastRaidStateAsync(notPrepared);
+				await BroadcastRaidNotificationAsync(notPrepared, NotiPacketTypeA21.RAID_ENTRY_COST_INFO, RaidPacketBuilder.BuildEntryCostInfo(BuildEntryCostStatuses(notPrepared)));
+				await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.SERVER_NOTICE_MESSAGE, ServerNoticeMessageBuilder.BuildRaidNotice("攻坚小队组建未完成，请确认队员在线且未加入其他队伍后重试。", 0)));
+			}
+			FileLogger.Log($"[GameProtocol] START_RAID preparation incomplete raid={raid.RaidId} generation={raid.PreparationGeneration}; no materials consumed");
+			return;
+		}
+		List<RaidConsumedEntryCost> consumedCosts = new List<RaidConsumedEntryCost>();
+		if (!_raids.TryCompletePreparation(raid, delegate
+		{
+			Func<IReadOnlyList<RaidMember>, bool> preparationPartiesReady = PreparationPartiesReady;
+			return preparationPartiesReady != null && preparationPartiesReady(raid.Members) && TryConsumeEntryCosts(raid, out consumedCosts);
+		}, out var started))
+		{
+			_raids.TryCancelPreparation(raid, out notPrepared);
+			if (notPrepared != null)
+			{
+				await BroadcastRaidStateAsync(notPrepared);
+				await BroadcastRaidNotificationAsync(notPrepared, NotiPacketTypeA21.RAID_ENTRY_COST_INFO, RaidPacketBuilder.BuildEntryCostInfo(BuildEntryCostStatuses(notPrepared)));
+			}
+			FileLogger.Log($"[GameProtocol] START_RAID material check failed raid={raid.RaidId} leader={userId}");
+			return;
+		}
+		foreach (RaidConsumedEntryCost item in consumedCosts)
+		{
+			await InventoryRefreshSender.SendOnlineUpdateItemList(item.Session, InventoryListType.Main, item.SlotIndex);
+		}
+		await BroadcastRaidObjectAsync(started);
+		await BroadcastRaidMembersAsync(started);
+		await BroadcastRaidStateAsync(started);
+		await BroadcastRaidNotificationAsync(started, NotiPacketTypeA21.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(AntonFirstPhaseInitialDungeonStates));
+		await BroadcastRaidSituationAsync(started);
+		await BroadcastRaidNotificationAsync(started, NotiPacketTypeA21.RAID_SET_SYMBOL, RaidPacketBuilder.BuildSetSymbols(AntonFirstPhaseInitialSymbols));
+		await BroadcastRaidNotificationAsync(started, NotiPacketTypeA21.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, 2400u));
+		await BroadcastRaidNotificationAsync(started, NotiPacketTypeA21.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(0, 2400u));
+		StartAttackTimeoutTimer(started, 2400u);
+		FileLogger.Log($"[GameProtocol] START_RAID_ATTACK raid={started.RaidId} state={started.State} dungeon={210u} seconds={2400u}");
+	}
+
+	private async Task CompletePhaseTwoPreparationAsync(RaidSnapshot prepared, string reason)
+	{
+		checked
+		{
+			RaidSnapshot started;
+			if (!prepared.Members.All((RaidMember raidMember) => _sessions.TryGet((int)raidMember.CharacterId, out var session2) && session2.SessionId == raidMember.SessionId && IsRaidSession(session2)) || !_raids.IsPreparationReady(prepared, (IReadOnlyList<RaidMember> members) => PreparationPartiesReady?.Invoke(members) ?? false))
+			{
+				if (_raids.TryCancelPreparation(prepared, out var cancelled))
+				{
+					await BroadcastRaidStateAsync(cancelled);
+					await BroadcastRaidNotificationAsync(cancelled, NotiPacketTypeA21.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(1, 0u));
+					foreach (RaidMember member in cancelled.Members)
+					{
+						if (_sessions.TryGet((int)member.CharacterId, out var session) && session.SessionId == member.SessionId)
+						{
+							await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.SERVER_NOTICE_MESSAGE, ServerNoticeMessageBuilder.BuildRaidNotice("第二阶段小队准备未完成，请确认队员在线并完成组队后重新开始。", 0)));
+						}
+					}
+				}
+				FileLogger.Log($"[GameProtocol] START_RAID_PHASE2 preparation incomplete raid={prepared.RaidId} generation={prepared.PreparationGeneration}");
+			}
+			else if (!_raids.TryCompletePreparedNextPhase(prepared, (IReadOnlyList<RaidMember> members) => PreparationPartiesReady?.Invoke(members) ?? false, out started))
+			{
+				if (_raids.TryCancelPreparation(prepared, out var raid))
+				{
+					await BroadcastRaidStateAsync(raid);
+				}
+				FileLogger.Log($"[GameProtocol] START_RAID_PHASE2 aborted raid={prepared.RaidId}");
+			}
+			else
+			{
+				await BroadcastRaidObjectAsync(started);
+				await BroadcastRaidStateAsync(started);
+				_blackVolcanoBarrierBroken[started.RaidId] = 0;
+				await SetSymbolsAsync(started, AntonSecondPhaseInitialSymbols);
+				await BroadcastRaidNotificationAsync(started, NotiPacketTypeA21.RAID_DUNGEON_STATE, RaidPacketBuilder.BuildDungeonState(AntonSecondPhaseInitialDungeonStates));
+				await BroadcastRaidSituationAsync(started);
+				await PulseSymbolAsync(started, 127u);
+				await BroadcastRaidNotificationAsync(started, NotiPacketTypeA21.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, 2400u));
+				await BroadcastRaidNotificationAsync(started, NotiPacketTypeA21.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(0, 2400u));
+				StartAttackTimeoutTimer(started, 2400u);
+				await StartHatcheryOpenTimerAsync(started);
+				StartBarrierRecoveryTimer(started);
+				FileLogger.Log($"[GameProtocol] START_RAID_PHASE2_ATTACK raid={started.RaidId} reason={reason} seconds={2400u}");
+			}
+		}
+	}
+
+	private void SchedulePhaseBreakTimer(RaidSnapshot expected, uint seconds)
+	{
+		uint raidId = expected.RaidId;
+		Guid version = AdvanceTimer(raidId, 0u, 1u);
+		ClockService.Instance.ScheduleOneShotAfterAsync($"raid-phase-break:{expected.InstanceId}", TimeSpan.FromSeconds(seconds), async delegate
+		{
+			if (TimerCurrent(raidId, 0u, 1u, version) && _raids.TryPrepareNextPhaseAutomatically(expected, out var raid, (IReadOnlyList<RaidMember> members) => PreparationPartyOrder?.Invoke(members)))
+			{
+				await PrepareAndStartAntonPhaseTwoAsync(raid, "phase-break-timeout");
+			}
+		});
+	}
+
+	internal static byte[] BuildFailedRaidResultPacket(RaidSnapshot raid)
+	{
+		if (raid.State != 4 || raid.StateArgument != 1)
+		{
+			throw new ArgumentException("Raid is not in the failed terminal state.", "raid");
+		}
+		return GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.RAID_RESULT, RaidPacketBuilder.BuildRaidResult(1u, raid.PhaseIndex, raid.PhaseClearTimeSeconds, raid.PhaseDeathCount, 0u, 1));
 	}
 }

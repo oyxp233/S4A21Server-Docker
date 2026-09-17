@@ -11,6 +11,8 @@ using DfoServer.Infrastructure;
 using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 
 namespace DfoServer.Game.Inventory
 {
@@ -807,7 +809,7 @@ namespace DfoServer.Game.Inventory
                                 deleteResult);
 
                             var completedMainlineQuests =
-                                AutoCompleteCurrentLevelMainlineQuests(
+                                AutoCompleteMainlineQuestsThroughLevel(
                                     connection,
                                     transaction,
                                     characterId,
@@ -1094,7 +1096,7 @@ namespace DfoServer.Game.Inventory
             return true;
         }
 
-        private static IReadOnlyList<ushort> AutoCompleteCurrentLevelMainlineQuests(
+        private static IReadOnlyList<ushort> AutoCompleteMainlineQuestsThroughLevel(
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,
@@ -1127,7 +1129,7 @@ namespace DfoServer.Game.Inventory
                     clearedQuestIds,
                     clearedFlags,
                     allowedCreatureKinds);
-                var nextQuestId = ResolveNextCurrentLevelMainlineQuest(
+                var nextQuestId = ResolveNextMainlineQuestThroughLevel(
                     acceptable,
                     active,
                     currentLevel,
@@ -1154,7 +1156,7 @@ namespace DfoServer.Game.Inventory
             return completed;
         }
 
-        private static ushort ResolveNextCurrentLevelMainlineQuest(
+        private static ushort ResolveNextMainlineQuestThroughLevel(
             IReadOnlyList<ushort> acceptableQuestIds,
             IReadOnlyList<ActiveQuest> activeQuestIds,
             int currentLevel,
@@ -1165,7 +1167,7 @@ namespace DfoServer.Game.Inventory
                 foreach (var questId in acceptableQuestIds)
                 {
                     if ((clearedQuestIds == null || !clearedQuestIds.Contains(questId))
-                        && IsCurrentLevelMainlineQuest(questId, currentLevel))
+                        && IsMainlineQuestThroughLevel(questId, currentLevel))
                     {
                         return questId;
                     }
@@ -1179,7 +1181,7 @@ namespace DfoServer.Game.Inventory
                     var questId = active != null ? active.QuestId : (ushort)0;
                     if (questId != 0
                         && (clearedQuestIds == null || !clearedQuestIds.Contains(questId))
-                        && IsCurrentLevelMainlineQuest(questId, currentLevel))
+                        && IsMainlineQuestThroughLevel(questId, currentLevel))
                     {
                         return questId;
                     }
@@ -1189,16 +1191,33 @@ namespace DfoServer.Game.Inventory
             return 0;
         }
 
-        private static bool IsCurrentLevelMainlineQuest(
+        private static bool IsMainlineQuestThroughLevel(
             ushort questId,
             int currentLevel)
         {
-            if (questId == 0 || questId > 29999)
+            if (questId == 0 || questId > 29999
+                || !QuestCatalog.TryGetPath(questId, out var path))
+            {
                 return false;
+            }
+
+            // A region shares its QST minimum level; epic_<level> names identify
+            // the individual story stages. Unnamed stages are left to the player.
+            var nameParts = Path.GetFileNameWithoutExtension(path).Split('_', 3);
+            if (nameParts.Length != 3
+                || !string.Equals(nameParts[0], "epic", StringComparison.OrdinalIgnoreCase)
+                || !int.TryParse(nameParts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var stageLevel)
+                || stageLevel > currentLevel)
+            {
+                return false;
+            }
 
             var quest = QuestCatalog.Get(questId);
-            if (quest == null || quest.IsEvent)
+            if (quest == null || quest.IsEvent
+                || (int.TryParse(quest.ExposedByNpc, out var exposed) && exposed == 0))
+            {
                 return false;
+            }
 
             if (!string.Equals(
                     QuestData.NormalizeQuestTag(quest.Grade),
@@ -1211,7 +1230,7 @@ namespace DfoServer.Game.Inventory
             var minimumLevel = quest.Level != null && quest.Level.Length > 0
                 ? quest.Level[0]
                 : 1;
-            return minimumLevel == currentLevel;
+            return minimumLevel <= currentLevel;
         }
 
         private static void RestoreConsumedSource(

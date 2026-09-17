@@ -339,9 +339,11 @@ namespace DfoServer.SelfTests
             });
 
             Check(
-                "EVENT_INFO body starts with count and joust event id",
-                BitConverter.ToUInt16(body, 0) == 1
+                "EVENT_INFO preserves joust first and adds the raid channel event",
+                BitConverter.ToUInt16(body, 0) == 2
                 && BitConverter.ToUInt16(body, 2) == JoustConfig.EventId
+                && BitConverter.ToUInt16(body, body.Length - 16)
+                    == EventInfoBodyBuilder.RaidChannelEventId
                 && body[body.Length - 1] == 0,
                 ref failures);
         }

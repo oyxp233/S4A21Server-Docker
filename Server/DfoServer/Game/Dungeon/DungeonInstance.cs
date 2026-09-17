@@ -945,6 +945,20 @@ namespace DfoServer.Game.Dungeon
         internal DungeonInstance(
             short dungeonId,
             byte difficulty,
+            GameWorld.SequentialDungeonDefinitionCatalog sequentialCatalog)
+            : this(
+                dungeonId,
+                difficulty,
+                DungeonRewardPolicy.Standard,
+                DungeonDropDefinition.CreateStandard(dungeonId),
+                GameWorld.DungeonExperienceDefinitionCatalog.Resolve(dungeonId),
+                sequentialCatalog)
+        {
+        }
+
+        internal DungeonInstance(
+            short dungeonId,
+            byte difficulty,
             DungeonRewardPolicy rewardPolicy,
             DungeonDropDefinition dropDefinition)
             : this(
@@ -961,7 +975,8 @@ namespace DfoServer.Game.Dungeon
             byte difficulty,
             DungeonRewardPolicy rewardPolicy,
             DungeonDropDefinition dropDefinition,
-            GameWorld.DungeonExperienceDefinition experienceDefinition)
+            GameWorld.DungeonExperienceDefinition experienceDefinition,
+            GameWorld.SequentialDungeonDefinitionCatalog sequentialCatalog = null)
         {
             PartyDungeonInstanceId = DungeonIdentityGenerator.NextInstanceId();
             DungeonId = dungeonId;
@@ -971,6 +986,13 @@ namespace DfoServer.Game.Dungeon
                 ?? throw new ArgumentNullException(nameof(dropDefinition));
             ExperienceDefinition = experienceDefinition
                 ?? throw new ArgumentNullException(nameof(experienceDefinition));
+            var definitionCatalog = sequentialCatalog
+                ?? GameWorld.SequentialDungeonDefinitionCatalog.Current;
+            SequentialDefinitionResolution = definitionCatalog
+                .ResolvePrimaryByDungeonId(
+                    dungeonId,
+                    out var sequentialDefinition);
+            SequentialDefinition = sequentialDefinition;
             CreatedUtc = DateTime.UtcNow;
         }
 
@@ -985,11 +1007,22 @@ namespace DfoServer.Game.Dungeon
         {
             get;
         }
+        internal GameWorld.SequentialDungeonDefinition SequentialDefinition
+        {
+            get;
+        }
+        internal GameWorld.SequentialDungeonCapabilityResolution
+            SequentialDefinitionResolution
+        {
+            get;
+        }
         public DateTime CreatedUtc { get; }
         public DungeonEffectLedger Effects { get; } = new DungeonEffectLedger();
         internal SemaphoreSlim ParticipantLifeGate { get; } =
             new SemaphoreSlim(1, 1);
         internal SemaphoreSlim CardRewardProjectionGate { get; } =
+            new SemaphoreSlim(1, 1);
+        internal SemaphoreSlim CardRewardSendGate { get; } =
             new SemaphoreSlim(1, 1);
         internal SemaphoreSlim SettlementTransitionGate { get; } =
             new SemaphoreSlim(1, 1);

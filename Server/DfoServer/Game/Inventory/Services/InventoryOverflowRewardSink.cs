@@ -50,15 +50,21 @@ namespace DfoServer.Game.Inventory
         private readonly SqliteConnection _connection;
         private readonly SqliteTransaction _transaction;
         private readonly IInventoryOverflowRewardSink _inner;
+        private readonly string _title;
+        private readonly string _text;
 
         internal TransactionBoundInventoryOverflowRewardSink(
             SqliteConnection connection,
             SqliteTransaction transaction,
-            IInventoryOverflowRewardSink inner)
+            IInventoryOverflowRewardSink inner,
+            string title = null,
+            string text = null)
         {
             _connection = connection;
             _transaction = transaction;
             _inner = inner ?? RejectingInventoryOverflowRewardSink.Instance;
+            _title = title;
+            _text = text;
         }
 
         internal bool MailboxDeliveryFailed { get; private set; }
@@ -75,8 +81,8 @@ namespace DfoServer.Game.Inventory
                     _transaction,
                     inventory,
                     rewards,
-                    null,
-                    null,
+                    _title,
+                    _text,
                     out result);
                 MailboxDeliveryFailed = !delivered;
                 return delivered;

@@ -196,13 +196,6 @@ namespace DfoServer.Network.Handlers
             }
 
             var last = results[results.Count - 1];
-            foreach (var item in successItems)
-            {
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                    0x01,
-                    0x0040,
-                    CeraShopPurchaseAckBuilder.BuildSuccess(item.Item1, item.Item2)));
-            }
 
             var refreshSlots = new Dictionary<InventoryListType, HashSet<short>>();
             var refreshAccountCargo = false;
@@ -240,12 +233,16 @@ namespace DfoServer.Network.Handlers
                 }
             }
 
+            // 客户端在收到 0x40 购买成功回包时会按"当前金库容量"推导商城里的金库升级工具档位；
+            // 因此容量刷新(0x0198/0x0132 + ITEM_LIST)必须排在成功回包之前, 否则商城窗口内的
+            // 道具档位与价格不会就地更新(要退出商城重进才会变)。
             if (refreshAccountCargo)
             {
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0132,
                     CommonPacketBodyBuilder.BuildSuccessAck()));
                 await SendItemListRefresh(session, cid, aid, InventoryListType.AccountCargo);
-                FileLogger.Log($"[{ProtocolName}] CERA_SHOP_BUY: account cargo upgrade ACK and ITEM_LIST refresh sent");
+                refreshAccountCargo = false;
+                FileLogger.Log($"[{ProtocolName}] CERA_SHOP_BUY: account cargo upgrade ACK and ITEM_LIST refresh sent (before success ack)");
             }
 
             if (refreshPersonalCargo)
@@ -253,7 +250,16 @@ namespace DfoServer.Network.Handlers
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0198,
                     CommonPacketBodyBuilder.BuildSuccessAck()));
                 await SendItemListRefresh(session, cid, aid, InventoryListType.PersonalCargo);
-                FileLogger.Log($"[{ProtocolName}] CERA_SHOP_BUY: personal cargo upgrade ACK and ITEM_LIST refresh sent");
+                refreshPersonalCargo = false;
+                FileLogger.Log($"[{ProtocolName}] CERA_SHOP_BUY: personal cargo upgrade ACK and ITEM_LIST refresh sent (before success ack)");
+            }
+
+            foreach (var item in successItems)
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    0x0040,
+                    CeraShopPurchaseAckBuilder.BuildSuccess(item.Item1, item.Item2)));
             }
 
             await SendQueuedItemListUpdates(session, refreshSlots);
@@ -322,9 +328,17 @@ namespace DfoServer.Network.Handlers
 
         private static byte ResolvePurchaseErrorCode(CeraShopPurchaseFailure failure)
         {
-            return failure == CeraShopPurchaseFailure.InsufficientCera
-                ? CeraShopPurchaseAckBuilder.ErrorCodeInsufficientCera
-                : CeraShopPurchaseAckBuilder.ErrorCodeInventoryFull;
+            switch (failure)
+            {
+                case CeraShopPurchaseFailure.InsufficientCera:
+                    return CeraShopPurchaseAckBuilder.ErrorCodeInsufficientCera;
+                case CeraShopPurchaseFailure.NoEffect:
+                    // 非"空间不足", 而是"该扩容档次已达成/当前无法购买"。
+                    // 113 实测文案为"限制购买的物品"(客户端提示表见 CeraShopPurchaseAckBuilder 注释)。
+                    return CeraShopPurchaseAckBuilder.ErrorCodeCannotBuy;
+                default:
+                    return CeraShopPurchaseAckBuilder.ErrorCodeInventoryFull;
+            }
         }
 
         private async Task SendQueuedItemListUpdates(

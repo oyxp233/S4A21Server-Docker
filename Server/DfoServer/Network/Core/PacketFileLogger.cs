@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace DfoServer.Network
 {
@@ -9,6 +12,7 @@ namespace DfoServer.Network
         private static readonly object _lock = new object();
         private static string _logPath;
         private static bool _enabled = false;
+        private static int _bestEffortBatchActive;
 
         public static void Initialize()
         {
@@ -60,6 +64,61 @@ namespace DfoServer.Network
             lock (_lock)
             {
                 File.AppendAllText(_logPath, sb.ToString(), Encoding.UTF8);
+            }
+        }
+
+        internal static void LogBatchBestEffort(
+            string direction,
+            IReadOnlyList<byte[]> packets)
+        {
+            if (!_enabled || packets == null || packets.Count == 0)
+                return;
+            if (Interlocked.CompareExchange(
+                    ref _bestEffortBatchActive,
+                    1,
+                    0) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var snapshot = new byte[packets.Count][];
+                for (var index = 0; index < packets.Count; index++)
+                {
+                    var packet = packets[index];
+                    if (packet == null || packet.Length == 0)
+                    {
+                        Interlocked.Exchange(
+                            ref _bestEffortBatchActive,
+                            0);
+                        return;
+                    }
+                    snapshot[index] = (byte[])packet.Clone();
+                }
+
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        foreach (var packet in snapshot)
+                            Log(direction, packet);
+                    }
+                    catch
+                    {
+                        // Packet capture must never affect the live transport.
+                    }
+                    finally
+                    {
+                        Interlocked.Exchange(
+                            ref _bestEffortBatchActive,
+                            0);
+                    }
+                });
+            }
+            catch
+            {
+                Interlocked.Exchange(ref _bestEffortBatchActive, 0);
             }
         }
     }

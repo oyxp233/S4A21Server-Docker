@@ -20,8 +20,10 @@ namespace DfoServer.Infrastructure
             GuildCreationHandler guildCreation,
             GuildMemberHandler guildMembers,
             GuildJoinHandler guildJoin,
-            GuildManagementHandler guildManagement)
+            GuildManagementHandler guildManagement,
+            ItemTradeHandler trade)
         {
+            Trade = trade ?? throw new ArgumentNullException(nameof(trade));
             GuildJoin = guildJoin ?? throw new ArgumentNullException(nameof(guildJoin));
             GuildManagement = guildManagement ?? throw new ArgumentNullException(nameof(guildManagement));
             GuildMembers = guildMembers ?? throw new ArgumentNullException(nameof(guildMembers));
@@ -40,6 +42,7 @@ namespace DfoServer.Infrastructure
         }
 
         internal GuildCreationHandler GuildCreation { get; }
+        internal ItemTradeHandler Trade { get; }
         internal GuildMemberHandler GuildMembers { get; }
         internal GuildJoinHandler GuildJoin { get; }
         internal GuildManagementHandler GuildManagement { get; }
@@ -64,6 +67,7 @@ namespace DfoServer.Infrastructure
                 return;
 
             _disposed = true;
+            Trade.Dispose();
             Chat.Dispose();
             PvpRoom.Dispose();
             Party.Dispose();

@@ -691,7 +691,9 @@ namespace PvfLib
                     Group = 0,
                     ItemId = ints[i],
                     Weight = Math.Max(0, ints[i + 1]),
-                    Count = Math.Max(1, ints[i + 2]),
+                    // Keep the PVF value intact so business resolvers can
+                    // reject malformed non-positive reward quantities.
+                    Count = ints[i + 2],
                 });
             }
 

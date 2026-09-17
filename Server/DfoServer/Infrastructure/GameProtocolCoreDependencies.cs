@@ -20,6 +20,7 @@ namespace DfoServer.Infrastructure
             SqliteCharacterRepository characterRepository,
             IRentalTimeProvider rentalTimeProvider,
             DailyResetService dailyResetService,
+            AntonAwakeningDailyProgressService antonAwakeningProgress,
             DungeonPersistentEffectApplicationService dungeonPersistentEffects,
             ExperienceItemUseService experienceItemUseService,
             SqliteSelectCharacterDataSource selectCharacterDataSource,
@@ -31,6 +32,8 @@ namespace DfoServer.Infrastructure
             CharacterRepository = characterRepository ?? throw new ArgumentNullException(nameof(characterRepository));
             RentalTimeProvider = rentalTimeProvider ?? throw new ArgumentNullException(nameof(rentalTimeProvider));
             DailyResetService = dailyResetService ?? throw new ArgumentNullException(nameof(dailyResetService));
+            AntonAwakeningProgress = antonAwakeningProgress
+                ?? throw new ArgumentNullException(nameof(antonAwakeningProgress));
             DungeonPersistentEffects = dungeonPersistentEffects ?? throw new ArgumentNullException(nameof(dungeonPersistentEffects));
             ExperienceItemUseService = experienceItemUseService ?? throw new ArgumentNullException(nameof(experienceItemUseService));
             SelectCharacterDataSource = selectCharacterDataSource ?? throw new ArgumentNullException(nameof(selectCharacterDataSource));
@@ -47,6 +50,8 @@ namespace DfoServer.Infrastructure
         internal IRentalTimeProvider RentalTimeProvider { get; }
 
         internal DailyResetService DailyResetService { get; }
+
+        internal AntonAwakeningDailyProgressService AntonAwakeningProgress { get; }
 
         internal DungeonPersistentEffectApplicationService DungeonPersistentEffects { get; }
 

@@ -9,6 +9,12 @@ namespace DfoServer.Game.Dungeon
         public static readonly RunTimerKey SettlementCardAutoFlow =
             new RunTimerKey("settlement", "card-auto-flow");
 
+        public static readonly RunTimerKey AntonAwakeningPostRevealGrant =
+            new RunTimerKey("anton-awakening", "post-reveal-grant");
+
+        public static readonly RunTimerKey AntonAwakeningNormalCardDeadline =
+            new RunTimerKey("anton-awakening", "normal-card-deadline");
+
         public static readonly RunTimerKey CombatDeathRespawn =
             new RunTimerKey("combat", "death-respawn");
 

@@ -17,11 +17,14 @@ namespace DfoServer
         private static readonly (string Arg, Func<int> Run)[] SelfTestRegistry =
         {
             ("--selftest-a21-startup-protocol", SelfTests.A21StartupProtocolSelfTest.Run),
+            ("--selftest-a21-raid-protocol", SelfTests.A21RaidProtocolSelfTest.Run),
+            ("--selftest-raid-persistence", SelfTests.RaidPersistenceSelfTest.Run),
             ("--selftest-packet-framing-bounds", SelfTests.PacketFramingBoundsSelfTest.Run),
             ("--selftest-a21-channel-protocol", SelfTests.A21ChannelProtocolSelfTest.Run),
             ("--selftest-a21-user-channel", SelfTests.A21UserChannelSelfTest.Run),
             ("--selftest-a21-create-character-protocol", SelfTests.A21CreateCharacterProtocolSelfTest.Run),
             ("--selftest-a21-party-protocol", SelfTests.A21PartyProtocolSelfTest.Run),
+            ("--selftest-item-trade", SelfTests.ItemTradeSelfTest.Run),
             ("--selftest-a21-solo-teleport-protocol", SelfTests.A21SoloTeleportProtocolSelfTest.Run),
             ("--selftest-a21-knight-shield-deck", SelfTests.A21KnightShieldDeckSelfTest.Run),
             ("--selftest-a21-tutorial-protocol", SelfTests.A21TutorialProtocolSelfTest.Run),
@@ -56,6 +59,7 @@ namespace DfoServer
             ("--selftest-fixed-daily-ticket", SelfTests.FixedDailyTicketSelfTest.Run),
             ("--selftest-stacked-orb-conversion", SelfTests.StackedOrbConversionSelfTest.Run),
             ("--selftest-quest-completion-ticket", SelfTests.QuestCompletionTicketSelfTest.Run),
+            ("--selftest-level-up-ticket", SelfTests.LevelUpTicketSelfTest.Run),
             ("--selftest-growup-change", SelfTests.GrowupChangeSelfTest.Run),
             ("--selftest-cargo-transport-stone", SelfTests.CargoTransportStoneSelfTest.Run),
             ("--selftest-dye-item", SelfTests.DyeItemSelfTest.Run),
@@ -68,8 +72,14 @@ namespace DfoServer
             ("--selftest-a21-blacklist", SelfTests.A21BlacklistSelfTest.Run),
             ("--selftest-a21-guild-creation", SelfTests.A21GuildCreationSelfTest.Run),
             ("--selftest-pvf-map-monster-parsing", SelfTests.PvfMapMonsterParsingSelfTest.Run),
+            ("--selftest-sequential-dungeon-definition", SelfTests.SequentialDungeonDefinitionCatalogSelfTest.Run),
+            ("--selftest-sequential-dungeon-daily-loot", SelfTests.SequentialDungeonDailyLootSelfTest.Run),
             ("--selftest-sequential-dungeon-info-protocol", SelfTests.SequentialDungeonInfoProtocolSelfTest.Run),
             ("--selftest-licensed-dungeon", SelfTests.LicensedDungeonSelfTest.Run),
+            ("--selftest-anton-awakening-daily-reset", SelfTests.AntonAwakeningDailyResetSelfTest.Run),
+            ("--selftest-anton-awakening-daily-progress", SelfTests.AntonAwakeningDailyProgressSelfTest.Run),
+            ("--selftest-anton-awakening-reward-packet", SelfTests.AntonAwakeningRewardPacketBuilderSelfTest.Run),
+            ("--selftest-anton-awakening-auto-reward", SelfTests.AntonAwakeningAutoRewardSelfTest.Run),
             ("--selftest-experience-item-definition", SelfTests.ExperienceItemDefinitionSelfTest.Run),
         };
 

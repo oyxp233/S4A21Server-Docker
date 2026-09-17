@@ -26,21 +26,42 @@ namespace DfoServer.Network.Handlers.Dungeon
 
     internal sealed class CardRewardCoordinator
     {
+        private sealed class CardProjectionSnapshot
+        {
+            internal CardProjectionSnapshot(
+                IReadOnlyList<DungeonParticipantRosterEntry> roster,
+                CardRewardPartyProjection projection)
+            {
+                Roster = roster;
+                Projection = projection;
+            }
+
+            internal IReadOnlyList<DungeonParticipantRosterEntry> Roster
+            {
+                get;
+            }
+
+            internal CardRewardPartyProjection Projection { get; }
+        }
+
         private readonly CardRewardService _application;
         private readonly ICardRewardNotificationSender _sender;
         private readonly ISessionDirectory _sessions;
         private readonly IGameDatabase _database;
+        private readonly AntonAwakeningRewardCoordinator _antonRewards;
 
         internal CardRewardCoordinator(
             CardRewardService application = null,
             ICardRewardNotificationSender sender = null,
             ISessionDirectory sessions = null,
-            IGameDatabase database = null)
+            IGameDatabase database = null,
+            AntonAwakeningRewardCoordinator antonRewards = null)
         {
             _application = application ?? new CardRewardService();
             _sender = sender ?? new CardRewardNotificationSender();
             _sessions = sessions;
             _database = database;
+            _antonRewards = antonRewards;
         }
 
         internal void ScheduleAutoFlow(
@@ -57,6 +78,10 @@ namespace DfoServer.Network.Handlers.Dungeon
                 run.Settlement.CardAutoFlipDelayMs = autoFlipDelayMs;
             var identity = run.CaptureIdentity();
             var deadlineUtc = DateTime.UtcNow.AddMilliseconds(layoutDelayMs);
+            _antonRewards?.ScheduleNormalPhaseDeadline(
+                session,
+                run,
+                deadlineUtc.AddMilliseconds(autoFlipDelayMs));
             var ticket = run.Timers.Begin(
                 DungeonRunTimerKeys.SettlementCardAutoFlow,
                 deadlineUtc,
@@ -100,6 +125,8 @@ namespace DfoServer.Network.Handlers.Dungeon
             var run = session?.Player?.CurrentRun;
             if (run == null)
                 return false;
+            var normalDeadlineRecovered =
+                _antonRewards?.RecoverNormalPhaseDeadline(session) == true;
 
             var settlementState = run.SettlementState;
             if (run.CardRewards == null
@@ -112,7 +139,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             {
                 run.Timers.Cancel(
                     DungeonRunTimerKeys.SettlementCardAutoFlow);
-                return false;
+                return normalDeadlineRecovered;
             }
 
             if (!run.Timers.TryResume(
@@ -120,7 +147,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     out var ticket,
                     out var deadlineUtc))
             {
-                return false;
+                return normalDeadlineRecovered;
             }
 
             var identity = run.CaptureIdentity();
@@ -153,7 +180,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
 
             run.Timers.Cancel(DungeonRunTimerKeys.SettlementCardAutoFlow);
-            return false;
+            return normalDeadlineRecovered;
         }
 
         internal async Task HandleSelectCard(
@@ -168,29 +195,32 @@ namespace DfoServer.Network.Handlers.Dungeon
                 == DungeonSettlementState.ResultShown;
             var cardType = body[0];
             var cardIndex = body[1];
+            var shouldTryAntonProjection = false;
+            AntonPaidSelectionReservation paidSelection = default;
+            var rejectPaidSelection = false;
+
+            if (requestedLayout)
+            {
+                await TryRevealCardsAsync(
+                    session,
+                    run,
+                    runIdentity,
+                    autoFlipDelayMs: 4000,
+                    canReveal: null,
+                    cancelExistingAutoFlow: true,
+                    source: "Manual");
+                return;
+            }
+
+            var side = cardType == 0
+                ? CardRewardSide.Free
+                : CardRewardSide.Paid;
 
             await run.Settlement.CardProjectionGate.WaitAsync();
             try
             {
                 if (!session.Player.IsCurrentDungeonRun(runIdentity))
                     return;
-
-                if (requestedLayout)
-                {
-                    if (run.SettlementState
-                        != DungeonSettlementState.ResultShown)
-                        return;
-                    DungeonRunLifecycle.CancelAutoFlip(session);
-                    await SendPartyLayoutAsync(session, run);
-                    if (!session.Player.IsCurrentDungeonRun(runIdentity)
-                        || !run.TryMarkCardsRevealed())
-                    {
-                        return;
-                    }
-                    StartDelayedAutoFlip(session, 4000);
-                    return;
-                }
-
                 if (run.SettlementState
                         != DungeonSettlementState.CardsRevealed
                     || cardType > 1
@@ -199,6 +229,30 @@ namespace DfoServer.Network.Handlers.Dungeon
                     return;
                 }
                 if (cardType == 1
+                    && _antonRewards != null
+                    && (!_antonRewards.IsPaidSelectionOpen(session, run)
+                        || !_antonRewards.TryBeginPaidSelection(
+                            session,
+                            run,
+                            out paidSelection)))
+                {
+                    rejectPaidSelection = true;
+                }
+            }
+            finally
+            {
+                run.Settlement.CardProjectionGate.Release();
+            }
+
+            if (rejectPaidSelection)
+            {
+                await SendPartyCardInfoAsync(session, run);
+                return;
+            }
+
+            try
+            {
+                if (side == CardRewardSide.Paid
                     && (!TryGetOwnedInventory(session, out var paymentLease)
                         || !_application.CanPayPaidCard(paymentLease, run)))
                 {
@@ -206,23 +260,20 @@ namespace DfoServer.Network.Handlers.Dungeon
                     return;
                 }
 
-                var side = cardType == 0
-                    ? CardRewardSide.Free
-                    : CardRewardSide.Paid;
+                byte selectedCardIndex;
                 try
                 {
-                    var selectedCardIndex =
+                    selectedCardIndex =
                         await TrySelectAvailableCardAndProjectAsync(
                             session,
                             run,
                             side,
-                            requestedCardIndex: cardIndex);
+                            requestedCardIndex: cardIndex,
+                            canSelect: null);
                     if (selectedCardIndex == 0xFF)
-                    {
                         return;
-                    }
                     if (side == CardRewardSide.Free)
-                        DungeonRunLifecycle.CancelAutoFlip(session);
+                        DungeonRunLifecycle.CancelAutoFlip(run);
                 }
                 catch (Exception ex)
                 {
@@ -242,14 +293,39 @@ namespace DfoServer.Network.Handlers.Dungeon
                     await ClearSelectedCardAsync(
                         run,
                         side,
-                        cardIndex);
+                        selectedCardIndex);
                     return;
                 }
-                await DeliverCardRewards(session, run, side);
+                shouldTryAntonProjection =
+                    await DeliverCardRewards(session, run, side);
             }
             finally
             {
-                run.Settlement.CardProjectionGate.Release();
+                if (paidSelection.IsValid)
+                {
+                    _antonRewards.CancelPaidSelection(paidSelection);
+                    try
+                    {
+                        await _antonRewards.TryProjectReadyPartyAsync(
+                            session,
+                            run);
+                    }
+                    catch (Exception ex)
+                    {
+                        FileLogger.Log(
+                            $"[CardRewardCoordinator] Anton projection failed " +
+                            $"after paid selection release: " +
+                            $"cid={session.Player.CharacterId} " +
+                            $"error={ex.Message}");
+                    }
+                }
+            }
+
+            if (shouldTryAntonProjection
+                && _antonRewards != null
+                && !paidSelection.IsValid)
+            {
+                await _antonRewards.TryProjectReadyPartyAsync(session, run);
             }
         }
 
@@ -262,28 +338,14 @@ namespace DfoServer.Network.Handlers.Dungeon
                     != DungeonSettlementState.ResultShown)
                 return;
             var identity = run.CaptureIdentity();
-            await run.Settlement.CardProjectionGate.WaitAsync();
-            try
-            {
-                if (!session.Player.IsCurrentDungeonRun(identity)
-                    || run.SettlementState
-                        != DungeonSettlementState.ResultShown)
-                {
-                    return;
-                }
-                DungeonRunLifecycle.CancelAutoFlip(session);
-                await SendPartyLayoutAsync(session, run);
-                if (!session.Player.IsCurrentDungeonRun(identity)
-                    || !run.TryMarkCardsRevealed())
-                {
-                    return;
-                }
-                StartDelayedAutoFlip(session, 4000);
-            }
-            finally
-            {
-                run.Settlement.CardProjectionGate.Release();
-            }
+            await TryRevealCardsAsync(
+                session,
+                run,
+                identity,
+                autoFlipDelayMs: 4000,
+                canReveal: null,
+                cancelExistingAutoFlow: true,
+                source: "Manual-start");
         }
 
         internal async Task<CardRewardEplpDecision> PrepareEplpCommand(
@@ -302,26 +364,29 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return new CardRewardEplpDecision(state, option);
             }
 
+            if (run.SettlementState == DungeonSettlementState.ResultShown
+                && run.CardRewards != null)
+            {
+                var revealed = await TryRevealCardsAsync(
+                    session,
+                    run,
+                    identity,
+                    autoFlipDelayMs: 4000,
+                    canReveal: null,
+                    cancelExistingAutoFlow: true,
+                    source: "EPLP");
+                if (revealed
+                    || !session.Player.IsCurrentDungeonRun(identity))
+                {
+                    return default;
+                }
+            }
+
             await run.Settlement.CardProjectionGate.WaitAsync();
             try
             {
                 if (!session.Player.IsCurrentDungeonRun(identity))
                     return default;
-                if (run.SettlementState
-                        == DungeonSettlementState.ResultShown
-                    && run.CardRewards != null)
-                {
-                    DungeonRunLifecycle.CancelAutoFlip(session);
-                    await SendPartyLayoutAsync(session, run);
-                    if (!session.Player.IsCurrentDungeonRun(identity)
-                        || !run.TryMarkCardsRevealed())
-                    {
-                        return default;
-                    }
-                    StartDelayedAutoFlip(session, 4000);
-                    return default;
-                }
-
                 DungeonRunLifecycle.CancelAutoFlip(session);
                 return new CardRewardEplpDecision(state, option);
             }
@@ -331,14 +396,15 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
         }
 
-        private async Task AutoFlipFreeCard(
+        private async Task<bool> AutoFlipFreeCard(
             EnhancedClientSession session,
-            DungeonRun run)
+            DungeonRun run,
+            Func<bool> canSelect)
         {
             var identity = run?.CaptureIdentity() ?? default;
             if (!session.Player.IsCurrentDungeonRun(identity))
             {
-                return;
+                return false;
             }
             byte autoCardIndex;
             try
@@ -347,7 +413,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     session,
                     run,
                     CardRewardSide.Free,
-                    requestedCardIndex: null);
+                    requestedCardIndex: null,
+                    canSelect: canSelect);
             }
             catch (Exception ex)
             {
@@ -356,22 +423,28 @@ namespace DfoServer.Network.Handlers.Dungeon
                 FileLogger.Log(
                     $"[CardRewardCoordinator] auto card-info projection failed: " +
                     $"cid={session.Player.CharacterId} error={ex.Message}");
-                return;
+                return false;
             }
             if (autoCardIndex == 0xFF)
-                return;
+                return false;
             if (session.Player.IsCurrentDungeonRun(identity))
-                await DeliverCardRewards(session, run, CardRewardSide.Free);
+            {
+                return await DeliverCardRewards(
+                    session,
+                    run,
+                    CardRewardSide.Free);
+            }
             else
             {
                 await ClearSelectedCardAsync(
                     run,
                     CardRewardSide.Free,
                     autoCardIndex);
+                return false;
             }
         }
 
-        private async Task DeliverCardRewards(
+        private async Task<bool> DeliverCardRewards(
             EnhancedClientSession session,
             DungeonRun run,
             CardRewardSide side)
@@ -387,7 +460,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 FileLogger.Log(
                     $"[CardRewardCoordinator] online inventory missing " +
                     $"cid={session.Player.CharacterId} side={side}");
-                return;
+                return false;
             }
             var result = _application.Deliver(
                 session.Player.CharacterId,
@@ -418,6 +491,28 @@ namespace DfoServer.Network.Handlers.Dungeon
                         $"after commit: cid={session.Player.CharacterId} " +
                         $"side={side} error={ex.Message}");
                 }
+
+                if (_antonRewards != null
+                    && session.Player.IsCurrentDungeonRun(identity))
+                {
+                    try
+                    {
+                        await _antonRewards.OnCardCommittedAsync(
+                            session,
+                            run,
+                            side);
+                    }
+                    catch (Exception ex)
+                    {
+                        FileLogger.Log(
+                            $"[CardRewardCoordinator] Anton projection failed " +
+                            $"after card commit: " +
+                            $"cid={session.Player.CharacterId} " +
+                            $"side={side} " +
+                            $"error={ex.Message}");
+                    }
+                }
+                return true;
             }
             else if (!result.Committed
                 && session.Player.IsCurrentDungeonRun(identity))
@@ -429,6 +524,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     side);
                 await SendPartyCardInfoAsync(session, run);
             }
+            return false;
         }
 
         private async Task RestoreDeliveryAfterFailureAsync(
@@ -493,37 +589,68 @@ namespace DfoServer.Network.Handlers.Dungeon
             run.Timers.Attach(ticket, handle);
         }
 
-        private async Task OnLayoutTimerElapsedAsync(
+        private async Task<bool> TryRevealCardsAsync(
             EnhancedClientSession session,
             DungeonRun run,
             DungeonRunIdentity identity,
-            RunTimerTicket ticket,
             int autoFlipDelayMs,
+            Func<bool> canReveal,
+            bool cancelExistingAutoFlow,
             string source)
         {
-            await run.Settlement.CardProjectionGate.WaitAsync();
+            if (session?.Player == null || run?.Instance == null)
+                return false;
+
+            await run.Instance.CardRewardSendGate.WaitAsync();
             try
             {
-                if (!IsAutoFlipTimerCurrent(session, run, identity, ticket))
+                await run.Settlement.CardProjectionGate.WaitAsync();
+                try
                 {
-                    return;
+                    if (!session.Player.IsCurrentDungeonRun(identity)
+                        || run.SettlementState
+                            != DungeonSettlementState.ResultShown
+                        || run.CardRewards == null
+                        || (canReveal != null && !canReveal()))
+                    {
+                        return false;
+                    }
                 }
-                if (run.SettlementState
-                    != DungeonSettlementState.ResultShown)
+                finally
                 {
-                    run.Timers.TryComplete(ticket);
-                    return;
+                    run.Settlement.CardProjectionGate.Release();
                 }
-                FileLogger.Log(
-                    $"[CardRewardCoordinator] {source} auto-layout timer fired");
-                await SendPartyLayoutAsync(session, run);
-                if (!IsAutoFlipTimerCurrent(session, run, identity, ticket)
-                    || !run.TryMarkCardsRevealed())
+
+                var snapshot = await CapturePartyProjectionAsync(run);
+                await _sender.SendLayoutAsync(session, snapshot.Projection);
+
+                if (cancelExistingAutoFlow)
+                    DungeonRunLifecycle.CancelAutoFlip(run);
+
+                await run.Settlement.CardProjectionGate.WaitAsync();
+                try
                 {
-                    return;
+                    if (!session.Player.IsCurrentDungeonRun(identity)
+                        || run.SettlementState
+                            != DungeonSettlementState.ResultShown
+                        || !run.TryMarkCardsRevealed())
+                    {
+                        return false;
+                    }
                 }
-                var deadlineUtc = DateTime.UtcNow.AddMilliseconds(
-                    Math.Max(0, autoFlipDelayMs));
+                finally
+                {
+                    run.Settlement.CardProjectionGate.Release();
+                }
+
+                var deadlineUtc = run.Timers.TryGetSnapshot(
+                        DungeonRunTimerKeys
+                            .AntonAwakeningNormalCardDeadline,
+                        out var normalDeadline)
+                    && normalDeadline.HasDeadline
+                        ? normalDeadline.DeadlineUtc
+                        : DateTime.UtcNow.AddMilliseconds(
+                            Math.Max(0, autoFlipDelayMs));
                 var nextTicket = run.Timers.Begin(
                     DungeonRunTimerKeys.SettlementCardAutoFlow,
                     deadlineUtc,
@@ -534,11 +661,45 @@ namespace DfoServer.Network.Handlers.Dungeon
                     identity,
                     deadlineUtc,
                     nextTicket,
-                    "Auto-flow");
+                    source);
+                return true;
             }
             finally
             {
-                run.Settlement.CardProjectionGate.Release();
+                run.Instance.CardRewardSendGate.Release();
+            }
+        }
+
+        private async Task OnLayoutTimerElapsedAsync(
+            EnhancedClientSession session,
+            DungeonRun run,
+            DungeonRunIdentity identity,
+            RunTimerTicket ticket,
+            int autoFlipDelayMs,
+            string source)
+        {
+            try
+            {
+                if (!IsAutoFlipTimerCurrent(session, run, identity, ticket))
+                    return;
+                FileLogger.Log(
+                    $"[CardRewardCoordinator] {source} auto-layout timer fired");
+                await TryRevealCardsAsync(
+                    session,
+                    run,
+                    identity,
+                    autoFlipDelayMs,
+                    canReveal: () => IsAutoFlipTimerCurrent(
+                        session,
+                        run,
+                        identity,
+                        ticket),
+                    cancelExistingAutoFlow: false,
+                    source: "Auto-flow");
+            }
+            finally
+            {
+                run.Timers.TryComplete(ticket);
             }
         }
 
@@ -549,28 +710,30 @@ namespace DfoServer.Network.Handlers.Dungeon
             RunTimerTicket ticket,
             string source)
         {
-            await run.Settlement.CardProjectionGate.WaitAsync();
+            var shouldTryAntonProjection = false;
             try
             {
                 if (!IsAutoFlipTimerCurrent(session, run, identity, ticket))
-                {
                     return;
-                }
-                if (run.SettlementState
-                    != DungeonSettlementState.CardsRevealed)
-                {
-                    run.Timers.TryComplete(ticket);
-                    return;
-                }
                 FileLogger.Log(
                     $"[CardRewardCoordinator] {source} auto-flip timer fired");
-                await AutoFlipFreeCard(session, run);
+                shouldTryAntonProjection =
+                    await AutoFlipFreeCard(
+                        session,
+                        run,
+                        () => IsAutoFlipTimerCurrent(
+                            session,
+                            run,
+                            identity,
+                            ticket));
             }
             finally
             {
                 run.Timers.TryComplete(ticket);
-                run.Settlement.CardProjectionGate.Release();
             }
+
+            if (shouldTryAntonProjection && _antonRewards != null)
+                await _antonRewards.TryProjectReadyPartyAsync(session, run);
         }
 
         private static bool IsAutoFlipTimerCurrent(
@@ -589,73 +752,95 @@ namespace DfoServer.Network.Handlers.Dungeon
             byte option)
             => _sender.SendExitAsync(session, state, option);
 
-        private Task SendPartyLayoutAsync(
-            EnhancedClientSession session,
-            DungeonRun run)
-            => SendPartyProjectionAsync(session, run, layout: true);
-
         private Task SendPartyCardInfoAsync(
             EnhancedClientSession session,
             DungeonRun run)
-            => SendPartyProjectionAsync(session, run, layout: false);
+            => SendPartyCardInfoProjectionAsync(session, run);
 
         private async Task<byte> TrySelectAvailableCardAndProjectAsync(
             EnhancedClientSession owner,
             DungeonRun run,
             CardRewardSide side,
-            byte? requestedCardIndex)
+            byte? requestedCardIndex,
+            Func<bool> canSelect)
         {
-            await run.Instance.CardRewardProjectionGate.WaitAsync();
+            await run.Instance.CardRewardSendGate.WaitAsync();
             try
             {
-                var roster = CaptureCardRewardRoster(run);
-                var first = requestedCardIndex ?? (byte)0;
-                var last = requestedCardIndex ?? (byte)3;
-                for (var cardIndex = first;
-                     cardIndex <= last;
-                     cardIndex++)
+                IReadOnlyList<DungeonParticipantRosterEntry> roster = null;
+                CardRewardPartyProjection projection = null;
+                byte selectedCardIndex = 0xFF;
+                await run.Instance.CardRewardProjectionGate.WaitAsync();
+                try
                 {
-                    if (IsCardPositionOccupied(
-                            run,
-                            roster,
-                            side,
-                            cardIndex))
+                    if (canSelect != null && !canSelect())
+                        return 0xFF;
+                    roster = CaptureCardRewardRoster(run);
+                    var first = requestedCardIndex ?? (byte)0;
+                    var last = requestedCardIndex ?? (byte)3;
+                    for (var cardIndex = first;
+                         cardIndex <= last;
+                         cardIndex++)
                     {
-                        continue;
-                    }
-                    if (!CardRewardRules.TrySelectCardSlot(
-                            run,
-                            side == CardRewardSide.Free
-                                ? (byte)0
-                                : (byte)1,
-                            cardIndex))
-                    {
-                        continue;
-                    }
+                        if (IsCardPositionOccupied(
+                                run,
+                                roster,
+                                side,
+                                cardIndex))
+                        {
+                            continue;
+                        }
+                        if (!CardRewardRules.TrySelectCardSlot(
+                                run,
+                                side == CardRewardSide.Free
+                                    ? (byte)0
+                                    : (byte)1,
+                                cardIndex))
+                        {
+                            continue;
+                        }
 
-                    try
-                    {
-                        var projection = BuildPartyProjection(run, roster);
-                        await SendCardInfoProjectionLockedAsync(
-                            owner,
-                            roster,
-                            projection);
-                        return cardIndex;
+                        selectedCardIndex = cardIndex;
+                        projection = BuildPartyProjection(run, roster);
+                        break;
                     }
-                    catch
+                }
+                finally
+                {
+                    run.Instance.CardRewardProjectionGate.Release();
+                }
+
+                if (selectedCardIndex == 0xFF || projection == null)
+                    return 0xFF;
+
+                try
+                {
+                    await SendCardInfoProjectionAsync(
+                        owner,
+                        roster,
+                        projection);
+                    return selectedCardIndex;
+                }
+                catch
+                {
+                    await run.Instance.CardRewardProjectionGate.WaitAsync();
+                    try
                     {
                         CardRewardRules.ClearSelectedSlot(
                             run,
                             side,
-                            cardIndex);
-                        throw;
+                            selectedCardIndex);
                     }
+                    finally
+                    {
+                        run.Instance.CardRewardProjectionGate.Release();
+                    }
+                    throw;
                 }
-                return 0xFF;
             }
             finally
             {
-                run.Instance.CardRewardProjectionGate.Release();
+                run.Instance.CardRewardSendGate.Release();
             }
         }
 
@@ -745,26 +930,38 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
         }
 
-        private async Task SendPartyProjectionAsync(
+        private async Task SendPartyCardInfoProjectionAsync(
             EnhancedClientSession owner,
-            DungeonRun run,
-            bool layout)
+            DungeonRun run)
         {
             if (owner?.Player == null || run?.Instance == null)
                 return;
 
+            await run.Instance.CardRewardSendGate.WaitAsync();
+            try
+            {
+                var snapshot = await CapturePartyProjectionAsync(run);
+                await SendCardInfoProjectionAsync(
+                    owner,
+                    snapshot.Roster,
+                    snapshot.Projection);
+            }
+            finally
+            {
+                run.Instance.CardRewardSendGate.Release();
+            }
+        }
+
+        private async Task<CardProjectionSnapshot> CapturePartyProjectionAsync(
+            DungeonRun run)
+        {
             await run.Instance.CardRewardProjectionGate.WaitAsync();
             try
             {
                 var roster = CaptureCardRewardRoster(run);
-                var projection = BuildPartyProjection(run, roster);
-                if (layout)
-                    await _sender.SendLayoutAsync(owner, projection);
-                else
-                    await SendCardInfoProjectionLockedAsync(
-                        owner,
-                        roster,
-                        projection);
+                return new CardProjectionSnapshot(
+                    roster,
+                    BuildPartyProjection(run, roster));
             }
             finally
             {
@@ -772,7 +969,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
         }
 
-        private async Task SendCardInfoProjectionLockedAsync(
+        private async Task SendCardInfoProjectionAsync(
             EnhancedClientSession owner,
             IReadOnlyList<DungeonParticipantRosterEntry> roster,
             CardRewardPartyProjection projection)

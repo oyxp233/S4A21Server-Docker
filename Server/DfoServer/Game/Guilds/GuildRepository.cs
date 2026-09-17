@@ -40,7 +40,7 @@ WHERE g.leader_character_id=@leader ORDER BY a.applied_at,c.character_id;";
             cmd.Parameters.AddWithValue("@leader", leaderId);
             var result = new List<GuildApplication>();
             using var reader = cmd.ExecuteReader();
-            while (reader.Read()) result.Add(new GuildApplication(reader.GetInt32(0), reader.GetString(1),
+            while (reader.Read()) result.Add(new GuildApplication(reader.GetInt32(0), ReadCharacterName(reader, 1),
                 checked((byte)reader.GetInt32(2)), checked((byte)reader.GetInt32(3)), checked((byte)reader.GetInt32(4)),
                 reader.GetString(5), checked((uint)reader.GetInt64(6))));
             return (IReadOnlyList<GuildApplication>)result;
@@ -69,13 +69,23 @@ WHERE self.character_id=@character ORDER BY member.character_id;";
             while (reader.Read())
             {
                 guild ??= new GuildRecord(reader.GetInt32(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3), reader.GetString(12));
-                leaderName ??= reader.GetString(4);
-                members.Add(new GuildMemberRecord(reader.GetInt32(5), reader.GetInt32(6), reader.GetString(7),
+                leaderName ??= ReadCharacterName(reader, 4);
+                members.Add(new GuildMemberRecord(reader.GetInt32(5), reader.GetInt32(6), ReadCharacterName(reader, 7),
                     checked((ushort)reader.GetInt32(8)), checked((byte)reader.GetInt32(9)), checked((byte)reader.GetInt32(10)),
                     reader.GetInt32(5) == guild.LeaderId, checked((uint)reader.GetInt64(11)), checked((byte)reader.GetInt32(13)), reader.GetString(14)));
             }
             return guild == null ? null : new GuildRoster(guild, leaderName, members);
         });
+
+        // characters.name is normally a GBK BLOB; legacy/tool-created TEXT is
+        // already Unicode. GetString on a BLOB would decode it as SQLite UTF-8.
+        private static string ReadCharacterName(SqliteDataReader reader, int ordinal)
+            => reader.GetValue(ordinal) switch
+            {
+                byte[] bytes => ClientTextEncoding.GetString(bytes),
+                string text => text,
+                _ => throw new InvalidOperationException("Unsupported character name storage type.")
+            };
 
         internal static bool NameExists(SqliteConnection c, SqliteTransaction t, string name)
             => Scalar(c, t, "SELECT EXISTS(SELECT 1 FROM guilds WHERE name=@v);", name) != 0;

@@ -15,6 +15,9 @@ namespace DfoServer.Game.Inventory
     {
         Unknown,
         InsufficientCera,
+        // 购买不会产生任何实际效果(如金库/仓库扩容档次已达成、已达最高档)。
+        // 属业务拒绝而非扣款失败: 应在进入库存提交事务前被识别, 避免扣款与回滚噪音。
+        NoEffect,
     }
 
     internal static class InventoryCeraShopRuntimeService
@@ -205,16 +208,69 @@ namespace DfoServer.Game.Inventory
                 return false;
 
             if (TryResolvePersonalCargoUpgradeTarget(itemTemplateId, out var personalCargoTarget))
+            {
+                // 个人金库扩容工具档位达成语义:
+                // - 目标档 > 当前容量: 正常购买, 按本档商品价升级到目标档(与旧行为一致);
+                // - 目标档 <= 当前容量(商城窗口未刷新导致的重复点击): 自动顺延到"当前档+1",
+                //   并按该顺延档在商城中的商品价扣费, 让重复点击可一路升到满档;
+                // - 已是最高档: 拒绝(NoEffect, 不扣费)。
+                var targetToApply = personalCargoTarget;
+                var effectiveItemTemplateId = itemTemplateId;
+                var goldCost = totalGoldCost;
+                var ceraCost = totalCeraCost;
+                if (!IsPersonalCargoCapacityTier(personalCargoTarget)
+                    || personalCargoTarget <= inventory.Cargo.Capacity)
+                {
+                    var currentCapacity = inventory.Cargo.Capacity;
+                    if (!TryResolveNextPersonalCargoTier(currentCapacity, out var nextTier))
+                    {
+                        failure = CeraShopPurchaseFailure.NoEffect;
+                        FileLogger.Log(
+                            $"[CeraShopRuntime] personal cargo buy no-effect (already maxed) "
+                            + $"product=0x{productId:X8} item=0x{itemTemplateId:X8} cid={inventory.CharacterId} "
+                            + $"capacity={currentCapacity}");
+                        return false;
+                    }
+
+                    var tierProduct = product;
+                    if (!TryResolvePersonalCargoTierProduct(nextTier, out tierProduct)
+                        || tierProduct == null)
+                    {
+                        // 理论上每个档位都有对应商城商品; 兜底按点击商品自身价格计费。
+                        tierProduct = product;
+                    }
+
+                    if (!TryResolveCosts(
+                            tierProduct,
+                            metadata,
+                            false,
+                            1,
+                            out _,
+                            out goldCost,
+                            out ceraCost))
+                        return false;
+
+                    targetToApply = nextTier;
+                    effectiveItemTemplateId = tierProduct.ItemTemplateId;
+                    ceraMode = ResolveCeraPayMode(tierProduct.ItemTemplateId);
+                    FileLogger.Log(
+                        $"[CeraShopRuntime] personal cargo buy auto-advanced "
+                        + $"product=0x{productId:X8} item=0x{itemTemplateId:X8} cid={inventory.CharacterId} "
+                        + $"capacity={currentCapacity}->{nextTier} chargeProduct=0x{tierProduct.ProductId:X8} "
+                        + $"gold={goldCost} cera={ceraCost}");
+                }
+
                 return TryBuyPersonalCargoUpgrade(
                     inventory,
-                    itemTemplateId,
-                    totalGoldCost,
-                    totalCeraCost,
+                    effectiveItemTemplateId,
+                    goldCost,
+                    ceraCost,
                     ceraMode,
                     couponId,
-                    personalCargoTarget,
+                    targetToApply,
                     out result,
                     transactionContext);
+            }
 
             if (InventoryCargoUpgradeRule.IsAccountCargoUpgradeToolItem(itemTemplateId))
                 return TryBuyAccountCargoUpgrade(
@@ -271,6 +327,141 @@ namespace DfoServer.Game.Inventory
             }
             catch
             {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 纯读预检: 判定该商品当前是否会被"无实际效果/已达成/余额不足"之类的业务规则拒绝,
+        /// 与事务内购买路径的准入条件保持一致, 但只读不改。命中 NoEffect/InsufficientCera 时
+        /// 调用方应在进入提交事务前直接拒绝, 避免每个无效点击都触发
+        /// [InventoryMutationCommit] commit failed + 全量重载的噪音日志。
+        /// 未命中任何状态型规则的商品返回 true, 由事务内路径继续判定。
+        /// </summary>
+        internal static bool TryProbeCeraShopPurchaseEffect(
+            InventoryService inventory,
+            int productId,
+            out CeraShopPurchaseFailure failure)
+        {
+            failure = CeraShopPurchaseFailure.Unknown;
+            if (inventory == null || productId <= 0)
+                return false;
+
+            if (!CeraShopProductCatalog.TryResolve(productId, out var product)
+                || product == null
+                || product.ItemTemplateId <= 0)
+            {
+                return false;
+            }
+
+            var itemTemplateId = product.ItemTemplateId;
+            try
+            {
+                if (TryResolvePersonalCargoUpgradeTarget(itemTemplateId, out var personalCargoTarget))
+                {
+                    // 购买实际生效档位与扣费商品:
+                    // - 目标档 > 当前容量: 正常按点击商品购买升级;
+                    // - 目标档 <= 当前容量(重复点击): 自动顺延一级(按下一档商品价格扣费), 与
+                    //   事务内 TryBuyCeraShopItem 的自动顺延逻辑保持一致;
+                    // - 无下一档(已满): NoEffect 拒绝。
+                    var effectiveEntry = product;
+                    if (!IsPersonalCargoCapacityTier(personalCargoTarget)
+                        || personalCargoTarget <= inventory.Cargo.Capacity)
+                    {
+                        // 目标档已达成(重复点击): 自动顺延一级, 按下一档商品的商城价扣费。
+                        if (!TryResolveNextPersonalCargoTier(
+                                inventory.Cargo.Capacity,
+                                out var nextTier))
+                        {
+                            failure = CeraShopPurchaseFailure.NoEffect;
+                            return false;
+                        }
+
+                        if (!TryResolvePersonalCargoTierProduct(nextTier, out effectiveEntry)
+                            || effectiveEntry == null)
+                            effectiveEntry = product;
+                    }
+
+                    // 顺延后可能按更高档价格扣费: 提前校验余额, 避免在提交事务内失败。
+                    return TryCanAffordCargoCharge(
+                        inventory,
+                        effectiveEntry,
+                        ResolveCeraPayMode(effectiveEntry.ItemTemplateId),
+                        out failure);
+                }
+
+                if (InventoryCargoUpgradeRule.IsAccountCargoUpgradeToolItem(itemTemplateId))
+                {
+                    // 账号金库工具始终按 selection_key 顺延下一档; 无下一档(已满)时拒绝。
+                    if (!TryGetNextAccountCargoCapacity(inventory.AccountCargo.SelectionKey, out _))
+                    {
+                        failure = CeraShopPurchaseFailure.NoEffect;
+                        return false;
+                    }
+
+                    return TryCanAffordCargoCharge(
+                        inventory,
+                        product,
+                        ResolveCeraPayMode(itemTemplateId),
+                        out failure);
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"[CeraShopRuntime] buy effect probe failed product=0x{productId:X8} item=0x{itemTemplateId:X8}: {ex.Message}");
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 只读校验按商品行计价(金币/点券)时角色钱包是否足够, 与事务内 ComputePayment 逻辑一致。
+        /// 仅用于扩容工具这类按档位跳价计费的商品, 避免余额不足在提交事务内才暴露。
+        /// </summary>
+        private static bool TryCanAffordCargoCharge(
+            InventoryService inventory,
+            CeraShopProductEntry entry,
+            CeraPayMode mode,
+            out CeraShopPurchaseFailure failure)
+        {
+            failure = CeraShopPurchaseFailure.Unknown;
+            if (inventory == null
+                || inventory.Database == null
+                || entry == null)
+            {
+                return false;
+            }
+
+            var goldCost = Math.Max(0, entry.GoldPrice);
+            var ceraCost = Math.Max(0, entry.CoinPrice);
+            if (goldCost <= 0 && ceraCost <= 0)
+                return true;
+
+            try
+            {
+                using (var connection = inventory.Database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    var wallet = CurrencyService.LoadWallet(
+                        connection,
+                        transaction,
+                        inventory.CharacterId);
+                    wallet.Gold = inventory.CountMainItem(
+                        InventoryService.MainVirtualCurrencySlotStart);
+                    var plan = ComputePayment(wallet, goldCost, ceraCost, mode);
+                    if (!plan.Ok)
+                    {
+                        failure = CeraShopPurchaseFailure.InsufficientCera;
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"[CeraShopRuntime] cargo affordability probe failed cid={inventory.CharacterId} product=0x{entry.ProductId:X8}: {ex.Message}");
                 return false;
             }
         }
@@ -1462,6 +1653,57 @@ namespace DfoServer.Game.Inventory
 
             next = AccountCargoCapacityTiers[index + 1];
             return true;
+        }
+
+        // 个人金库扩容档位(格数) -> 商城商品目录项。首次"已达成档位自动顺延"购买时惰性构建一次。
+        private static readonly Lazy<Dictionary<ushort, CeraShopProductEntry>> PersonalCargoTierProductIndex =
+            new Lazy<Dictionary<ushort, CeraShopProductEntry>>(BuildPersonalCargoTierProductIndex);
+
+        private static Dictionary<ushort, CeraShopProductEntry> BuildPersonalCargoTierProductIndex()
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var map = new Dictionary<ushort, CeraShopProductEntry>();
+            foreach (var entry in CeraShopProductCatalog.EnumerateProducts())
+            {
+                if (entry == null || entry.ItemTemplateId <= 0)
+                    continue;
+
+                if (!InventoryCargoUpgradeRule.TryResolvePersonalCargoUpgradeTarget(
+                        entry.ItemTemplateId,
+                        out var tierCapacity))
+                    continue;
+
+                if (!IsPersonalCargoCapacityTier(tierCapacity) || map.ContainsKey(tierCapacity))
+                    continue;
+
+                map[tierCapacity] = entry;
+            }
+
+            watch.Stop();
+            FileLogger.Log($"[CeraShopRuntime] personal cargo tier product index built tiers={map.Count} elapsedMs={watch.ElapsedMilliseconds}");
+            return map;
+        }
+
+        private static bool TryResolvePersonalCargoTierProduct(ushort tierCapacity, out CeraShopProductEntry entry)
+        {
+            // 访问 .Value 触发惰性构建(仅首次需要)。
+            return PersonalCargoTierProductIndex.Value.TryGetValue(tierCapacity, out entry);
+        }
+
+        /// <summary>当前容量(含未满任意值)的下一档容量; 已满则返回 false。</summary>
+        private static bool TryResolveNextPersonalCargoTier(ushort currentCapacity, out ushort nextCapacity)
+        {
+            nextCapacity = 0;
+            for (var index = 0; index < PersonalCargoCapacityTiers.Length; index++)
+            {
+                if (PersonalCargoCapacityTiers[index] <= currentCapacity)
+                    continue;
+
+                nextCapacity = PersonalCargoCapacityTiers[index];
+                return true;
+            }
+
+            return false;
         }
 
     }

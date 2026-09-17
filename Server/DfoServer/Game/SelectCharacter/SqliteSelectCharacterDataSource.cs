@@ -40,6 +40,8 @@ namespace DfoServer.Game.SelectCharacter
         private readonly Infrastructure.IGameDatabase _database;
         private readonly string _connectionString;
         private readonly Quests.DailyChallengeService _dailyChallengeService;
+        private readonly AntonAwakeningDailyProgressService
+            _antonAwakeningProgress;
 
         public SqliteSelectCharacterDataSource(
             string databasePath,
@@ -63,6 +65,23 @@ namespace DfoServer.Game.SelectCharacter
             InventoryCharacterLifecycleService inventoryLifecycle = null,
             IRentalTimeProvider rentalTimeProvider = null,
             DailyReset.DailyResetService dailyResetService = null)
+            : this(
+                database,
+                characterRepository,
+                inventoryLifecycle,
+                rentalTimeProvider,
+                dailyResetService,
+                antonAwakeningProgress: null)
+        {
+        }
+
+        internal SqliteSelectCharacterDataSource(
+            Infrastructure.IGameDatabase database,
+            ICharacterRepository characterRepository,
+            InventoryCharacterLifecycleService inventoryLifecycle,
+            IRentalTimeProvider rentalTimeProvider,
+            DailyReset.DailyResetService dailyResetService,
+            AntonAwakeningDailyProgressService antonAwakeningProgress)
         {
             if (database == null)
                 throw new ArgumentNullException(nameof(database));
@@ -98,6 +117,11 @@ namespace DfoServer.Game.SelectCharacter
             _dailyChallengeService = new Quests.DailyChallengeService(
                 _connectionString,
                 _dailyResetService);
+            _antonAwakeningProgress = antonAwakeningProgress
+                ?? new AntonAwakeningDailyProgressService(
+                    new AntonAwakeningDailyProgressRepository(
+                        database,
+                        _dailyResetService));
         }
 
         public int GetSeedCharacterId()
@@ -256,6 +280,7 @@ namespace DfoServer.Game.SelectCharacter
             initSnapshot.CreatureItemList = LoadCreatureItemListSnapshot(characterId);
 
             _dailyChallengeService.EnsureInitialized(characterId);
+            _antonAwakeningProgress.EnsureCurrentDay(characterId);
             _initFlagsRepository.LoadAll(characterId, initSnapshot);
             ApplyOnlineItemStates(characterId, initSnapshot);
             var loginPermissions = _dungeonDifficultyPermissions

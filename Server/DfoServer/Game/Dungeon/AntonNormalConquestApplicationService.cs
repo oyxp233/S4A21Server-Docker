@@ -24,12 +24,15 @@ namespace DfoServer.Game.Dungeon
         private const int LinkedChallengeRate = 100;
         private const int LinkedChallengeCondition = -1;
         private readonly SqliteCharacterStateRepository _repository;
+        private readonly AntonAwakeningDailyProgressService _awakeningProgress;
 
         internal AntonNormalConquestApplicationService(
-            SqliteCharacterStateRepository repository)
+            SqliteCharacterStateRepository repository,
+            AntonAwakeningDailyProgressService awakeningProgress = null)
         {
             _repository = repository
                 ?? throw new ArgumentNullException(nameof(repository));
+            _awakeningProgress = awakeningProgress;
         }
 
         internal void ConfigureLinkedChallenge(DungeonRun run)
@@ -61,6 +64,14 @@ namespace DfoServer.Game.Dungeon
             state = null;
             if (characterId <= 0)
                 return false;
+            if (_awakeningProgress != null
+                && _awakeningProgress.TryRestore(
+                    characterId,
+                    configKey,
+                    out state))
+            {
+                return true;
+            }
             return AntonNormalConquest.TryResolveSyncState(
                 configKey,
                 _repository.LoadDungeonPermissions(characterId),
@@ -73,8 +84,19 @@ namespace DfoServer.Game.Dungeon
             out AntonNormalClearApplicationResult result)
         {
             result = null;
-            if (characterId <= 0
-                || !AntonNormalConquest.TryResolveClearPlan(dungeonId, out var plan))
+            if (characterId <= 0)
+                return false;
+
+            if (_awakeningProgress != null
+                && _awakeningProgress.TryApplyClear(
+                    characterId,
+                    dungeonId,
+                    out result))
+            {
+                return true;
+            }
+
+            if (!AntonNormalConquest.TryResolveClearPlan(dungeonId, out var plan))
             {
                 return false;
             }

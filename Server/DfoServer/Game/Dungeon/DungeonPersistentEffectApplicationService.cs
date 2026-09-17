@@ -176,6 +176,7 @@ namespace DfoServer.Game.Dungeon
         internal IReadOnlyList<InventorySlotMutation> Changes { get; set; }
             = Array.Empty<InventorySlotMutation>();
         internal bool ConsumedGoldCardContractUse { get; set; }
+        internal bool DeliveredToMailbox { get; set; }
     }
 
     internal sealed class CardRewardEffectPayload
@@ -201,6 +202,7 @@ namespace DfoServer.Game.Dungeon
         public List<CardRewardEffectMutation> Changes { get; set; }
             = new List<CardRewardEffectMutation>();
         public bool ConsumedGoldCardContractUse { get; set; }
+        public bool DeliveredToMailbox { get; set; }
     }
 
     internal sealed class BloodAltarRewardEffectItem
@@ -1368,6 +1370,7 @@ namespace DfoServer.Game.Dungeon
 
             InventoryService inventory = null;
             InventoryRewardGrantBatchPlan inventoryPlan = null;
+            List<InventoryRewardGrantRequest> overflowRewards = null;
             CardRewardInventoryMutationSnapshot rollback = null;
             var inventoryMutated = false;
             var committed = false;
@@ -1418,6 +1421,7 @@ namespace DfoServer.Game.Dungeon
                             inventory,
                             payload,
                             out inventoryPlan,
+                            out overflowRewards,
                             out var planError))
                     {
                         throw new InvalidOperationException(
@@ -1483,6 +1487,27 @@ namespace DfoServer.Game.Dungeon
                                 "transaction commit.");
                         }
 
+                        var deliveredToMailbox = overflowRewards?.Count > 0;
+                        if (deliveredToMailbox)
+                        {
+                            var transactionSink =
+                                new TransactionBoundInventoryOverflowRewardSink(
+                                    connection,
+                                    transaction,
+                                    GetOverflowRewardSink(),
+                                    "副本翻牌奖励",
+                                    "背包空间不足，翻牌奖励已通过邮件发放。");
+                            if (!transactionSink.TryDeliver(
+                                    inventory,
+                                    overflowRewards,
+                                    out _))
+                            {
+                                throw new InvalidOperationException(
+                                    "Card reward mailbox overflow delivery " +
+                                    "failed.");
+                            }
+                        }
+
                         if (payload.ConsumeGoldCardContractUse
                             && !_devilContractUsage.TryConsume(
                                 connection,
@@ -1497,7 +1522,8 @@ namespace DfoServer.Game.Dungeon
 
                         var persistedResult = BuildCardRewardEffectResult(
                             changes,
-                            payload.ConsumeGoldCardContractUse);
+                            payload.ConsumeGoldCardContractUse,
+                            deliveredToMailbox);
                         if (!_outbox.TryCommitInTransaction(
                                 connection,
                                 transaction,
@@ -2549,9 +2575,11 @@ namespace DfoServer.Game.Dungeon
             InventoryService inventory,
             CardRewardEffectPayload payload,
             out InventoryRewardGrantBatchPlan plan,
+            out List<InventoryRewardGrantRequest> overflowRewards,
             out string error)
         {
             plan = null;
+            overflowRewards = new List<InventoryRewardGrantRequest>();
             error = null;
             if (inventory == null || payload == null)
             {
@@ -2565,7 +2593,7 @@ namespace DfoServer.Game.Dungeon
                 return false;
             }
 
-            var requests = new List<InventoryRewardGrantRequest>();
+            var directRequests = new List<InventoryRewardGrantRequest>();
             if (payload.RequestedGold > 0)
             {
                 var currentGold = inventory.CountMainItem(
@@ -2578,20 +2606,25 @@ namespace DfoServer.Game.Dungeon
                     Math.Max(0L, (long)carryLimit - currentGold));
                 if (grantedGold > 0)
                 {
-                    requests.Add(InventoryRewardGrantRequest.Create(
+                    directRequests.Add(InventoryRewardGrantRequest.Create(
                         InventoryService.MainVirtualCurrencySlotStart,
                         grantedGold,
                         ItemCreateReason.DungeonDrop));
                 }
             }
+            InventoryRewardGrantRequest itemRequest = null;
             if (payload.ItemId > 0 && payload.StackCount > 0)
             {
-                requests.Add(InventoryRewardGrantRequest.Create(
+                itemRequest = InventoryRewardGrantRequest.Create(
                     payload.ItemId,
                     payload.StackCount,
-                    ItemCreateReason.DungeonDrop));
+                    ItemCreateReason.DungeonDrop);
             }
 
+            var requests = new List<InventoryRewardGrantRequest>(
+                directRequests);
+            if (itemRequest != null)
+                requests.Add(itemRequest);
             if (!InventoryRewardGrantService.TryPlanBatch(
                     inventory,
                     requests,
@@ -2599,8 +2632,21 @@ namespace DfoServer.Game.Dungeon
                 || plan == null
                 || !plan.Success)
             {
-                error = plan?.Error.ToString() ?? "unknown";
-                return false;
+                var failure = plan?.Error
+                    ?? InventoryRewardGrantError.InvalidRequest;
+                if (failure != InventoryRewardGrantError.InsertPlanFailed
+                    || itemRequest == null
+                    || !InventoryRewardGrantService.TryPlanBatch(
+                        inventory,
+                        directRequests,
+                        out plan)
+                    || plan == null
+                    || !plan.Success)
+                {
+                    error = failure.ToString();
+                    return false;
+                }
+                overflowRewards.Add(itemRequest);
             }
             foreach (var entry in plan.Entries)
             {
@@ -2620,11 +2666,13 @@ namespace DfoServer.Game.Dungeon
 
         private static CardRewardEffectResult BuildCardRewardEffectResult(
             IReadOnlyList<InventorySlotMutation> changes,
-            bool consumedGoldCardContractUse)
+            bool consumedGoldCardContractUse,
+            bool deliveredToMailbox)
         {
             var result = new CardRewardEffectResult
             {
                 ConsumedGoldCardContractUse = consumedGoldCardContractUse,
+                DeliveredToMailbox = deliveredToMailbox,
             };
             if (changes == null)
                 return result;
@@ -2666,6 +2714,7 @@ namespace DfoServer.Game.Dungeon
                 Changes = changes,
                 ConsumedGoldCardContractUse =
                     persisted.ConsumedGoldCardContractUse,
+                DeliveredToMailbox = persisted.DeliveredToMailbox,
             };
         }
 

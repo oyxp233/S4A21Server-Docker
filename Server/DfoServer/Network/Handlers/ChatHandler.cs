@@ -1,8 +1,10 @@
 using DfoServer.Game.Party;
+using DfoServer.Game.Raid;
 using DfoServer.Game.Session;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DfoServer.Network.Handlers
@@ -21,6 +23,7 @@ namespace DfoServer.Network.Handlers
 
         private readonly ISessionDirectory _sessions;
         private readonly PartyManager _parties;
+        private readonly RaidManager _raids;
         private readonly object _conversationLock = new object();
         private readonly Dictionary<ulong, Conversation> _activeConversations =
             new Dictionary<ulong, Conversation>();
@@ -39,7 +42,8 @@ namespace DfoServer.Network.Handlers
         public ChatHandler(
             ISessionDirectory sessions,
             PartyManager parties,
-            CharacterTransitionCoordinator transitions)
+            CharacterTransitionCoordinator transitions,
+            RaidManager raids = null)
         {
             _sessions = sessions
                 ?? throw new ArgumentNullException(nameof(sessions));
@@ -47,6 +51,7 @@ namespace DfoServer.Network.Handlers
                 ?? throw new ArgumentNullException(nameof(parties));
             _transitions = transitions
                 ?? throw new ArgumentNullException(nameof(transitions));
+            _raids = raids;
             _sessions.SessionEnding += OnSessionEndingAsync;
         }
 
@@ -85,6 +90,11 @@ namespace DfoServer.Network.Handlers
             var sendTasks = new List<Task>(recipients.Count);
             foreach (var recipient in recipients)
             {
+                if (IsRaidMessageMode(request.Mode))
+                {
+                    sendTasks.Add(SendRaidMessageAsync(session, recipient, request));
+                    continue;
+                }
                 int senderId = session.Player.CharacterId;
                 int recipientId = recipient.Player.CharacterId;
                 var packet = GamePacketEnvelopeBuilder.Build(
@@ -117,6 +127,14 @@ namespace DfoServer.Network.Handlers
             EnhancedClientSession sender,
             ChatMessageRequest request)
         {
+            if (IsRaidMessageMode(request.Mode))
+            {
+                if (!IsOnline(sender) || _raids == null
+                    || !_raids.TryGetByUser(sender.Player.UserId, out var raid)
+                    || !CanSendRaidMessage(request.Mode, sender.Player.UserId, raid.LeaderUserId))
+                    return Array.Empty<EnhancedClientSession>();
+                return ResolveRaidRecipients(sender, raid);
+            }
             var result = new Dictionary<Guid, EnhancedClientSession>();
             if (request.Mode == OneToOneConversationMode) return result.Values.ToList();
             if (request.Mode == GuildMessageMode) return result.Values.ToList(); // Dedicated durable membership path, including in dungeons.
@@ -204,6 +222,68 @@ namespace DfoServer.Network.Handlers
             var w = new GamePacketWriter(); w.WriteByte(GuildMessageMode); w.WriteByte(0);
             w.WriteDstr(senderName); w.WriteByte(GameNetworkConfig.ChannelServerIndex); w.WriteDstr(message);
             return w.ToArray();
+        }
+
+        internal static bool IsRaidMessageMode(byte mode) => mode == 52 || mode == 53;
+
+        internal static bool CanSendRaidMessage(byte mode, ushort senderId, ushort leaderId)
+            => senderId != 0 && (mode == 52 || (mode == 53 && senderId == leaderId));
+
+        private async Task SendRaidMessageAsync(
+            EnhancedClientSession sender,
+            EnhancedClientSession recipient,
+            ChatMessageRequest request)
+        {
+            var packet = GamePacketEnvelopeBuilder.Build(0,
+                (ushort)NotiPacketTypeA21.MESSAGE,
+                BuildNotificationBody(request.Mode, sender.Player.UserId, 0, request.MessageBytes));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                if (sender.SessionId != recipient.SessionId)
+                {
+                    var context = RaidHandler.BuildRaidFormationUserContextPacket(sender);
+                    if (context == null
+                        || !await recipient.TrySendPacketAsync(context, timeout.Token, CanSend))
+                    {
+                        FileLogger.Log($"[RaidChat] context failed from={sender.Player.CharacterId} to={recipient.Player.CharacterId}");
+                        return;
+                    }
+                }
+                var sent = await recipient.TrySendPacketAsync(packet, timeout.Token, CanSend);
+                FileLogger.Log($"[RaidChat] from={sender.Player.CharacterId} to={recipient.Player.CharacterId} sent={sent}");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"[RaidChat] failed from={sender.Player.CharacterId} to={recipient.Player.CharacterId} error={ex.GetType().Name}");
+            }
+            bool CanSend() => _transitions.IsCurrent(sender) && _transitions.IsCurrent(recipient)
+                && !IsBlocked(recipient.Player.CharacterId, sender.Player.CharacterId)
+                && ResolveRecipients(sender, request)
+                .Any(current => current.SessionId == recipient.SessionId);
+        }
+
+        internal IReadOnlyList<EnhancedClientSession> ResolveRaidRecipients(
+            EnhancedClientSession sender, RaidSnapshot raid)
+        {
+            var result = new Dictionary<Guid, EnhancedClientSession>();
+            if (!IsOnline(sender) || raid == null
+                || !_sessions.TryGet(sender.Player.CharacterId, out var current)
+                || current.SessionId != sender.SessionId
+                || !raid.Members.Any(m => m.UserId == sender.Player.UserId
+                    && m.CharacterId == (uint)sender.Player.CharacterId && m.SessionId == sender.SessionId))
+                return result.Values.ToList();
+            foreach (var member in raid.Members)
+            {
+                if (member.CharacterId <= int.MaxValue
+                    && _sessions.TryGet((int)member.CharacterId, out var memberSession)
+                    && memberSession?.Player != null
+                    && memberSession.SessionId == member.SessionId
+                    && memberSession.Player.UserId == member.UserId
+                    && memberSession.Player.CharacterId == (int)member.CharacterId)
+                    AddIfCurrentChannel(result, sender, memberSession);
+            }
+            return result.Values.ToList();
         }
 
         private EnhancedClientSession FindDirectTarget(

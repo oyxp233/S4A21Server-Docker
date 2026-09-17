@@ -81,7 +81,11 @@ namespace DfoServer.Network.Handlers
             TotalAttendanceService totalAttendance = null,
             Game.Dungeon.DungeonInstanceRegistry instanceRegistry = null,
             Game.Raid.RaidManager raidManager = null,
-            IGameDatabase database = null)
+            IGameDatabase database = null,
+            Game.DailyReset.DailyResetService dailyResetService = null,
+            Game.Dungeon.AntonAwakeningDailyProgressService
+                antonAwakeningProgress = null,
+            IInventoryOverflowRewardSink overflowRewardSink = null)
         {
             _services = new DungeonSharedServices(
                 reviveCoinService,
@@ -101,7 +105,10 @@ namespace DfoServer.Network.Handlers
                 persistentEffects,
                 instanceRegistry,
                 raidManager,
-                database);
+                database,
+                dailyResetService,
+                antonAwakeningProgress,
+                overflowRewardSink);
             _map = new DungeonMapHandler(_services);
             _entry = new DungeonEntryHandler(_services, _map);
             _settlement = new DungeonSettlementHandler(_services, _entry);
@@ -308,6 +315,7 @@ namespace DfoServer.Network.Handlers
             await _bloodAltar.RecoverAsync(session);
             await _tournament.RecoverAsync(session);
             _services.CardRewards.RecoverTimer(session);
+            await _services.AntonRewards.RecoverParticipantAsync(session);
             _combat.RecoverDeathRespawnTimer(session);
             Dungeon.DungeonMechanismTimerCoordinator.Recover(session);
         }

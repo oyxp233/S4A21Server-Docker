@@ -7,11 +7,13 @@ namespace DfoServer.Game.Raid
     {
         public ushort UserId { get; init; }
         public uint CharacterId { get; init; }
-        public Guid SessionId { get; init; }
+        public Guid SessionId { get; internal set; }
         public byte[] NameBytes { get; init; } = Array.Empty<byte>();
         public byte Job { get; init; }
         public byte GrowType { get; init; }
         public ushort PartyIndex { get; internal set; }
+
+        public uint PhaseClearCount { get; internal set; }
 
         internal RaidMember Clone()
         {
@@ -24,12 +26,19 @@ namespace DfoServer.Game.Raid
                 Job = Job,
                 GrowType = GrowType,
                 PartyIndex = PartyIndex,
+                PhaseClearCount = PhaseClearCount
             };
         }
     }
 
     public sealed class RaidSnapshot
     {
+        public Guid AssignmentVersion { get; init; }
+
+        public Guid LeadershipVersion { get; init; }
+
+        public Guid InstanceId { get; init; }
+
         public uint RaidId { get; init; }
         public byte[] TitleBytes { get; init; } = Array.Empty<byte>();
         public uint State { get; init; }
@@ -39,6 +48,8 @@ namespace DfoServer.Game.Raid
         public uint PhaseTimeExtensionSeconds { get; init; }
         public uint PhaseDeathCount { get; init; }
         public ushort LeaderUserId { get; init; }
+        public long PreparationGeneration { get; init; }
+
         public IReadOnlyList<RaidMember> Members { get; init; } = Array.Empty<RaidMember>();
 
         public RaidMember Leader
@@ -69,18 +80,47 @@ namespace DfoServer.Game.Raid
     {
         private readonly List<RaidMember> _members = new List<RaidMember>(20);
 
+        private readonly Dictionary<uint, uint> _memberPhaseClears = new Dictionary<uint, uint>();
+
+        public Guid InstanceId { get; } = Guid.NewGuid();
+
+        public Guid AssignmentVersion { get; set; } = Guid.NewGuid();
+
+        public Guid LeadershipVersion { get; set; } = Guid.NewGuid();
+
         public uint RaidId { get; }
         public byte[] TitleBytes { get; set; }
         public uint State { get; set; }
         public uint StateArgument { get; set; }
         public uint PhaseIndex { get; set; }
         public bool StartPending { get; set; }
+        public long PreparationGeneration { get; set; }
+
+        public IReadOnlyList<RaidMember> PreparationMembers { get; set; } = Array.Empty<RaidMember>();
+
+        public HashSet<ushort> PreparationResponses { get; } = new HashSet<ushort>();
+
         public long PhaseStartedAtMilliseconds { get; set; } = -1;
         public uint PhaseClearTimeSeconds { get; set; }
         public uint PhaseTimeExtensionSeconds { get; set; }
         public uint PhaseDeathCount { get; set; }
         public ushort LeaderUserId { get; set; }
         public IReadOnlyList<RaidMember> Members => _members;
+
+        internal void RecordMemberClear(ushort userId)
+        {
+            RaidMember member = GetMember(userId);
+            if (member != null)
+            {
+                _memberPhaseClears.TryGetValue(member.CharacterId, out var value);
+                _memberPhaseClears[member.CharacterId] = ((value == uint.MaxValue) ? value : (value + 1));
+            }
+        }
+
+        internal void ResetMemberPhaseClears()
+        {
+            _memberPhaseClears.Clear();
+        }
 
         public RaidAggregate(uint raidId, byte[] titleBytes, RaidMember leader)
         {
@@ -98,27 +138,62 @@ namespace DfoServer.Game.Raid
             return null;
         }
 
+        public bool AddMember(RaidMember member)
+        {
+            if (member == null || _members.Count >= 20 || GetMember(member.UserId) != null)
+            {
+                return false;
+            }
+            _members.Add(member);
+            AssignmentVersion = Guid.NewGuid();
+            return true;
+        }
+
         public bool RemoveMember(ushort userId)
         {
-            for (var i = 0; i < _members.Count; i++)
+            for (int i = 0; i < _members.Count; i++)
             {
-                if (_members[i].UserId != userId)
-                    continue;
-                _members.RemoveAt(i);
-                return true;
+                if (_members[i].UserId == userId)
+                {
+                    _members.RemoveAt(i);
+                    AssignmentVersion = Guid.NewGuid();
+                    return true;
+                }
             }
             return false;
         }
 
+        internal void ApplyPreparationOrder(IReadOnlyList<RaidMember> ordered)
+        {
+            Dictionary<ushort, RaidMember> dictionary = new Dictionary<ushort, RaidMember>();
+            foreach (RaidMember member in _members)
+            {
+                dictionary.Add(member.UserId, member);
+            }
+            _members.Clear();
+            foreach (RaidMember item in ordered)
+            {
+                _members.Add(dictionary[item.UserId]);
+            }
+            AssignmentVersion = Guid.NewGuid();
+        }
+
         public RaidSnapshot Snapshot()
         {
-            var members = new List<RaidMember>(_members.Count);
-            foreach (var member in _members)
-                members.Add(member.Clone());
-
+            List<RaidMember> list = new List<RaidMember>(_members.Count);
+            foreach (RaidMember member in _members)
+            {
+                RaidMember raidMember = member.Clone();
+                _memberPhaseClears.TryGetValue(member.CharacterId, out var value);
+                raidMember.PhaseClearCount = value;
+                list.Add(raidMember);
+            }
             return new RaidSnapshot
             {
                 RaidId = RaidId,
+                InstanceId = InstanceId,
+                AssignmentVersion = AssignmentVersion,
+                LeadershipVersion = LeadershipVersion,
                 TitleBytes = (byte[])TitleBytes.Clone(),
                 State = State,
                 StateArgument = StateArgument,
@@ -127,7 +202,8 @@ namespace DfoServer.Game.Raid
                 PhaseTimeExtensionSeconds = PhaseTimeExtensionSeconds,
                 PhaseDeathCount = PhaseDeathCount,
                 LeaderUserId = LeaderUserId,
-                Members = members,
+                PreparationGeneration = PreparationGeneration,
+                Members = list
             };
         }
     }

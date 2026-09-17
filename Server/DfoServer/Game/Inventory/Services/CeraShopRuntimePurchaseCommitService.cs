@@ -28,6 +28,25 @@ namespace DfoServer.Game.Inventory
 
             InventoryMutationResult appliedResult = null;
             var appliedFailure = CeraShopPurchaseFailure.Unknown;
+
+            // 纯读预检: "已达成扩容档次/已达上限"之类的业务拒绝不进库存提交事务,
+            // 避免无效购买每次都走 commit failed + 整包回滚重载的日志路径。
+            if (!InventoryCeraShopRuntimeService.TryProbeCeraShopPurchaseEffect(
+                    lease.Inventory,
+                    commodityNo,
+                    out var probeFailure))
+            {
+                failure = probeFailure;
+                if (probeFailure == CeraShopPurchaseFailure.NoEffect)
+                {
+                    FileLogger.Log(
+                        $"[CeraShopRuntime] purchase rejected (no effect) "
+                        + $"product={commodityNo} cid={lease.CharacterId} aid={accountId}");
+                }
+
+                return false;
+            }
+
             var committed = OnlineInventoryMutationCommitCoordinator.TryCommit(
                 lease,
                 "cerashop-runtime-purchase",

@@ -16,9 +16,12 @@ namespace DfoServer.Network.Handlers.Dungeon
         private readonly AntonNormalConquestNotificationSender _sender;
 
         internal AntonNormalConquestNotifier(
-            SqliteCharacterStateRepository repository)
+            SqliteCharacterStateRepository repository,
+            AntonAwakeningDailyProgressService awakeningProgress = null)
         {
-            _application = new AntonNormalConquestApplicationService(repository);
+            _application = new AntonNormalConquestApplicationService(
+                repository,
+                awakeningProgress);
             _sender = new AntonNormalConquestNotificationSender();
         }
 
@@ -30,11 +33,22 @@ namespace DfoServer.Network.Handlers.Dungeon
         // Unknown keys and sequences without progress report 0 (not started).
         internal byte ResolveSequentialProgress(int characterId, int configKey)
         {
-            if (characterId <= 0)
-                return 0;
-            return _application.TryRestore(characterId, configKey, out var state)
+            return TryResolveSequentialState(
+                    characterId,
+                    configKey,
+                    out var state)
                 ? state.ProgressIndex
                 : (byte)0;
+        }
+
+        internal bool TryResolveSequentialState(
+            int characterId,
+            int configKey,
+            out AntonNormalSyncState state)
+        {
+            state = null;
+            return characterId > 0
+                && _application.TryRestore(characterId, configKey, out state);
         }
 
         internal async Task RestoreBeforeSelectAsync(
@@ -114,7 +128,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                         ? "none"
                         : string.Join(",", result.Changes.Select(
                             entry => $"{entry.DungeonId}:{entry.ClearState}")))} " +
-                    $"progress={result.State.ProgressIndex}");
+                    $"progress={result.State.ProgressIndex} " +
+                    $"routeMask=0x{result.State.RouteMask:X2}");
             }
             catch (Exception ex)
             {

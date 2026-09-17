@@ -2,6 +2,12 @@ using System;
 
 namespace DfoServer.Game.Dungeon
 {
+    internal enum DungeonAdmissionRejectProjection : byte
+    {
+        Native = 0,
+        Silent = 1,
+    }
+
     internal enum DungeonAdmissionRejectReason : byte
     {
         Unknown = 0,
@@ -14,6 +20,7 @@ namespace DfoServer.Game.Dungeon
         MissingPermission = 7,
         NotPartyLeader = 8,
         DungeonNotFound = 9,
+        MissingPrerequisite = 10,
     }
 
     internal readonly struct DungeonAdmissionReject
@@ -83,6 +90,12 @@ namespace DfoServer.Game.Dungeon
             byte memberSlot)
             => ForMember(
                 DungeonAdmissionRejectReason.MissingPermission,
+                memberSlot);
+
+        internal static DungeonAdmissionReject MissingPrerequisite(
+            byte memberSlot)
+            => ForMember(
+                DungeonAdmissionRejectReason.MissingPrerequisite,
                 memberSlot);
 
         private static DungeonAdmissionReject ForMember(

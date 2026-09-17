@@ -48,19 +48,15 @@ public sealed partial class RaidHandler
 		}
 		if (!_raids.TryGetByUser(userId, out var raid))
 		{
-			// Opening the raid status window is a read-only query. Do not create
-			// a raid here: the client can send this request from town before the
-			// explicit CREATE_RAID flow, which otherwise leaves a phantom raid.
 			await SendAckAsync(session, header.type, success: false);
 			return;
 		}
 		byte stage = (byte)((body != null && body.Length != 0) ? body[0] : 0);
 		await EnsureRaidDungeonParticipationAsync(session, raid, userId);
-		if (_raids.TryGetByUser(userId, out var refreshedRaid))
-			raid = refreshedRaid;
-		// Member cache refresh is limited to party edits and START_RAID_ATTACK.
-		// Opening the status window is read-only; replaying operation=3 here can
-		// race the client state handler and recreate the raid-start banner.
+		if (_raids.TryGetByUser(userId, out var raid2))
+		{
+			raid = raid2;
+		}
 		if (!_objectSent.ContainsKey(session.SessionId))
 		{
 			await SendRaidObjectAsync(session, raid);
@@ -72,33 +68,33 @@ public sealed partial class RaidHandler
 			await SendRaidBuffStatusAsync(session, raid.RaidId);
 			await SendRaidMonsterStatusAsync(session, raid);
 		}
-		await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0, 599, RaidPacketBuilder.BuildEntryCostInfo(BuildEntryCostStatuses(raid))));
+		await RefreshEntryCostsAsync(session);
 	}
 
 
 	private static IReadOnlyList<RaidEntryCostStatus> BuildEntryCostStatuses(RaidSnapshot raid)
 	{
-		List<RaidEntryCostStatus> result = new List<RaidEntryCostStatus>(raid.Members.Count);
+		List<RaidEntryCostStatus> list = new List<RaidEntryCostStatus>(raid.Members.Count);
 		checked
 		{
 			foreach (RaidMember member in raid.Members)
 			{
-				int ownedCount = 0;
+				int num = 0;
 				if (InventoryContext.TryGetLease((int)member.CharacterId, out var lease) && lease.IsOwnedBy(member.SessionId))
 				{
 					lock (lease.SyncRoot)
 					{
-						ownedCount = Math.Max(0, lease.Inventory.CountMainItem(10096296));
+						num = Math.Max(0, lease.Inventory.CountMainItem(10096296));
 					}
 				}
-				result.Add(new RaidEntryCostStatus
+				list.Add(new RaidEntryCostStatus
 				{
 					UserId = member.UserId,
-					Ready = (raid.State != 0 || ownedCount >= 1),
-					OwnedCount = (uint)ownedCount
+					Ready = (raid.State != 0 || num >= 1),
+					OwnedCount = (uint)num
 				});
 			}
-			return result;
+			return list;
 		}
 	}
 
@@ -128,40 +124,40 @@ public sealed partial class RaidHandler
 	private bool TryConsumeEntryCosts(RaidSnapshot raid, out List<RaidConsumedEntryCost> consumedCosts)
 	{
 		consumedCosts = new List<RaidConsumedEntryCost>();
-		List<RaidEntryCostLease> leases = new List<RaidEntryCostLease>(raid.Members.Count);
-		foreach (RaidMember member in raid.Members.OrderBy((RaidMember raidMember) => raidMember.CharacterId))
+		List<RaidEntryCostLease> list = new List<RaidEntryCostLease>(raid.Members.Count);
+		foreach (RaidMember item in raid.Members.OrderBy((RaidMember raidMember) => raidMember.CharacterId))
 		{
-			int characterId = checked((int)member.CharacterId);
-			if (!_sessions.TryGet(characterId, out var memberSession) || memberSession.SessionId != member.SessionId || !InventoryContext.TryGetLease(characterId, out var lease) || !lease.IsOwnedBy(member.SessionId))
+			int characterId = checked((int)item.CharacterId);
+			if (!_sessions.TryGet(characterId, out var session) || session.SessionId != item.SessionId || !InventoryContext.TryGetLease(characterId, out var lease) || !lease.IsOwnedBy(item.SessionId))
 			{
 				return false;
 			}
-			leases.Add(new RaidEntryCostLease(memberSession, lease));
+			list.Add(new RaidEntryCostLease(session, lease));
 		}
-
-		if (!RaidEntryCostCommitService.TryConsume(
-				leases.Select(entry => entry.Lease).ToArray(),
-				out var mutations))
+		if (!RaidEntryCostCommitService.TryConsume(list.Select((RaidEntryCostLease entry) => entry.Lease).ToArray(), out var mutations))
 		{
 			return false;
 		}
-
-		var sessionsByCharacterId = leases.ToDictionary(
-			entry => entry.Lease.CharacterId,
-			entry => entry.Session);
-		foreach (var mutation in mutations)
+		Dictionary<int, EnhancedClientSession> dictionary = list.ToDictionary((RaidEntryCostLease entry) => entry.Lease.CharacterId, (RaidEntryCostLease entry) => entry.Session);
+		foreach (RaidEntryCostMutation item2 in mutations)
 		{
-			if (!sessionsByCharacterId.TryGetValue(
-					mutation.CharacterId,
-					out var memberSession))
+			if (!dictionary.TryGetValue(item2.CharacterId, out var value))
+			{
 				return false;
-
-			consumedCosts.Add(new RaidConsumedEntryCost(
-				memberSession,
-				mutation.SlotIndex));
+			}
+			consumedCosts.Add(new RaidConsumedEntryCost(value, item2.SlotIndex));
 		}
-
 		return true;
+	}
+
+	public Task RefreshEntryCostsAsync(EnhancedClientSession session)
+	{
+		if (!IsRaidSession(session) || !TryResolveUserId(session, out var userId) || !_raids.TryGetByUser(userId, out var raid) || !raid.Members.Any((RaidMember member) => member.UserId == userId && member.SessionId == session.SessionId))
+		{
+			return Task.CompletedTask;
+		}
+		byte[] packet = GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.RAID_ENTRY_COST_INFO, RaidPacketBuilder.BuildEntryCostInfo(BuildEntryCostStatuses(raid)));
+		return _sessions.BroadcastToAsync(ToCharacterIds(raid), packet);
 	}
 
 }

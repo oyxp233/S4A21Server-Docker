@@ -10,6 +10,7 @@ namespace DfoServer.Game.Dungeon
         private TournamentDungeonRuntime _tournament;
         private BloodAltarDungeonRuntime _bloodAltar;
         private DungeonBossRouteRuntime _bossRoute;
+        private AntonAwakeningRewardRuntime _antonAwakeningReward;
         private bool _conditionalBossSpawned;
         private int _conditionalBossCode;
 
@@ -131,6 +132,32 @@ namespace DfoServer.Game.Dungeon
                     return true;
                 }
                 return ReferenceEquals(_bossRoute, runtime);
+            }
+        }
+
+        internal AntonAwakeningRewardRuntime AntonAwakeningReward
+        {
+            get
+            {
+                lock (_syncRoot)
+                    return _antonAwakeningReward;
+            }
+        }
+
+        internal bool TryAttachAntonAwakeningReward(
+            AntonAwakeningRewardRuntime runtime)
+        {
+            if (runtime == null)
+                throw new ArgumentNullException(nameof(runtime));
+
+            lock (_syncRoot)
+            {
+                if (_antonAwakeningReward == null)
+                {
+                    _antonAwakeningReward = runtime;
+                    return true;
+                }
+                return ReferenceEquals(_antonAwakeningReward, runtime);
             }
         }
 

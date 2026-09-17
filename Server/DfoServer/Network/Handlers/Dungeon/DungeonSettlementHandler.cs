@@ -2759,7 +2759,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 int characterId,
                 ushort participantUserId,
                 DungeonRun candidateRun,
-                long attachmentGeneration)
+                long attachmentGeneration,
+                byte partySlot)
             {
                 if (candidateRun == null
                     || characterId <= 0
@@ -2777,18 +2778,39 @@ namespace DfoServer.Network.Handlers.Dungeon
                     candidateRun,
                     snapshot.RunIdentity,
                     snapshot.RoomIdentity,
-                    attachmentGeneration));
+                    attachmentGeneration,
+                    partySlot));
             }
+
+            var sourcePlayer = sourceSession?.Player;
+            var party = sourcePlayer != null
+                ? _svc.PartyManager?.GetPartyByUser(sourcePlayer.UserId)
+                : null;
+            var partySlots = party?.MembersBySlot().ToDictionary(
+                value => value.CharacterId,
+                value => value.SlotIndex)
+                ?? new Dictionary<int, byte>();
 
             foreach (var participant in _svc.InstanceRegistry
                          .CaptureInstanceParticipantRoster(
                              sourceRun.CaptureInstanceIdentity()))
             {
-                if (seen.Add(participant.RunIdentity.ParticipantIdentity))
-                    result.Add(participant);
+                if (!seen.Add(participant.RunIdentity.ParticipantIdentity))
+                    continue;
+                result.Add(new DungeonParticipantRosterEntry(
+                    participant.CharacterId,
+                    participant.ParticipantUserId,
+                    participant.Run,
+                    participant.RunIdentity,
+                    participant.RoomIdentity,
+                    participant.AttachmentGeneration,
+                    partySlots.TryGetValue(
+                        participant.CharacterId,
+                        out var participantSlot)
+                            ? participantSlot
+                            : byte.MaxValue));
             }
 
-            var sourcePlayer = sourceSession?.Player;
             if (sourcePlayer == null)
                 return result;
 
@@ -2796,11 +2818,14 @@ namespace DfoServer.Network.Handlers.Dungeon
                 sourcePlayer.CharacterId,
                 sourcePlayer.UserId,
                 sourceRun,
-                attachmentGeneration: 0);
+                attachmentGeneration: 0,
+                partySlot: partySlots.TryGetValue(
+                    sourcePlayer.CharacterId,
+                    out var sourceSlot)
+                        ? sourceSlot
+                        : (byte)0);
 
-            var partyManager = _svc.PartyManager;
             var sessions = _svc.Sessions;
-            var party = partyManager?.GetPartyByUser(sourcePlayer.UserId);
             if (party == null || sessions == null)
                 return result;
 
@@ -2813,7 +2838,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     member.CharacterId,
                     player?.UserId ?? 0,
                     player?.CurrentRun,
-                    attachmentGeneration: 0);
+                    attachmentGeneration: 0,
+                    partySlot: member.SlotIndex);
             }
 
             return result;
@@ -2864,6 +2890,18 @@ namespace DfoServer.Network.Handlers.Dungeon
                         $"source={sourceCharacterId} member={participant.CharacterId} " +
                         $"event={clearFact.SourceEventId:N} error={ex.Message}");
                 }
+            }
+
+            try
+            {
+                await _svc.AntonRewards.PrepareClearAsync(sourceRun, clearFact);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[AntonAwakening] clear reward coordination failed: "
+                    + $"instance={sourceRun.PartyDungeonInstanceId} "
+                    + $"event={clearFact.SourceEventId:N} error={ex.Message}");
             }
         }
 

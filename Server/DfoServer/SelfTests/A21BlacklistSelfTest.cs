@@ -177,6 +177,39 @@ namespace DfoServer.SelfTests
             sendLock.Release(); await queuedMessage;
             check("queued direct message rechecks blacklist at socket write", b.Drain().Count == 0); a.Drain();
             repo.Remove(102, "甲");
+            byte[] RaidMessage(byte mode)
+            {
+                var writer = new GamePacketWriter(); writer.WriteByte(mode); writer.WriteUInt16(0);
+                writer.WriteUInt32(0); writer.WriteClientDstr("测试"); return writer.ToArray();
+            }
+            var raids = new Game.Raid.RaidManager();
+            Game.Raid.RaidMember RaidMember(Peer peer) => new Game.Raid.RaidMember
+            {
+                UserId = peer.Session.Player.UserId, CharacterId = (uint)peer.Session.Player.CharacterId,
+                SessionId = peer.Session.SessionId, NameBytes = peer.Session.Player.Name
+            };
+            var raid = raids.Create(Name("团本"), RaidMember(a), 1);
+            check("raid chat fixture joins current recipient", raids.TryAddMember(raid.RaidId, RaidMember(b), out _));
+            using var raidChat = new ChatHandler(sessions, new PartyManager(), transitions, raids);
+            raidChat.ConfigureBlacklist(repo);
+            foreach (byte mode in new byte[] { 52, 53 })
+            {
+                await raidChat.Handle_SEND_MESSAGE(a.Session, default, RaidMessage(mode));
+                check("raid and commander chat reach current member", b.Drain().Any(packet => IsPacket(packet, NotiPacketTypeA21.MESSAGE)));
+                a.Drain();
+                await sendLock.WaitAsync();
+                var queuedRaid = raidChat.Handle_SEND_MESSAGE(a.Session, default, RaidMessage(mode));
+                repo.Add(102, "甲");
+                sendLock.Release(); await queuedRaid;
+                check("queued raid chat rechecks blacklist before context and message", b.Drain().Count == 0);
+                a.Drain(); repo.Remove(102, "甲");
+            }
+            await sendLock.WaitAsync();
+            var staleRaid = raidChat.Handle_SEND_MESSAGE(a.Session, default, RaidMessage(52));
+            b.Session.Player.CharacterId = 103;
+            sendLock.Release(); await staleRaid;
+            check("queued raid chat rejects changed recipient identity", b.Drain().Count == 0);
+            b.Session.Player.CharacterId = 102; a.Drain();
             Sql("CREATE TRIGGER blacklist_fail BEFORE INSERT ON character_blacklist BEGIN SELECT RAISE(ABORT,'test'); END;");
             await Dispatch(b, CmdPacketTypeA21.REGISITER_TO_BLACKLIST, Name("甲"));
             check("failed persistence emits failure ACK without phantom block", b.Drain().Single().SequenceEqual(

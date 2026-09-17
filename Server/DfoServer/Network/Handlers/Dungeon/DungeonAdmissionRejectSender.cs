@@ -9,7 +9,18 @@ namespace DfoServer.Network.Handlers.Dungeon
         internal Task SendAsync(
             EnhancedClientSession session,
             ushort wireType,
-            DungeonAdmissionReject rejection)
+            DungeonAdmissionReject rejection) =>
+            SendAsync(
+                session,
+                wireType,
+                rejection,
+                DungeonAdmissionRejectProjection.Native);
+
+        internal Task SendAsync(
+            EnhancedClientSession session,
+            ushort wireType,
+            DungeonAdmissionReject rejection,
+            DungeonAdmissionRejectProjection projection)
         {
             if (session == null)
                 return Task.CompletedTask;
@@ -18,7 +29,9 @@ namespace DfoServer.Network.Handlers.Dungeon
                 GamePacketEnvelopeBuilder.Build(
                     0x01,
                     wireType,
-                    DungeonAdmissionRejectBuilder.Build(rejection)));
+                    DungeonAdmissionRejectBuilder.Build(
+                        rejection,
+                        projection)));
         }
     }
 }

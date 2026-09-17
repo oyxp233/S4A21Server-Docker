@@ -156,6 +156,30 @@ namespace DfoServer.Game.Dungeon
             }
         }
 
+        internal void RollbackRegistered(
+            DungeonRun run,
+            IReadOnlyList<DropInfo> drops)
+        {
+            if (run == null || drops == null || drops.Count == 0)
+                return;
+
+            lock (run.SyncRoot)
+            {
+                foreach (var expected in drops)
+                {
+                    if (run.Drops.TryGetValue(
+                            expected.SceneSlot,
+                            out var current)
+                        && current.DropGroupId == expected.DropGroupId
+                        && current.TemplateId == expected.TemplateId
+                        && current.StackCount == expected.StackCount)
+                    {
+                        run.Drops.Remove(expected.SceneSlot);
+                    }
+                }
+            }
+        }
+
         internal List<DropInfo> GenerateAbyssPartyAndRegister(DungeonRun run, AbyssPartyDropRequest request)
         {
             if (run == null || !run.RewardPolicy.AllowsMonsterDrops)

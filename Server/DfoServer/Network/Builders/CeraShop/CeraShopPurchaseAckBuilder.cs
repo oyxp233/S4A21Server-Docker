@@ -9,6 +9,24 @@ namespace DfoServer.Network.Builders.CeraShop
         public const byte ErrorCodeInventoryFull = 4;
         public const byte ErrorCodeInsufficientCera = 11;
 
+        // 商城购买失败码 body[1](客户端 sub_CD9490 提示表, 实测穷举结果, 2026-09):
+        //   4 = 物品栏空间不足           7 = 在决斗频道中无法购买<商品名>(无关文案, 勿用)
+        //   10 = 金币不足                11 = 点券不足
+        //   12 = 胜点不足                13 = LV不足
+        //   14 = 静默处理(不弹窗)        17 = 不存在的物品
+        //   19 = 使用期限设置错误         20 = 无法购买的物品
+        //   21 = 错误的商品编号           23 = 物品功能设置错误
+        //   25 = 付费服务器错误           26 = 超出当月点券购买上限
+        //   60 = 个人商店开设中无法进入商城
+        //   77 = 无法与黑名单角色聊天     105 = 安全验证后才可以交易
+        //   108 = 装扮兑换券不足          109 = 无法作为礼物赠送
+        //   113 = 限制购买的物品         118 = 静默处理(不弹窗)
+        //   131 = 触发安全页跳转(闪退, 勿用)
+        //   134 = 需二级密码认证          137 = 盗号保护交易限制
+        //   162 = 无法使用优惠券          163 = 每日10万点券赠送上限
+        // 金库/仓库满档(NoEffect)使用 113 "限制购买的物品"。
+        public const byte ErrorCodeCannotBuy = 113;
+
         public static byte[] BuildSuccess(CeraShopPurchaseRequest request, InventoryMutationResult result)
         {
             int commodityNo = (request != null && request.CommodityNos.Count > 0) ? request.CommodityNos[0] : 0;

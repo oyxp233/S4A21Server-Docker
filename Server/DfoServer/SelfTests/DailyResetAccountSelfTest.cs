@@ -74,6 +74,63 @@ namespace DfoServer.SelfTests
                     DailyResetService.TodayId(preBoundaryUtc) == 20260820
                     && DailyResetService.TodayId(afterBoundaryUtc) == 20260821,
                     ref failures);
+                Check(
+                    "日切精确边界为北京时间05:59:59到06:00:00",
+                    DailyResetService.TodayId(
+                        new DateTime(2026, 8, 20, 21, 59, 59, DateTimeKind.Utc)) == 20260820
+                    && DailyResetService.TodayId(
+                        new DateTime(2026, 8, 20, 22, 0, 0, DateTimeKind.Utc)) == 20260821,
+                    ref failures);
+                Check(
+                    "日切跨月边界正确",
+                    DailyResetService.TodayId(
+                        new DateTime(2026, 1, 31, 21, 59, 59, DateTimeKind.Utc)) == 20260131
+                    && DailyResetService.TodayId(
+                        new DateTime(2026, 1, 31, 22, 0, 0, DateTimeKind.Utc)) == 20260201,
+                    ref failures);
+                Check(
+                    "日切跨年边界正确",
+                    DailyResetService.TodayId(
+                        new DateTime(2026, 12, 31, 21, 59, 59, DateTimeKind.Utc)) == 20261231
+                    && DailyResetService.TodayId(
+                        new DateTime(2026, 12, 31, 22, 0, 0, DateTimeKind.Utc)) == 20270101,
+                    ref failures);
+
+                using (var connection = database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    const string anchoredKey = "selftest_anchored_daily_counter";
+                    var incremented = service.TryIncrementCounter(
+                        connection,
+                        transaction,
+                        characterA2,
+                        anchoredKey,
+                        3,
+                        DailyResetService.PeriodDay,
+                        new DateTime(
+                            2026, 8, 20, 21, 59, 59, DateTimeKind.Utc));
+                    var beforeValue = service.GetCounter(
+                        connection,
+                        transaction,
+                        characterA2,
+                        anchoredKey,
+                        DailyResetService.PeriodDay,
+                        new DateTime(
+                            2026, 8, 20, 21, 59, 59, DateTimeKind.Utc));
+                    var boundaryValue = service.GetCounter(
+                        connection,
+                        transaction,
+                        characterA2,
+                        anchoredKey,
+                        DailyResetService.PeriodDay,
+                        new DateTime(
+                            2026, 8, 20, 22, 0, 0, DateTimeKind.Utc));
+                    Check(
+                        "anchored transaction rolls exactly at Beijing 06:00",
+                        incremented && beforeValue == 1 && boundaryValue == 0,
+                        ref failures);
+                    transaction.Commit();
+                }
 
                 Check(
                     "记录退出时间成功",

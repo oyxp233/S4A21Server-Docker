@@ -7,6 +7,8 @@ namespace DfoServer.Network.Builders
 {
     public sealed class EventInfoBodyBuilder : IInitPacketBuilder
     {
+        internal const ushort RaidChannelEventId = 181;
+
         private readonly GameEventRepository _repository;
 
         public EventInfoBodyBuilder()
@@ -38,8 +40,15 @@ namespace DfoServer.Network.Builders
             var extraEntries = snapshot?.ExtraEntries
                 ?? Array.Empty<GameEventExtraInfoEntry>();
 
-            writer.WriteUInt16((ushort)Math.Min(ushort.MaxValue, entries.Count));
-            for (var index = 0; index < entries.Count && index < ushort.MaxValue; index++)
+            var entryCount = Math.Min(ushort.MaxValue, entries.Count);
+            var hasRaidEvent = false;
+            for (var index = 0; index < entryCount; index++)
+                hasRaidEvent |= entries[index].EventId == RaidChannelEventId;
+            if (!hasRaidEvent && entryCount == ushort.MaxValue)
+                entryCount--;
+
+            writer.WriteUInt16((ushort)(entryCount + (hasRaidEvent ? 0 : 1)));
+            for (var index = 0; index < entryCount; index++)
             {
                 var entry = entries[index];
                 writer.WriteUInt16(entry.EventId);
@@ -60,6 +69,15 @@ namespace DfoServer.Network.Builders
                 WriteDstr(writer, entry.LinkKey);
                 WriteDstr(writer, entry.Description);
                 writer.WriteByte(entry.DetailEnabled ? (byte)1 : (byte)0);
+            }
+
+            if (!hasRaidEvent)
+            {
+                writer.WriteUInt16(RaidChannelEventId);
+                writer.WriteUInt32(0);
+                WriteDstr(writer, string.Empty);
+                WriteDstr(writer, string.Empty);
+                writer.WriteByte(0);
             }
 
             writer.WriteByte((byte)Math.Min(byte.MaxValue, extraEntries.Count));

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using DfoServer.Game.Dungeon;
@@ -9,7 +10,81 @@ namespace DfoServer.Network.Handlers.Dungeon
 {
     internal sealed class AntonNormalConquestNotificationSender
     {
-        private const int SequentialRouteMask = 0;
+        private readonly PartyPacketSender _partyPackets;
+
+        internal AntonNormalConquestNotificationSender(
+            PartyPacketSender partyPackets = null)
+        {
+            _partyPackets = partyPackets ?? new PartyPacketSender(null);
+        }
+
+        internal Task<PartyPacketSendResult>
+            SendAntonAwakeningRewardToPartyAsync(
+                IReadOnlyList<DungeonParticipantRosterEntry> roster,
+                IReadOnlyList<AntonAwakeningRewardEntry> entries)
+        {
+            if (entries == null || entries.Count == 0)
+                return _partyPackets.SendToPartyAsync(roster, null);
+
+            var body = AntonAwakeningRewardPacketBuilder.Build(entries);
+            if (body == null)
+                return _partyPackets.SendToPartyAsync(roster, null);
+
+            IReadOnlyList<byte[]> packets = new[]
+            {
+                GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21
+                        .ANTON_AWAKENING_MODE_REWARD,
+                    body),
+                GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.EXERCISE_MODE_CLEAR,
+                    new byte[sizeof(uint)]),
+            };
+            return _partyPackets.SendToPartyAsync(roster, packets);
+        }
+
+        internal async Task<bool> SendAntonAwakeningRewardAsync(
+            EnhancedClientSession session,
+            IReadOnlyList<AntonAwakeningRewardEntry> entries,
+            DungeonRunIdentity expectedRun)
+        {
+            if (entries == null
+                || entries.Count == 0
+                || !IsExpectedProjectionContextCurrent(
+                    session,
+                    expectedRun,
+                    expectedTownGeneration: null))
+            {
+                return false;
+            }
+
+            var body = AntonAwakeningRewardPacketBuilder.Build(entries);
+            if (body == null)
+                return false;
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                (ushort)NotiPacketTypeA21.ANTON_AWAKENING_MODE_REWARD,
+                body));
+            if (!IsExpectedProjectionContextCurrent(
+                    session,
+                    expectedRun,
+                    expectedTownGeneration: null))
+            {
+                return false;
+            }
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                (ushort)NotiPacketTypeA21.EXERCISE_MODE_CLEAR,
+                new byte[sizeof(uint)]));
+            return IsExpectedProjectionContextCurrent(
+                session,
+                expectedRun,
+                expectedTownGeneration: null);
+        }
 
         internal async Task SendAsync(
             EnhancedClientSession session,
@@ -46,10 +121,10 @@ namespace DfoServer.Network.Handlers.Dungeon
                 .BuildSequentialDungeonInfo(
                     state.Sequence.ConfigKey,
                     state.ProgressIndex,
-                    SequentialRouteMask);
+                    state.RouteMask);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
-                (ushort)NotiPacketType.SEQUENTIAL_DUNGEON_INFO,
+                (ushort)NotiPacketTypeA21.SEQUENTIAL_DUNGEON_INFO,
                 sequentialBody));
             if (!IsExpectedProjectionContextCurrent(
                     session,
@@ -62,7 +137,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             FileLogger.Log(
                 $"[AntonNormal] state sent: source={source} " +
                 $"key={state.Sequence.ConfigKey} progress={state.ProgressIndex} " +
-                $"routeMask={SequentialRouteMask} " +
+                $"routeMask=0x{state.RouteMask:X2} " +
                 $"sequence={string.Join(",", state.Sequence.DungeonIds)} " +
                 $"permissions={string.Join(",", state.PermissionEntries.Select(
                     entry => $"{entry.DungeonId}:{entry.ClearState}"))} " +

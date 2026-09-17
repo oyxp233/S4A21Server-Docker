@@ -8,6 +8,7 @@ using DfoServer.Network.Builders;
 using DfoServer.Network.Builders.Party;
 using DfoServer.Network.Handlers;
 using DfoServer.Network.Handlers.Dungeon;
+using DfoServer.Network.Parsers.Dungeon;
 using DfoServer.Network.Parsers.Party;
 using DfoServer.Network.Parsers.Town;
 using System;
@@ -1550,6 +1551,152 @@ namespace DfoServer.SelfTests
                         unboundSelection,
                         party: null),
                 ref failures);
+            var antonLeaderSession = Guid.NewGuid();
+            var antonFollowerSession = Guid.NewGuid();
+            var antonSettlementParty = new Party(24700)
+            {
+                LeaderUserId = 24701,
+            };
+            antonSettlementParty.TryAddMember(new PartyMember
+            {
+                UserId = 24701,
+                CharacterId = 24701,
+                SessionId = antonLeaderSession,
+                Name = "anton-leader",
+            });
+            antonSettlementParty.TryAddMember(new PartyMember
+            {
+                UserId = 24702,
+                CharacterId = 24702,
+                SessionId = antonFollowerSession,
+                Name = "anton-follower",
+            });
+            var clearedAntonRun = new DungeonRun(247, 2)
+            {
+                Phase = DungeonRunPhase.Cleared,
+            };
+            var clearedAnton243Run = new DungeonRun(243, 2)
+            {
+                Phase = DungeonRunPhase.Cleared,
+            };
+            var committingAnton243Run = new DungeonRun(243, 2);
+            var committingAnton243Fact =
+                committingAnton243Run.Instance.GetOrCreateClearedFact(
+                    new DungeonClearIntent(
+                        DungeonEventEnvelope.Create(
+                            committingAnton243Run,
+                            24702,
+                            "anton-follower-duplicate-test"),
+                        "anton-follower-duplicate-test",
+                        bossCode: 0),
+                    out _);
+            Check(
+                "Anton 243 test run enters ClearCommitting",
+                committingAnton243Run.TryBeginClearCommit(
+                    committingAnton243Fact),
+                ref failures);
+            var activeAntonRun = new DungeonRun(247, 2);
+            var clearedOtherRun = new DungeonRun(192, 2)
+            {
+                Phase = DungeonRunPhase.Cleared,
+            };
+            var antonDuplicateSelect = SelectDungeonRequest.Parse(new byte[]
+            {
+                0xF7, 0x00, 0x00, 0x00,
+                0x02, 0x00, 0x00, 0xFF, 0xFF,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            });
+            var anton243DuplicateSelect = SelectDungeonRequest.Parse(new byte[]
+            {
+                0xF3, 0x00, 0x00, 0x00,
+                0x02, 0x00, 0x00, 0xFF, 0xFF,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            });
+            var antonDifferentDifficulty = SelectDungeonRequest.Parse(new byte[]
+            {
+                0xF7, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0xFF, 0xFF,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            });
+            var antonNonCanonicalSelect = SelectDungeonRequest.Parse(new byte[]
+            {
+                0xF7, 0x00, 0x00, 0x00,
+                0x02, 0x00, 0x00, 0xFF, 0xFF,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+            });
+            Check(
+                "settling Anton follower duplicate SELECT_DUNGEON is ignored only for the captured A21 15-byte shape",
+                DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        clearedAnton243Run,
+                        antonSettlementParty,
+                        24702,
+                        antonFollowerSession,
+                        anton243DuplicateSelect)
+                && DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        committingAnton243Run,
+                        antonSettlementParty,
+                        24702,
+                        antonFollowerSession,
+                        anton243DuplicateSelect)
+                && DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        clearedAntonRun,
+                        antonSettlementParty,
+                        24702,
+                        antonFollowerSession,
+                        antonDuplicateSelect)
+                && !DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        clearedAntonRun,
+                        antonSettlementParty,
+                        24701,
+                        antonLeaderSession,
+                        antonDuplicateSelect)
+                && !DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        activeAntonRun,
+                        antonSettlementParty,
+                        24702,
+                        antonFollowerSession,
+                        antonDuplicateSelect)
+                && !DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        clearedOtherRun,
+                        antonSettlementParty,
+                        24702,
+                        antonFollowerSession,
+                        antonDuplicateSelect)
+                && !DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        clearedAntonRun,
+                        antonSettlementParty,
+                        24702,
+                        antonFollowerSession,
+                        antonDifferentDifficulty)
+                && !DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        clearedAntonRun,
+                        antonSettlementParty,
+                        24702,
+                        antonFollowerSession,
+                        antonNonCanonicalSelect)
+                && !DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        clearedAntonRun,
+                        party: null,
+                        userId: 24702,
+                        sessionId: antonFollowerSession,
+                        antonDuplicateSelect)
+                && !DungeonEntryHandler
+                    .ShouldIgnoreClearedAntonFollowerDuplicateSelect(
+                        clearedAntonRun,
+                        antonSettlementParty,
+                        24702,
+                        Guid.NewGuid(),
+                        antonDuplicateSelect),
+                ref failures);
             var transferToFollowerAgain = transferManager.TransferLeader(
                 transferPartyId,
                 11001,
@@ -1608,23 +1755,21 @@ namespace DfoServer.SelfTests
                 leaderSession,
                 originalGiveupPartyId);
             var survivorParty = giveupManager.GetPartyByUser(10039);
-            var staleFollowerGiveup = giveupManager.LeaveForDungeonReturn(
-                10039,
-                followerSession,
-                originalGiveupPartyId);
             var followerGiveup = giveupManager.LeaveForDungeonReturn(
                 10039,
                 followerSession,
-                survivorParty.PartyId);
+                originalGiveupPartyId);
             Check(
-                "successive dungeon giveups detach earlier members and preserve the final survivor as leader",
+                "dungeon leader giveup preserves party generation and survivor slot until the final member returns",
                 giveupJoin.Ok
                 && leaderGiveup.Ok
                 && leaderGiveup.LeaderChanged
                 && leaderGiveup.NewLeaderUserId == 10039
                 && leaderGiveup.RemainingMembers.Count == 1
-                && !staleFollowerGiveup.Ok
-                && staleFollowerGiveup.Reason == "party_generation_mismatch"
+                && leaderGiveup.Party.PartyId == originalGiveupPartyId
+                && leaderGiveup.RetiredParty == null
+                && survivorParty.PartyId == originalGiveupPartyId
+                && survivorParty.GetMember(10039)?.SlotIndex == 1
                 && followerGiveup.Ok
                 && followerGiveup.SoleMemberPreserved
                 && !followerGiveup.Disbanded
@@ -1632,6 +1777,45 @@ namespace DfoServer.SelfTests
                 && giveupManager.GetPartyByUser(10039)?.LeaderUserId == 10039
                 && giveupManager.GetPartyByUser(10039)?.Count == 1,
                 ref failures);
+
+            var staleGiveupManager = new PartyManager();
+            var staleLeaderSession = Guid.NewGuid();
+            var staleFollowerSession = Guid.NewGuid();
+            var staleGiveupParty = staleGiveupManager.CreateParty(
+                new PartyMember
+                {
+                    UserId = 10040,
+                    CharacterId = 10040,
+                    SessionId = staleLeaderSession,
+                    Name = "stale-leader",
+                });
+            var staleGiveupJoin = staleGiveupManager.Join(
+                staleGiveupParty.Party.PartyId,
+                new PartyMember
+                {
+                    UserId = 10041,
+                    CharacterId = 10041,
+                    SessionId = staleFollowerSession,
+                    Name = "stale-follower",
+                });
+            var staleGiveupPartyId = staleGiveupParty.Party.PartyId;
+            var staleLeaderGiveup = staleGiveupManager.LeaveExpectedParty(
+                10040,
+                staleLeaderSession,
+                staleGiveupPartyId);
+            var staleSurvivorParty = staleGiveupManager.GetPartyByUser(10041);
+            Check(
+                "stale dungeon leader cleanup preserves the frozen party generation and survivor slot",
+                staleGiveupJoin.Ok
+                && staleLeaderGiveup.Ok
+                && staleLeaderGiveup.LeaderChanged
+                && staleLeaderGiveup.NewLeaderUserId == 10041
+                && staleLeaderGiveup.RetiredParty == null
+                && staleSurvivorParty.PartyId == staleGiveupPartyId
+                && staleSurvivorParty.LeaderUserId == 10041
+                && staleSurvivorParty.GetMember(10041)?.SlotIndex == 1,
+                ref failures);
+
             var explicitFinalLeave = giveupManager.Leave(
                 10039,
                 followerSession);
@@ -1987,7 +2171,7 @@ namespace DfoServer.SelfTests
                     exitTriggeredWipe.DeadlineUtc),
                 ref failures);
 
-            var teleportBody = new byte[]
+var teleportBody = new byte[]
             {
                 0x02, 0x02, 0x3E, 0x08, 0x40, 0x01, 0x05, 0x01,
             };
@@ -2077,6 +2261,211 @@ namespace DfoServer.SelfTests
                 Town.TryGetAreaPermission(5, 1, out var shelterPermission)
                 && shelterPermission != null
                 && shelterPermission.NeedLevel == 46,
+                ref failures);
+
+            var missingAntonPrerequisite = new EntryCostResult()
+                .FailMissingPrerequisites(
+                    targetDungeonId: 244,
+                    new[] { 245, 243, 245, 0, -1 });
+            Check(
+                "missing prerequisite keeps normalized typed context",
+                missingAntonPrerequisite.FailureKind
+                    == EntryCostFailureKind.MissingPrerequisite
+                && missingAntonPrerequisite.TargetDungeonId == 244
+                && missingAntonPrerequisite.MissingPrerequisiteDungeonIds
+                    .SequenceEqual(new[] { 243, 245 }),
+                ref failures);
+            var untypedMissingPrerequisite = new EntryCostResult().Fail(
+                "anton awakening prerequisites missing=243",
+                EntryCostFailureKind.MissingPrerequisite);
+            Check(
+                "diagnostic text does not synthesize typed prerequisite context",
+                untypedMissingPrerequisite.TargetDungeonId == 0
+                && untypedMissingPrerequisite
+                    .MissingPrerequisiteDungeonIds.Count == 0,
+                ref failures);
+            var ordinaryMissing = new EntryCostResult()
+                .FailMissingPrerequisites(244, new[] { 243 });
+            var ordinaryPresentation =
+                SequentialDungeonAdmissionRejectPolicy.Resolve(
+                    ordinaryMissing,
+                    "平常的一天",
+                    memberSlot: 1,
+                    SequentialDungeonDefinitionCatalog.Current,
+                    targetDungeonName: "暴走：震颤的大地",
+                    missingPrerequisiteDungeonNames:
+                        new[] { "暴走：黑雾之源" });
+            var finalMissing = new EntryCostResult()
+                .FailMissingPrerequisites(247, new[] { 243 });
+            var finalPresentation =
+                SequentialDungeonAdmissionRejectPolicy.Resolve(
+                    finalMissing,
+                    "平常的一天",
+                    memberSlot: 1,
+                    SequentialDungeonDefinitionCatalog.Current,
+                    targetDungeonName: string.Empty,
+                    missingPrerequisiteDungeonNames:
+                        Array.Empty<string>());
+            var untypedPresentation =
+                SequentialDungeonAdmissionRejectPolicy.Resolve(
+                    untypedMissingPrerequisite,
+                    "平常的一天",
+                    memberSlot: 1,
+                    SequentialDungeonDefinitionCatalog.Current,
+                    targetDungeonName: string.Empty,
+                    missingPrerequisiteDungeonNames:
+                        Array.Empty<string>());
+            var unknownTargetPresentation =
+                SequentialDungeonAdmissionRejectPolicy.Resolve(
+                    new EntryCostResult().FailMissingPrerequisites(
+                        999,
+                        new[] { 243 }),
+                    "平常的一天",
+                    memberSlot: 1,
+                    SequentialDungeonDefinitionCatalog.Current,
+                    targetDungeonName: string.Empty,
+                    missingPrerequisiteDungeonNames:
+                        Array.Empty<string>());
+            var multipleMissingPresentation =
+                SequentialDungeonAdmissionRejectPolicy.Resolve(
+                    new EntryCostResult().FailMissingPrerequisites(
+                        246,
+                        new[] { 245, 243, 244, 243 }),
+                    string.Empty,
+                    memberSlot: 1,
+                    SequentialDungeonDefinitionCatalog.Current,
+                    targetDungeonName: "目标地下城",
+                    missingPrerequisiteDungeonNames:
+                        new[] { "前置A", "前置B", "前置C" });
+            var missingTargetNamePresentation =
+                SequentialDungeonAdmissionRejectPolicy.Resolve(
+                    ordinaryMissing,
+                    "平常的一天",
+                    memberSlot: 1,
+                    SequentialDungeonDefinitionCatalog.Current,
+                    targetDungeonName: string.Empty,
+                    missingPrerequisiteDungeonNames:
+                        new[] { "暴走：黑雾之源" });
+            var missingPrerequisiteNamePresentation =
+                SequentialDungeonAdmissionRejectPolicy.Resolve(
+                    ordinaryMissing,
+                    "平常的一天",
+                    memberSlot: 1,
+                    SequentialDungeonDefinitionCatalog.Current,
+                    targetDungeonName: "暴走：震颤的大地",
+                    missingPrerequisiteDungeonNames:
+                        new[] { string.Empty });
+            var mismatchedPrerequisiteNamesPresentation =
+                SequentialDungeonAdmissionRejectPolicy.Resolve(
+                    ordinaryMissing,
+                    "平常的一天",
+                    memberSlot: 1,
+                    SequentialDungeonDefinitionCatalog.Current,
+                    targetDungeonName: "暴走：震颤的大地",
+                    missingPrerequisiteDungeonNames:
+                        Array.Empty<string>());
+            const string genericPrerequisiteNotice =
+                "队员[平常的一天]未满足前置地下城条件，无法进入该地下城。";
+            var pvfDungeonName =
+                DungeonEntryHandler.ResolveDungeonDisplayName(243);
+            var ordinaryPermissionReject =
+                DungeonAdmissionRejectBuilder.Build(
+                    DungeonEntryHandler.ResolveEntryAdmissionReject(
+                        new EntryCostResult().Fail(
+                            "ordinary permission missing",
+                            EntryCostFailureKind.MissingPermission),
+                        memberSlot: 1));
+            var invalidReject = DungeonAdmissionRejectBuilder.Build(
+                DungeonEntryHandler.ResolveEntryAdmissionReject(
+                    new EntryCostResult().Fail(
+                        "anton awakening progress unavailable",
+                        EntryCostFailureKind.InvalidState),
+                    memberSlot: 1));
+            Check(
+                "ordinary sequential prerequisite uses silent rejection and exact notice",
+                ordinaryPresentation.Projection
+                    == DungeonAdmissionRejectProjection.Silent
+                && ordinaryPresentation.HasNotice
+                && ordinaryPresentation.NoticeMessage
+                    == "队员[平常的一天]未通关【暴走：黑雾之源】，" +
+                       "无法进入【暴走：震颤的大地】。"
+                && DungeonAdmissionRejectBuilder.Build(
+                        DungeonAdmissionReject.MissingPrerequisite(1),
+                        ordinaryPresentation.Projection)
+                    .SequenceEqual(new byte[] { 0x00, 0x09, 0x00 }),
+                ref failures);
+            Check(
+                "rewardable sequential prerequisite keeps native rejection",
+                finalPresentation.Projection
+                    == DungeonAdmissionRejectProjection.Native
+                && !finalPresentation.HasNotice
+                && DungeonAdmissionRejectBuilder.Build(
+                        DungeonAdmissionReject.MissingPrerequisite(1),
+                        finalPresentation.Projection)
+                    .SequenceEqual(new byte[] { 0x00, 0x07, 0x00 }),
+                ref failures);
+            Check(
+                "missing typed context fails safe to native rejection",
+                untypedPresentation.Projection
+                    == DungeonAdmissionRejectProjection.Native
+                && !untypedPresentation.HasNotice,
+                ref failures);
+            Check(
+                "unknown sequential target fails safe to native rejection",
+                unknownTargetPresentation.Projection
+                    == DungeonAdmissionRejectProjection.Native
+                && !unknownTargetPresentation.HasNotice,
+                ref failures);
+            Check(
+                "multiple prerequisite names keep stable order and slot fallback",
+                multipleMissingPresentation.Projection
+                    == DungeonAdmissionRejectProjection.Silent
+                && multipleMissingPresentation.NoticeMessage
+                    == "队员[槽位1]未通关【前置A】、【前置B】、【前置C】，" +
+                       "无法进入【目标地下城】。",
+                ref failures);
+            Check(
+                "missing dungeon display names use generic notice without IDs",
+                missingTargetNamePresentation.Projection
+                    == DungeonAdmissionRejectProjection.Silent
+                && missingTargetNamePresentation.NoticeMessage
+                    == genericPrerequisiteNotice
+                && missingPrerequisiteNamePresentation.Projection
+                    == DungeonAdmissionRejectProjection.Silent
+                && missingPrerequisiteNamePresentation.NoticeMessage
+                    == genericPrerequisiteNotice
+                && mismatchedPrerequisiteNamesPresentation.Projection
+                    == DungeonAdmissionRejectProjection.Silent
+                && mismatchedPrerequisiteNamesPresentation.NoticeMessage
+                    == genericPrerequisiteNotice
+                && !genericPrerequisiteNotice.Any(char.IsDigit),
+                ref failures);
+            Check(
+                "sequential prerequisite notice name resolves from current PVF",
+                !string.IsNullOrWhiteSpace(pvfDungeonName)
+                && pvfDungeonName
+                    == Dungeon.GetDungeonFile(243)?.Name?.Trim(),
+                ref failures);
+            Check(
+                "unknown dungeon display name resolves empty",
+                DungeonEntryHandler.ResolveDungeonDisplayName(int.MaxValue)
+                    == string.Empty,
+                ref failures);
+            Check(
+                "default missing-prerequisite builder remains native",
+                DungeonAdmissionRejectBuilder.Build(
+                        DungeonAdmissionReject.MissingPrerequisite(1))
+                    .SequenceEqual(new byte[] { 0x00, 0x07, 0x00 }),
+                ref failures);
+            Check(
+                "ordinary member permission keeps the member-level permission code",
+                ordinaryPermissionReject.SequenceEqual(
+                    new byte[] { 0x00, 0xAD, 0x01 }),
+                ref failures);
+            Check(
+                "Anton progress database failure is not mislabeled as missing permission",
+                invalidReject.SequenceEqual(
+                    new byte[] { 0x00, 0x13, 0x00 }),
                 ref failures);
 
             Console.WriteLine($"A21_PARTY_PROTOCOL failures={failures}");

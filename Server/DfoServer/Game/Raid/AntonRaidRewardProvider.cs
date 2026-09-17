@@ -1,3 +1,4 @@
+using DfoServer.Game.Inventory;
 using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
 using PvfLib;
@@ -151,22 +152,57 @@ namespace DfoServer.Game.Raid
 
         internal static uint RollRewardContainer(uint phaseIndex, string rewardType, uint rank)
         {
-            var phase = Configuration.Value?.GetPhase(checked((int)phaseIndex));
-            if (phase != null)
-            {
-                var state = checked((int)rank);
-                var totalWeight = phase.GetRewardWeight(rewardType, state);
-                if (totalWeight > 0
-                    && phase.TrySelectReward(
-                        rewardType,
-                        state,
-                        Random.Shared.Next(totalWeight),
-                        out var reward)
-                    && reward.ItemId > 0)
-                    return checked((uint)reward.ItemId);
-            }
+            byte flags;
+            return RollRewardContainer(phaseIndex, rewardType, rank, out flags);
+        }
 
-            return SelectFallbackContainer(phaseIndex, rewardType, rank);
+        internal static uint RollRewardContainer(uint phaseIndex, string rewardType, uint rank, out byte flags)
+        {
+            flags = 0;
+            checked
+            {
+                RaidEtcPhase raidEtcPhase = Configuration.Value?.GetPhase((int)phaseIndex);
+                if (raidEtcPhase != null)
+                {
+                    int state = (int)rank;
+                    if (phaseIndex == 1 && string.Equals(rewardType, "squad_item", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RaidStateReward[] source = raidEtcPhase.StateRewards.Where((RaidStateReward r) => r.Weight > 0 && string.Equals(r.RewardType, rewardType, StringComparison.OrdinalIgnoreCase)).ToArray();
+                        RaidStateReward[] array = source.Where((RaidStateReward r) => r.State == state).ToArray();
+                        RaidStateReward[] array2 = ((array.Length != 0) ? array : source.Where((RaidStateReward r) => r.State == -1).ToArray());
+                        int num = AntonRaidGoldRate.Select(AntonRaidGoldRate.GetWeights(phaseIndex, rewardType, array2), Random.Shared.NextDouble());
+                        if (num >= 0 && array2[num].ItemId > 0)
+                        {
+                            return ProjectRewardContainer(array2[num], out flags);
+                        }
+                    }
+                    int rewardWeight = raidEtcPhase.GetRewardWeight(rewardType, state);
+                    if (rewardWeight > 0 && raidEtcPhase.TrySelectReward(rewardType, state, Random.Shared.Next(rewardWeight), out var reward) && reward.ItemId > 0)
+                    {
+                        return ProjectRewardContainer(reward, out flags);
+                    }
+                }
+                return SelectFallbackContainer(phaseIndex, rewardType, rank);
+            }
+        }
+
+        internal static uint ProjectRewardContainer(RaidStateReward reward, out byte flags)
+        {
+            ArgumentNullException.ThrowIfNull(reward, "reward");
+            if (reward.ItemId <= 0)
+            {
+                throw new ArgumentOutOfRangeException("reward");
+            }
+            checked
+            {
+                flags = (byte)reward.Flags;
+                return (uint)reward.ItemId;
+            }
+        }
+
+        internal static byte GetSquadDisplayFlags(uint actualItemId, ItemMetadata item)
+        {
+            return AntonRaidGoldRewards.GetDisplayFlag(actualItemId, item);
         }
 
         internal static uint SelectFallbackContainer(string rewardType, uint rank)
@@ -179,50 +215,68 @@ namespace DfoServer.Game.Raid
             if (phaseIndex == 1)
             {
                 if (string.Equals(rewardType, "party_card", StringComparison.OrdinalIgnoreCase))
-                    return Random.Shared.Next(1000) < 955
-                        ? PhaseTwoPartyCardCommonFallbackItemId
-                        : PhaseTwoPartyCardRareFallbackItemId;
+                {
+                    if (Random.Shared.Next(1000) >= 955)
+                    {
+                        return 10094737u;
+                    }
+                    return 10094785u;
+                }
                 if (string.Equals(rewardType, "gold", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (rank == 2)
-                        return PhaseTwoGoldRankBFallbackItemId;
-                    if (rank >= 3)
-                        return PhaseTwoGoldRankCFallbackItemId;
-                    return PhaseTwoGoldFallbackItemId;
+                    switch (rank)
+                    {
+                    case 2u:
+                        return 10094788u;
+                    default:
+                        return 10094787u;
+                    case 0u:
+                    case 1u:
+                        return 10094789u;
+                    }
                 }
                 if (string.Equals(rewardType, "squad_item", StringComparison.OrdinalIgnoreCase))
                 {
-                    var roll = Random.Shared.Next(100);
-                    for (var index = 0; index < PhaseTwoSquadFallbackWeights.Length; index++)
+                    RaidStateReward[] rewards = PhaseTwoSquadFallbackItemIds.Select((uint id, int i) => new RaidStateReward
                     {
-                        roll -= PhaseTwoSquadFallbackWeights[index];
-                        if (roll < 0)
-                            return PhaseTwoSquadFallbackItemIds[index];
-                    }
+                        ItemId = (int)id,
+                        Weight = PhaseTwoSquadFallbackWeights[i]
+                    }).ToArray();
+                    int num = AntonRaidGoldRate.Select(AntonRaidGoldRate.GetWeights(phaseIndex, rewardType, rewards), Random.Shared.NextDouble());
+                    return PhaseTwoSquadFallbackItemIds[num];
                 }
             }
-
             if (string.Equals(rewardType, "party_card", StringComparison.OrdinalIgnoreCase))
-                return PartyCardFallbackItemId;
+            {
+                return 10094735u;
+            }
             if (string.Equals(rewardType, "gold", StringComparison.OrdinalIgnoreCase))
             {
-                if (rank == 2)
-                    return GoldRankBFallbackItemId;
-                if (rank >= 3)
-                    return GoldRankCFallbackItemId;
-                return GoldFallbackItemId;
+                switch (rank)
+                {
+                case 2u:
+                    return 10094734u;
+                default:
+                    return 10094786u;
+                case 0u:
+                case 1u:
+                    return 10094732u;
+                }
             }
             if (string.Equals(rewardType, "squad_item", StringComparison.OrdinalIgnoreCase))
             {
-                var roll = Random.Shared.Next(100);
-                if (roll < 92)
-                    return SquadCommonFallbackItemId;
-                if (roll < 95)
-                    return SquadRareFallbackItemId;
-                return SquadSpecialFallbackItemId;
+                int num2 = Random.Shared.Next(100);
+                if (num2 < 92)
+                {
+                    return 10094731u;
+                }
+                if (num2 < 95)
+                {
+                    return 10094737u;
+                }
+                return 10094784u;
             }
-
-            throw new InvalidOperationException($"Unsupported Anton raid reward type: {rewardType}");
+            throw new InvalidOperationException("Unsupported Anton raid reward type: " + rewardType);
         }
         private static RaidBuffFile LoadSituationConfiguration()
         {

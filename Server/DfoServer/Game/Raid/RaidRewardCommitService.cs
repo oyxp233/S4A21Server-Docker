@@ -1,32 +1,30 @@
 using System;
 using System.Linq;
 using DfoServer.Game.Inventory;
+using Microsoft.Data.Sqlite;
 
 namespace DfoServer.Game.Raid
 {
     internal static class RaidRewardCommitService
     {
-        internal static bool TryGrantGold(
-            InventoryLease lease,
-            int amount)
+        internal static bool TryGrantGold(InventoryLease lease, int amount)
         {
-            if (lease?.Inventory == null || amount <= 0)
-                return false;
+            int grantedCount;
+            return TryGrantGold(lease, amount, out grantedCount);
+        }
 
-            var carryLimit = InventoryGoldCarryLimitLoader.Load(
-                lease.Inventory);
-            return OnlineInventoryMutationCommitCoordinator.TryCommit(
-                lease,
-                "raid-reward-gold",
-                (connection, transaction) =>
-                {
-                    return lease.Inventory.TryGrantGold(
-                            amount,
-                            carryLimit,
-                            out var granted,
-                            out _)
-                        && granted > 0;
-                });
+        internal static bool TryGrantGold(InventoryLease lease, int amount, out int grantedCount)
+        {
+            grantedCount = 0;
+            if (lease?.Inventory == null || amount <= 0)
+            {
+                return false;
+            }
+            int carryLimit = InventoryGoldCarryLimitLoader.Load(lease.Inventory);
+            int committedCount = 0;
+            bool flag = OnlineInventoryMutationCommitCoordinator.TryCommit(lease, "raid-reward-gold", (SqliteConnection connection, SqliteTransaction transaction) => lease.Inventory.TryGrantGold(amount, carryLimit, out committedCount, out var _) && committedCount > 0);
+            grantedCount = (flag ? committedCount : 0);
+            return flag;
         }
 
         internal static bool TryGrantItem(

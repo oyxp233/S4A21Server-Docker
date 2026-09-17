@@ -4,17 +4,27 @@ namespace DfoServer.Network.Builders
 {
     internal static class DungeonAdmissionRejectBuilder
     {
-        internal static byte[] Build(DungeonAdmissionReject rejection)
+        internal static byte[] Build(DungeonAdmissionReject rejection) =>
+            Build(
+                rejection,
+                DungeonAdmissionRejectProjection.Native);
+
+        internal static byte[] Build(
+            DungeonAdmissionReject rejection,
+            DungeonAdmissionRejectProjection projection)
         {
             var writer = new GamePacketWriter();
             writer.WriteByte(0);
-            writer.WriteByte(ResolveErrorCode(rejection.Reason));
+            writer.WriteByte(ResolveErrorCode(
+                rejection.Reason,
+                projection));
             writer.WriteByte(ResolveContext(rejection));
             return writer.ToArray();
         }
 
         private static byte ResolveErrorCode(
-            DungeonAdmissionRejectReason reason)
+            DungeonAdmissionRejectReason reason,
+            DungeonAdmissionRejectProjection projection)
         {
             switch (reason)
             {
@@ -22,6 +32,10 @@ namespace DfoServer.Network.Builders
                     return 0x11;
                 case DungeonAdmissionRejectReason.InsufficientFatigue:
                     return 0x16;
+                case DungeonAdmissionRejectReason.MissingPrerequisite:
+                    return projection == DungeonAdmissionRejectProjection.Silent
+                        ? (byte)0x09
+                        : (byte)0x07;
                 case DungeonAdmissionRejectReason.MemberEntryLimitReached:
                 case DungeonAdmissionRejectReason.MissingPermission:
                     return 0xAD;

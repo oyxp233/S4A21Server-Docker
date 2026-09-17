@@ -228,6 +228,8 @@ namespace DfoServer.GameWorld
         public static int GetChampionCount(int dungeonId, int difficulty, int mazeIndex, out int[] namedMonsterCodes)
         {
             namedMonsterCodes = null;
+            if (DungeonRewardPolicyData.IsAntonRaidDungeonId(dungeonId))
+                return 0;
             try
             {
                 var dngFile = GetDungeonFile(dungeonId);
@@ -269,7 +271,7 @@ namespace DfoServer.GameWorld
             int[] namedMonsterCodes = null,
             int dungeonId = 0)
         {
-            if (count <= 0) return;
+            if (count <= 0 || DungeonRewardPolicyData.IsAntonRaidDungeonId(dungeonId)) return;
 
             var namedSet = namedMonsterCodes != null && namedMonsterCodes.Length > 0
                 ? new HashSet<int>(namedMonsterCodes) : null;
@@ -315,7 +317,8 @@ namespace DfoServer.GameWorld
                     && !MonsterCaptureDefinitionCatalog.HasExclusiveItemDrop(
                         monster.Code)
                     && (namedSet == null || !namedSet.Contains(monster.Code))
-                    && !SequentialDungeonMonsterCatalog.Contains(
+                    && !SequentialDungeonDefinitionCatalog.Current
+                        .ContainsConfiguredMonster(
                         dungeonId,
                         monster.Code)
                     && !(specialDungeon

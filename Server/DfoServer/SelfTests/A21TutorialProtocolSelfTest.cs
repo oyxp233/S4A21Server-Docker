@@ -1144,8 +1144,10 @@ namespace DfoServer.SelfTests
                 dungeonId: 231);
             Check(
                 "sequential-dungeon mechanism monsters stay normal",
-                SequentialDungeonMonsterCatalog.Contains(225, 56639)
-                && SequentialDungeonMonsterCatalog.Contains(231, 56649)
+                SequentialDungeonDefinitionCatalog.Current
+                    .ContainsConfiguredMonster(225, 56639)
+                && SequentialDungeonDefinitionCatalog.Current
+                    .ContainsConfiguredMonster(231, 56649)
                 && togPromotionMap.Monsters.Count == 1
                 && togPromotionMap.Monsters[0].Code == 56639
                 && togPromotionMap.Monsters[0].Type == 0

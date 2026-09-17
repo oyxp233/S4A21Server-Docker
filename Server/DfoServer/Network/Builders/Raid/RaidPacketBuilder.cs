@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 
 namespace DfoServer.Network.Builders.Raid
@@ -11,6 +12,8 @@ namespace DfoServer.Network.Builders.Raid
         public byte Job { get; set; }
         public byte GrowType { get; set; }
         public ushort PartyIndex { get; set; }
+        public uint PhaseClearCount { get; set; }
+        public byte PhaseIndex { get; set; }
     }
 
     public sealed class RaidRewardEntry
@@ -53,6 +56,35 @@ namespace DfoServer.Network.Builders.Raid
 
     public static class RaidPacketBuilder
     {
+        internal const uint MemberColumnRequestMagic = 827343698u;
+
+        internal const uint MemberColumnProtocolVersion = 1u;
+
+        internal const int MemberColumnRequestSize = 12;
+
+        internal static bool TryReadMemberColumnRequest(byte[] body, out uint raidId)
+        {
+            raidId = 0u;
+            if (body == null || body.Length != 12 || BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(4, 4)) != 827343698 || BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(8, 4)) != 1)
+            {
+                return false;
+            }
+            raidId = BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(0, 4));
+            return raidId != 0;
+        }
+
+        public static byte[] BuildPeerInvite(ushort inviterUserId, int peerId)
+        {
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteUInt16(inviterUserId);
+            gamePacketWriter.WriteByte(10);
+            gamePacketWriter.WriteInt32(peerId);
+            gamePacketWriter.WriteUInt16(0);
+            gamePacketWriter.WriteUInt16(0);
+            gamePacketWriter.WriteUInt16(0);
+            return gamePacketWriter.ToArray();
+        }
+
         public static byte[] BuildCreateAck(uint raidKey)
         {
             var writer = new GamePacketWriter();
@@ -69,36 +101,37 @@ namespace DfoServer.Network.Builders.Raid
             return BuildRaidModify(raidId, titleBytes, 0, 0, leader, new[] { leader });
         }
 
-        public static byte[] BuildRaidModify(
-            uint raidId,
-            byte[] titleBytes,
-            uint state,
-            uint stateArgument,
-            RaidMemberSnapshot leader,
-            IReadOnlyList<RaidMemberSnapshot> members)
+        public static byte[] BuildRaidModify(uint raidId, byte[] titleBytes, uint state, uint stateArgument, RaidMemberSnapshot leader, IReadOnlyList<RaidMemberSnapshot> members)
         {
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(raidId);
-            writer.WriteUInt32(0); // create/full refresh operation
-            WriteRaidObject(writer, raidId, titleBytes, state, stateArgument, leader);
-            WriteMemberList(writer, members);
-            return writer.ToArray();
-
+            return BuildRaidModify(raidId, titleBytes, state, stateArgument, leader, members, columnV1: false);
         }
 
-        public static byte[] BuildRaidCreate(
-            uint raidId,
-            byte[] titleBytes,
-            uint state,
-            uint stateArgument,
-            RaidMemberSnapshot leader,
-            IReadOnlyList<RaidMemberSnapshot> members)
+        public static byte[] BuildRaidModify(uint raidId, byte[] titleBytes, uint state, uint stateArgument, RaidMemberSnapshot leader, IReadOnlyList<RaidMemberSnapshot> members, bool columnV1)
         {
-            return BuildRaidModify(raidId, titleBytes, state, stateArgument, leader, members);
-
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteUInt32(raidId);
+            gamePacketWriter.WriteUInt32(0u);
+            WriteRaidObject(gamePacketWriter, raidId, titleBytes, state, stateArgument, leader);
+            WriteMemberList(gamePacketWriter, members);
+            if (columnV1)
+            {
+                WriteMemberColumnFooter(gamePacketWriter, members, stateArgument);
+            }
+            return gamePacketWriter.ToArray();
         }
-        // RAID_LIST (0x024F) is a list of complete RAID objects, without the
-        // operation field used by RAID_MODIFY (0x0250).
+
+        public static byte[] BuildRaidCreate(uint raidId, byte[] titleBytes, uint state, uint stateArgument, RaidMemberSnapshot leader, IReadOnlyList<RaidMemberSnapshot> members)
+        {
+            return BuildRaidCreate(raidId, titleBytes, state, stateArgument, leader, members, columnV1: false);
+        }
+
+        public static byte[] BuildRaidCreate(uint raidId, byte[] titleBytes, uint state, uint stateArgument, RaidMemberSnapshot leader, IReadOnlyList<RaidMemberSnapshot> members, bool columnV1)
+        {
+            return BuildRaidModify(raidId, titleBytes, state, stateArgument, leader, members, columnV1);
+        }
+
+        // RAID_LIST is a list of complete RAID objects, without the
+        // operation field used by RAID_MODIFY.
         public static byte[] BuildRaidList(
             uint raidId,
             byte[] titleBytes,
@@ -132,32 +165,65 @@ namespace DfoServer.Network.Builders.Raid
 
         }
 
-        public static byte[] BuildRaidMembersUpdate(
-            uint raidId,
-            IReadOnlyList<RaidMemberSnapshot> members)
+        public static byte[] BuildRaidMembersUpdate(uint raidId, IReadOnlyList<RaidMemberSnapshot> members)
         {
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(raidId);
-            writer.WriteUInt32(3); // member list update operation
-            WriteMemberList(writer, members);
-            return writer.ToArray();
-
+            return BuildRaidMembersUpdate(raidId, members, columnV1: false);
         }
 
-        private static void WriteRaidObject(
-            GamePacketWriter writer,
-            uint raidId,
-            byte[] titleBytes,
-            uint state,
-            uint stateArgument,
-            RaidMemberSnapshot leader)
+        public static byte[] BuildRaidMembersUpdate(uint raidId, IReadOnlyList<RaidMemberSnapshot> members, bool columnV1)
         {
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteUInt32(raidId);
+            gamePacketWriter.WriteUInt32(3u);
+            WriteMemberList(gamePacketWriter, members);
+            if (columnV1)
+            {
+                WriteMemberColumnFooter(gamePacketWriter, members, (uint)((members.Count != 0) ? members[0].PhaseIndex : 0));
+            }
+            return gamePacketWriter.ToArray();
+        }
+
+        private static void WriteMemberColumnFooter(GamePacketWriter gamePacketWriter, IReadOnlyList<RaidMemberSnapshot> members, uint phase)
+        {
+            if (phase > 1)
+            {
+                throw new ArgumentOutOfRangeException("phase");
+            }
+            if (members.Count > 20)
+            {
+                throw new ArgumentOutOfRangeException("members");
+            }
+            gamePacketWriter.WriteUInt32(826491730u);
+            gamePacketWriter.WriteByte((byte)phase);
+            gamePacketWriter.WriteByte((byte)members.Count);
+            foreach (RaidMemberSnapshot member in members)
+            {
+                if (member.PhaseIndex != phase)
+                {
+                    throw new ArgumentException("Member phase differs from footer/object phase", "members");
+                }
+                gamePacketWriter.WriteUInt16(member.UserId);
+                gamePacketWriter.WriteUInt32(member.CharacterId);
+                gamePacketWriter.WriteUInt32(member.PhaseClearCount);
+            }
+        }
+
+        private static void WriteRaidObject(GamePacketWriter writer, uint raidId, byte[] titleBytes, uint state, uint stateArgument, RaidMemberSnapshot leader)
+        {
+            if (state > 255)
+            {
+                throw new ArgumentOutOfRangeException("state");
+            }
+            if (stateArgument > 255)
+            {
+                throw new ArgumentOutOfRangeException("stateArgument");
+            }
             writer.WriteUInt32(raidId);
             writer.WriteRawDstr(titleBytes);
-            writer.WriteUInt32(0); // object+36
-            writer.WriteUInt32(state); // object+40
-            writer.WriteUInt32(stateArgument); // object+48
-            writer.WriteUInt32(0); // object+52
+            writer.WriteByte(0);
+            writer.WriteByte((byte)state);
+            writer.WriteByte((byte)stateArgument);
+            writer.WriteUInt32(0u);
             WriteMember(writer, leader);
         }
 
@@ -177,6 +243,26 @@ namespace DfoServer.Network.Builders.Raid
             writer.WriteUInt32(1); // remove operation
             return writer.ToArray();
 
+        }
+
+        public static byte[] BuildRaidDirectory(IReadOnlyList<RaidDirectoryEntry> raids)
+        {
+            if (raids == null)
+            {
+                throw new ArgumentNullException("raids");
+            }
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteUInt32((uint)raids.Count);
+            foreach (RaidDirectoryEntry raid in raids)
+            {
+                if (raid?.Leader == null)
+                {
+                    throw new ArgumentException("Raid directory entries need a leader.", "raids");
+                }
+                WriteRaidObject(gamePacketWriter, raid.RaidId, raid.TitleBytes, raid.State, raid.StateArgument, raid.Leader);
+                gamePacketWriter.WriteByte((byte)raid.MemberCount);
+            }
+            return gamePacketWriter.ToArray();
         }
 
         public static byte[] BuildWaitingList(RaidMemberSnapshot member)
@@ -205,10 +291,29 @@ namespace DfoServer.Network.Builders.Raid
 
         public static byte[] BuildRaidState(uint state, uint arg)
         {
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(state);
-            writer.WriteUInt32(arg);
-            return writer.ToArray();
+            if (state > 255)
+            {
+                throw new ArgumentOutOfRangeException("state");
+            }
+            if (arg > 255)
+            {
+                throw new ArgumentOutOfRangeException("arg");
+            }
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteByte((byte)state);
+            gamePacketWriter.WriteByte((byte)arg);
+            return gamePacketWriter.ToArray();
+        }
+
+        public static byte[] BuildRaidWaitingAck()
+        {
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteByte(1);
+            for (int i = 0; i < 5; i++)
+            {
+                gamePacketWriter.WriteUInt32(0u);
+            }
+            return gamePacketWriter.ToArray();
         }
 
         public static byte[] BuildSetTimer(uint key0, uint key1, uint durationSeconds)
@@ -219,12 +324,16 @@ namespace DfoServer.Network.Builders.Raid
 
         internal static byte[] BuildSetTimer(uint key0, uint key1, uint durationSeconds, uint endTimestamp)
         {
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(key0);
-            writer.WriteUInt32(key1);
-            writer.WriteUInt32(endTimestamp);
-            writer.WriteUInt32(durationSeconds);
-            return writer.ToArray();
+            if (key0 > 255)
+            {
+                throw new ArgumentOutOfRangeException("key0");
+            }
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteByte((byte)key0);
+            gamePacketWriter.WriteUInt32(key1);
+            gamePacketWriter.WriteUInt32(endTimestamp);
+            gamePacketWriter.WriteUInt32(durationSeconds);
+            return gamePacketWriter.ToArray();
         }
 
         public static byte[] BuildRemainTime(byte timerType, uint remainSeconds)
@@ -235,22 +344,19 @@ namespace DfoServer.Network.Builders.Raid
             return writer.ToArray();
         }
 
-        public static byte[] BuildRaidResult(
-            uint resultType,
-            uint phaseIndex,
-            uint clearTimeSeconds,
-            uint deadCount,
-            uint rank,
-            byte rewardOption)
+        public static byte[] BuildRaidResult(uint resultType, uint phaseIndex, uint clearTimeSeconds, uint deadCount, uint rank, byte rewardOption)
         {
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(resultType);
-            writer.WriteUInt32(phaseIndex);
-            writer.WriteUInt32(clearTimeSeconds);
-            writer.WriteUInt32(deadCount);
-            writer.WriteUInt32(rank);
-            writer.WriteByte(rewardOption);
-            return writer.ToArray();
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            checked
+            {
+                gamePacketWriter.WriteByte((byte)resultType);
+                gamePacketWriter.WriteByte((byte)phaseIndex);
+                gamePacketWriter.WriteUInt32(clearTimeSeconds);
+                gamePacketWriter.WriteUInt16(unchecked((ushort)Math.Min(deadCount, 65535u)));
+                gamePacketWriter.WriteByte((byte)rank);
+                gamePacketWriter.WriteByte(rewardOption);
+                return gamePacketWriter.ToArray();
+            }
         }
 
         public static byte[] BuildRaidMovieSkip(uint movieId, uint option)
@@ -261,42 +367,47 @@ namespace DfoServer.Network.Builders.Raid
             return writer.ToArray();
         }
 
-        public static byte[] BuildRaidRewardList(
-            uint rewardType,
-            IReadOnlyList<RaidRewardEntry> rewards)
+        public static byte[] BuildRaidRewardList(uint rewardType, IReadOnlyList<RaidRewardEntry> rewards)
         {
             if (rewards == null)
-                throw new ArgumentNullException(nameof(rewards));
-
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(rewardType);
-            writer.WriteUInt32((uint)rewards.Count);
-            foreach (var reward in rewards)
             {
-                if (reward == null)
-                    throw new ArgumentException("Reward entries cannot contain null.", nameof(rewards));
-                writer.WriteUInt16(reward.UserId);
-                writer.WriteByte(reward.CardType);
-                writer.WriteUInt32(reward.Flags);
-                writer.WriteUInt32(reward.ItemId);
-                writer.WriteUInt32(reward.Quantity);
+                throw new ArgumentNullException("rewards");
             }
-            return writer.ToArray();
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            checked
+            {
+                gamePacketWriter.WriteByte((byte)rewardType);
+                gamePacketWriter.WriteByte((byte)rewards.Count);
+                foreach (RaidRewardEntry reward in rewards)
+                {
+                    if (reward == null)
+                    {
+                        throw new ArgumentException("Reward entries cannot contain null.", "rewards");
+                    }
+                    gamePacketWriter.WriteUInt16(reward.UserId);
+                    gamePacketWriter.WriteByte(reward.CardType);
+                    gamePacketWriter.WriteByte((byte)reward.Flags);
+                    gamePacketWriter.WriteUInt32(reward.ItemId);
+                    gamePacketWriter.WriteUInt16((ushort)reward.Quantity);
+                }
+                return gamePacketWriter.ToArray();
+            }
         }
 
         public static byte[] BuildSetSymbols(IReadOnlyList<KeyValuePair<uint, uint>> symbols)
         {
             if (symbols == null)
-                throw new ArgumentNullException(nameof(symbols));
-
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32((uint)symbols.Count);
-            foreach (var symbol in symbols)
             {
-                writer.WriteUInt32(symbol.Key);
-                writer.WriteUInt32(symbol.Value);
+                throw new ArgumentNullException("symbols");
             }
-            return writer.ToArray();
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteByte(checked((byte)symbols.Count));
+            foreach (KeyValuePair<uint, uint> symbol in symbols)
+            {
+                gamePacketWriter.WriteUInt32(symbol.Key);
+                gamePacketWriter.WriteUInt32(symbol.Value);
+            }
+            return gamePacketWriter.ToArray();
         }
 
         public static byte[] BuildSetSymbol(uint symbolId, uint value)
@@ -314,50 +425,64 @@ namespace DfoServer.Network.Builders.Raid
                 infectionDungeonId);
         }
 
-        public static byte[] BuildDungeonState(
-            IReadOnlyList<KeyValuePair<uint, uint>> dungeonStates,
-            uint infectionDungeonId = 0)
+        public static byte[] BuildDungeonState(IReadOnlyList<KeyValuePair<uint, uint>> dungeonStates, uint infectionDungeonId = 0u)
         {
             if (dungeonStates == null)
-                throw new ArgumentNullException(nameof(dungeonStates));
-
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(0);
-            writer.WriteUInt32((uint)dungeonStates.Count);
-            foreach (var dungeonState in dungeonStates)
             {
-                writer.WriteUInt32(dungeonState.Key);
-                writer.WriteUInt32(dungeonState.Value);
+                throw new ArgumentNullException("dungeonStates");
             }
-            writer.WriteUInt32(infectionDungeonId);
-            return writer.ToArray();
+            if (dungeonStates.Count > 255)
+            {
+                throw new ArgumentOutOfRangeException("dungeonStates");
+            }
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteByte(0);
+            gamePacketWriter.WriteByte((byte)dungeonStates.Count);
+            foreach (KeyValuePair<uint, uint> dungeonState in dungeonStates)
+            {
+                if (dungeonState.Value > 255)
+                {
+                    throw new ArgumentOutOfRangeException("dungeonStates");
+                }
+                gamePacketWriter.WriteUInt32(dungeonState.Key);
+                gamePacketWriter.WriteByte((byte)dungeonState.Value);
+            }
+            gamePacketWriter.WriteUInt32(infectionDungeonId);
+            return gamePacketWriter.ToArray();
         }
 
         public static byte[] BuildChangeDungeonState(uint dungeonId, uint state)
         {
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(dungeonId);
-            writer.WriteUInt32(0); // read by the client but unused
-            writer.WriteUInt32(state);
-            return writer.ToArray();
+            if (state > 255)
+            {
+                throw new ArgumentOutOfRangeException("state");
+            }
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteUInt32(dungeonId);
+            gamePacketWriter.WriteByte(0);
+            gamePacketWriter.WriteByte((byte)state);
+            return gamePacketWriter.ToArray();
         }
 
-        public static byte[] BuildRaidDungeonParticipationInfo(
-            uint targetId,
-            uint op,
-			IReadOnlyList<uint> memberUserIds)
+        public static byte[] BuildRaidDungeonParticipationInfo(uint targetId, uint op, IReadOnlyList<uint> memberUserIds)
         {
-			if (memberUserIds == null)
-				throw new ArgumentNullException(nameof(memberUserIds));
-
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32(1);
-            writer.WriteUInt32(targetId);
-            writer.WriteUInt32(op);
-			writer.WriteUInt32((uint)memberUserIds.Count);
-			foreach (var memberUserId in memberUserIds)
-				writer.WriteUInt32(memberUserId);
-            return writer.ToArray();
+            if (memberUserIds == null)
+            {
+                throw new ArgumentNullException("memberUserIds");
+            }
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteByte(1);
+            gamePacketWriter.WriteUInt32(targetId);
+            checked
+            {
+                gamePacketWriter.WriteByte((byte)op);
+                gamePacketWriter.WriteByte((byte)memberUserIds.Count);
+                foreach (uint memberUserId in memberUserIds)
+                {
+                    gamePacketWriter.WriteUInt16((ushort)memberUserId);
+                }
+                return gamePacketWriter.ToArray();
+            }
         }
 
         public static byte[] BuildRaidMemberState(ushort userId, byte state)
@@ -371,19 +496,22 @@ namespace DfoServer.Network.Builders.Raid
         public static byte[] BuildEntryCostInfo(IReadOnlyList<RaidEntryCostStatus> statuses)
         {
             if (statuses == null)
-                throw new ArgumentNullException(nameof(statuses));
-
-            var writer = new GamePacketWriter();
-            writer.WriteUInt32((uint)statuses.Count);
-            foreach (var status in statuses)
+            {
+                throw new ArgumentNullException("statuses");
+            }
+            GamePacketWriter gamePacketWriter = new GamePacketWriter();
+            gamePacketWriter.WriteUInt32((uint)statuses.Count);
+            foreach (RaidEntryCostStatus status in statuses)
             {
                 if (status == null)
-                    throw new ArgumentException("Entry cost statuses cannot contain null.", nameof(statuses));
-                writer.WriteUInt16(status.UserId);
-                writer.WriteUInt32(status.Ready ? 1u : 0u);
-                writer.WriteUInt32(status.OwnedCount);
+                {
+                    throw new ArgumentException("Entry cost statuses cannot contain null.", "statuses");
+                }
+                gamePacketWriter.WriteUInt16(status.UserId);
+                gamePacketWriter.WriteByte(status.Ready ? ((byte)1) : ((byte)0));
+                gamePacketWriter.WriteUInt16((ushort)Math.Min(status.OwnedCount, 65535u));
             }
-            return writer.ToArray();
+            return gamePacketWriter.ToArray();
         }
 
         public static byte[] BuildRaidBuffSystem(IReadOnlyList<RaidBuffStatusGroup> groups)
@@ -443,13 +571,14 @@ namespace DfoServer.Network.Builders.Raid
         private static void WriteMember(GamePacketWriter writer, RaidMemberSnapshot member)
         {
             writer.WriteUInt16(member.UserId);
-            writer.WriteUInt32(member.CharacterId);
+            writer.WriteByte(1);
             writer.WriteRawDstr(member.NameBytes);
-            writer.WriteUInt32(member.Job);
+            writer.WriteByte(member.Job);
             writer.WriteByte(member.GrowType);
-            writer.WriteUInt16(member.PartyIndex);
-            writer.WriteUInt32(0);
-            writer.WriteUInt32(0);
+            writer.WriteByte((byte)member.PartyIndex);
+            writer.WriteByte(0);
+            writer.WriteUInt32(member.CharacterId);
+            writer.WriteByte(0);
             writer.WriteByte(0);
         }
     }
