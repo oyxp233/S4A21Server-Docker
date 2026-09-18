@@ -40,7 +40,8 @@ namespace DfoServer.Network.Parsers.Inventory
             // has four additional zero bytes; do not require its padded length.
             if (body == null || (body.Length != 28 && body.Length != 32)
                 || !ZeroTail(body, 28)
-                || !((body[0] == 0 && body[11] == 4) || (body[0] == 4 && body[11] == 0)))
+                || !(((body[0] == 0 || body[0] == (byte)InventoryListType.CrystalWarehouse) && body[11] == 4)
+                    || (body[0] == 4 && (body[11] == 0 || body[11] == (byte)InventoryListType.CrystalWarehouse))))
                 return false;
             // Destination and uninterpreted fields cannot override the server offer.
             request = new InventoryMoveRequest
@@ -50,6 +51,15 @@ namespace DfoServer.Network.Parsers.Inventory
                 DestinationListType = (InventoryListType)body[11], DestinationSlotIndex = BitConverter.ToInt16(body, 12),
                 DestinationInstanceValue = BitConverter.ToInt32(body, 14)
             };
+            // Live A21 crystal drag uses list 36 with the absolute Main slot.
+            // Keep the wire list in the ACK, but do not admit ordinary items via this alias.
+            if (request.SourceListType == InventoryListType.CrystalWarehouse
+                && (!InventoryExchangeCommitService.IsCrystalSlot(request.SourceSlotIndex)
+                    || !InventoryService.TryResolveMainVirtualItemId(request.SourceSlotIndex, out var id)
+                    || id != request.SourceInstanceValue)) return false;
+            if (request.DestinationListType == InventoryListType.CrystalWarehouse
+                && (!InventoryService.TryResolveMainVirtualSlotByItemId(request.SourceInstanceValue, out var slot, out _)
+                    || !InventoryExchangeCommitService.IsCrystalSlot(slot))) return false;
             return request.MoveCount > 0;
         }
 

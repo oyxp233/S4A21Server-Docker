@@ -32,6 +32,9 @@ namespace DfoServer.Network.Builders
             var w = new GamePacketWriter();
             if (slot == 0) ItemListProtocolWriter.WriteVirtualCountEntry84(w, 0, 0, gold);
             else if (core == null) ItemListProtocolWriter.WriteEmptyEntry(w, InventoryListType.Main, slot);
+            else if (InventoryService.TryResolveMainVirtualSlotByItemId(core.ItemId, out var walletSlot, out _)
+                && InventoryExchangeCommitService.IsCrystalSlot(walletSlot))
+                ItemListProtocolWriter.WriteVirtualCountEntry84(w, slot, core.ItemId, core.Count);
             else ItemListProtocolWriter.WriteCommonEntry84(w, slot, core);
             return Noti(NotiPacketTypeA21.CHANGE_ITEMTRADE_ITEM, w);
         }

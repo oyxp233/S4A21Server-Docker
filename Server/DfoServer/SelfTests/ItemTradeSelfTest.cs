@@ -46,6 +46,15 @@ namespace DfoServer.SelfTests
             check("live 28-byte gold request parses", ItemTradeRequest.TryMove(liveGold, out liveMove)
                 && liveMove.SourceSlotIndex == 0 && liveMove.SourceInstanceValue == 0 && liveMove.MoveCount == 20);
             var padded = new byte[32]; liveItem.CopyTo(padded, 0);
+            check("live crystal warehouse request parses", ItemTradeRequest.TryMove(
+                Convert.FromHexString("246501DC0B00006A6600000400000000000000000000FFFFFFFF0000"), out liveMove)
+                && (byte)liveMove.SourceListType == 36 && liveMove.SourceSlotIndex == 357
+                && liveMove.SourceInstanceValue == 3036 && liveMove.MoveCount == 26218);
+            var invalidCrystal = Convert.FromHexString("246601DD0B0000010000000400000000000000000000FFFFFFFF0000");
+            invalidCrystal[1] = 10; invalidCrystal[2] = 0;
+            check("crystal alias rejects ordinary source slots", !ItemTradeRequest.TryMove(invalidCrystal, out _));
+            invalidCrystal[1] = 101; invalidCrystal[2] = 1;
+            check("crystal alias rejects wrong template for slot", !ItemTradeRequest.TryMove(invalidCrystal, out _));
             check("reference zero-padded request remains supported", ItemTradeRequest.TryMove(padded, out _));
             padded[31] = 1;
             check("invalid trade lengths and nonzero padding rejected", !ItemTradeRequest.TryMove(liveItem[..27], out _)
@@ -140,6 +149,7 @@ namespace DfoServer.SelfTests
                 await VerifyWire(db, directory, a, b, left, right, check);
                 InventoryContext.TryGetLease(62002, out right);
                 await VerifyTimedItems(db, left, right, check);
+                VerifyCrystals(db, left, right, check);
                 using (var c = db.OpenConnection())
                 {
                     int cap = DfoServer.Game.Currency.CharacterGoldLimitRepository.LoadEffectiveGoldCarryLimit(c, null, 62002);
@@ -165,12 +175,83 @@ namespace DfoServer.SelfTests
                     new[] { offer }, 1, right, Array.Empty<InventoryExchangeOffer>(), 0)
                     && Count(left, 3030) == 11 && Count(right, 3030) == 0
                     && left.Inventory.GetMainVirtualCount(0).Count == 9900 && right.Inventory.GetMainVirtualCount(0).Count == 10100);
+                var crystalOffer = new InventoryExchangeOffer(357, 1, InventoryExchangeCommitService.ReadSource(left.Inventory, 357));
+                check("full ordinary inventory does not block crystal wallet transfer", InventoryExchangeCommitService.TryCommit(
+                    left, new[] { crystalOffer }, 0, right, Array.Empty<InventoryExchangeOffer>(), 0)
+                    && left.Inventory.CountMainItem(3036) == 22 && right.Inventory.CountMainItem(3036) == 7);
             }
             finally
             {
                 InventoryContext.Unregister(a.Session.SessionId); InventoryContext.Unregister(b.Session.SessionId);
                 await directory.UnregisterAsync(62001, a.Session); await directory.UnregisterAsync(62002, b.Session);
             }
+        }
+
+        private static void VerifyCrystals(GameDatabase db, InventoryLease left, InventoryLease right, Action<string, bool> check)
+        {
+            left.Inventory.SetMainVirtualCount(357, 30);
+            right.Inventory.SetMainVirtualCount(358, 20);
+            var trade = new ItemTradeSession(left, right, 0); trade.Accept(right);
+            bool quoted = trade.Offer(0, 357, 3036, 10, out var slot, out var projection);
+            check("crystal quote uses virtual balance without debit", quoted && slot == 3
+                && projection.ItemId == 3036 && projection.Count == 10 && left.Inventory.CountMainItem(3036) == 30);
+            if (!quoted) return;
+            check("crystal duplicate, mismatch, reserved, soul and currency rejected",
+                !trade.Offer(0, 357, 3036, 1, out _, out _)
+                && !trade.Offer(1, 358, 3037, 21, out _, out _)
+                && !trade.Offer(1, 358, 3036, 1, out _, out _)
+                && !trade.Offer(0, 352, 3036, 1, out _, out _)
+                && !trade.Offer(0, 360, 10100115, 1, out _, out _)
+                && !trade.Offer(0, 1, 1, 1, out _, out _));
+            check("partial crystal withdrawal changes only quote", trade.Withdraw(0, slot, 3036, 4, out var source, out projection)
+                && source == 357 && projection.Count == 6 && left.Inventory.CountMainItem(3036) == 30);
+            check("opposite crystal quote", trade.Offer(1, 358, 3037, 20, out _, out _));
+            foreach (byte state in new byte[] { 5, 1 }) { trade.Advance(0, state); trade.Advance(1, state); }
+            trade.Advance(0, 3);
+            check("bidirectional crystal settlement", trade.Advance(1, 3) == ItemTradeAdvance.Committed
+                && left.Inventory.CountMainItem(3036) == 24 && right.Inventory.CountMainItem(3036) == 6
+                && left.Inventory.CountMainItem(3037) == 20 && right.Inventory.CountMainItem(3037) == 0);
+            check("crystal confirmation replay rejected", trade.Advance(1, 3) == ItemTradeAdvance.Rejected);
+            using (var c = db.OpenConnection())
+            {
+                var la = InventoryService.LoadFromDb(c, left.CharacterId, left.AccountId, db);
+                var lb = InventoryService.LoadFromDb(c, right.CharacterId, right.AccountId, db);
+                check("crystals reload from account wallet, never ordinary rows", la.CountMainItem(3036) == 24
+                    && lb.CountMainItem(3036) == 6 && la.CountMainItem(3037) == 20 && lb.CountMainItem(3037) == 0
+                    && la.GetItem(InventoryListType.Main, 357) == null && lb.GetItem(InventoryListType.Main, 357) == null);
+            }
+            trade = new ItemTradeSession(left, right, 0); trade.Accept(right);
+            check("full crystal withdrawal preserves assets", trade.Offer(0, 357, 3036, 2, out slot, out _)
+                && trade.Withdraw(0, slot, 3036, 2, out source, out projection) && source == 357 && projection == null);
+            trade.Cancel();
+            check("canceled crystal quote cannot settle", trade.Advance(0, 5) == ItemTradeAdvance.Rejected
+                && left.Inventory.CountMainItem(3036) == 24);
+            trade = new ItemTradeSession(left, right, 0); trade.Accept(right);
+            trade.Offer(0, 357, 3036, 2, out _, out _);
+            left.Inventory.SetMainVirtualCount(357, 23);
+            foreach (byte state in new byte[] { 5, 1 }) { trade.Advance(0, state); trade.Advance(1, state); }
+            trade.Advance(0, 3);
+            check("changed crystal balance cancels entire trade", trade.Advance(1, 3) == ItemTradeAdvance.Canceled
+                && left.Inventory.CountMainItem(3036) == 23 && right.Inventory.CountMainItem(3036) == 6);
+            var offer = new InventoryExchangeOffer(357, 2, InventoryExchangeCommitService.ReadSource(left.Inventory, 357));
+            right.Inventory.SetMainVirtualCount(357, int.MaxValue);
+            check("crystal overflow cannot saturate and destroy transferred units", !InventoryExchangeCommitService.TryCommit(
+                left, new[] { offer }, 1, right, Array.Empty<InventoryExchangeOffer>(), 0)
+                && left.Inventory.CountMainItem(3036) == 23 && right.Inventory.CountMainItem(3036) == int.MaxValue);
+            right.Inventory.SetMainVirtualCount(357, 6);
+            InventoryPersistenceService.SaveDirty(left); InventoryPersistenceService.SaveDirty(right);
+            db.Write((c, t) => { using var cmd = c.CreateCommand(); cmd.Transaction = t;
+                cmd.CommandText = "CREATE TRIGGER reject_cube_trade BEFORE UPDATE OF cube_blue ON accounts WHEN NEW.account_id=62002 BEGIN SELECT RAISE(ABORT,'cube-test'); END;"; cmd.ExecuteNonQuery(); });
+            check("second account write failure rolls back crystal and gold", !InventoryExchangeCommitService.TryCommit(
+                left, new[] { offer }, 1, right, Array.Empty<InventoryExchangeOffer>(), 0)
+                && left.Inventory.CountMainItem(3036) == 23 && right.Inventory.CountMainItem(3036) == 6
+                && left.Inventory.GetMainVirtualCount(0).Count == 9900 && right.Inventory.GetMainVirtualCount(0).Count == 10100);
+            db.Write((c, t) => { using var cmd = c.CreateCommand(); cmd.Transaction = t;
+                cmd.CommandText = "DROP TRIGGER reject_cube_trade;"; cmd.ExecuteNonQuery(); });
+            using (var c = db.OpenConnection())
+                check("failed crystal exchange leaves persisted balances unchanged",
+                    InventoryService.LoadFromDb(c, left.CharacterId, left.AccountId, db).CountMainItem(3036) == 23
+                    && InventoryService.LoadFromDb(c, right.CharacterId, right.AccountId, db).CountMainItem(3036) == 6);
         }
 
         private static async Task VerifyTimedItems(GameDatabase db, InventoryLease left, InventoryLease right, Action<string, bool> check)
@@ -297,6 +378,8 @@ namespace DfoServer.SelfTests
             }
             await handler.Respond(b.Session, default, PeerBody(a.Session.Player.UserId));
             check("unsolicited acceptance emits nothing", a.Drain().Count == 0 && b.Drain().Count == 0);
+            // Exercise the complete real command path with peers in different areas.
+            b.Session.Player.CurAreaId = 2;
             await protocol.OnPacketReceived_86JP(a.Session, new GamePacketHeader { cmd = 1, type = (ushort)CmdPacketTypeA21.REQUEST_PEER }, PeerBody(b.Session.Player.UserId));
             check("real dispatch emits request ACK and invite separately", a.Drain().Single().SequenceEqual(ItemTradePacketBuilder.PeerAck(CmdPacketTypeA21.REQUEST_PEER))
                 && b.Drain().Single().SequenceEqual(ItemTradePacketBuilder.Invite(a.Session.Player.UserId, 123)));
@@ -306,6 +389,23 @@ namespace DfoServer.SelfTests
             await protocol.OnPacketReceived_86JP(b.Session, new GamePacketHeader { cmd = 1, type = (ushort)CmdPacketTypeA21.RESPONSE_PEER }, PeerBody(a.Session.Player.UserId));
             check("accept opens both trade windows with distinct layouts", a.Drain().Single().SequenceEqual(ItemTradePacketBuilder.Accepted(b.Session.Player.UserId, 123, false))
                 && b.Drain().Single().SequenceEqual(ItemTradePacketBuilder.Accepted(a.Session.Player.UserId, 0, true)));
+            left.Inventory.SetMainVirtualCount(357, 26218);
+            var crystalMove = Convert.FromHexString("246501DC0B00006A6600000400000000000000000000FFFFFFFF0000");
+            await protocol.OnPacketReceived_86JP(a.Session, new GamePacketHeader { cmd = 1, type = (ushort)CmdPacketTypeA21.MOVE_ITEMSPACE }, crystalMove);
+            var crystalAck = a.Drain().Single(); var crystalNoti = b.Drain().Single();
+            check("live crystal wire ACK preserves source alias and opponent count", crystalAck.Length == 26
+                && crystalAck[15] == 1 && crystalAck[16] == 36 && BitConverter.ToInt16(crystalAck, 17) == 357
+                && BitConverter.ToInt32(crystalAck, 19) == 26218 && crystalAck[23] == 4
+                && crystalNoti.Length == 116 && BitConverter.ToInt32(crystalNoti, 17) == 3036
+                && BitConverter.ToInt32(crystalNoti, 21) == 26218 && left.Inventory.CountMainItem(3036) == 26218);
+            crystalMove[0] = 4; crystalMove[11] = 36;
+            BitConverter.GetBytes((short)3).CopyTo(crystalMove, 1);
+            await handler.TryMove(a.Session, default, crystalMove);
+            crystalAck = a.Drain().Single(); crystalNoti = b.Drain().Single();
+            check("crystal withdrawal ACK restores absolute wallet slot", crystalAck.Length == 26 && crystalAck[15] == 1
+                && crystalAck[23] == 36 && BitConverter.ToInt16(crystalAck, 24) == 357
+                && BitConverter.ToInt32(crystalNoti, 17) == -1 && left.Inventory.CountMainItem(3036) == 26218);
+            left.Inventory.SetMainVirtualCount(357, 0);
             var source = left.Inventory.GetItems(InventoryListType.Main).First(x => x.Value.ItemId == 3030).Key;
             var move = Convert.FromHexString("000A00A0280000010000000400000000000000000000FFFFFFFF0000");
             BitConverter.GetBytes(source).CopyTo(move, 1); BitConverter.GetBytes(3030).CopyTo(move, 3); BitConverter.GetBytes(1).CopyTo(move, 7);
@@ -345,10 +445,32 @@ namespace DfoServer.SelfTests
                 && left.Inventory.CountMainItem(3030) == 11 && right.Inventory.CountMainItem(3030) == 8);
             await handler.State(b.Session, default, new byte[] { 3 });
             check("wire duplicate confirmation is silent", a.Drain().Count == 0 && b.Drain().Count == 0);
-            b.Session.Player.CurAreaId = 2;
+            check("cross-area settlement kept both original locations", a.Session.Player.CurAreaId == 1 && b.Session.Player.CurAreaId == 2);
+            b.Session.Player.CurTownId = 2;
             await handler.Request(a.Session, default, PeerBody(b.Session.Player.UserId));
-            check("different areas cannot trade", a.Drain().Single()[15] == 0 && b.Drain().Count == 0);
-            b.Session.Player.CurAreaId = 1;
+            check("same-channel different towns can invite", a.Drain().Single()[15] == 1
+                && b.Drain().Single().SequenceEqual(ItemTradePacketBuilder.Invite(a.Session.Player.UserId, 123)));
+            await handler.Respond(b.Session, default, PeerBody(a.Session.Player.UserId));
+            check("same-channel different towns can accept", a.Drain().Single().SequenceEqual(ItemTradePacketBuilder.Accepted(b.Session.Player.UserId, 123, false))
+                && b.Drain().Single().SequenceEqual(ItemTradePacketBuilder.Accepted(a.Session.Player.UserId, 0, true)));
+            await handler.State(a.Session, default, new byte[] { 0 });
+            check("cross-town cancellation refreshes both", a.Drain().First().SequenceEqual(ItemTradePacketBuilder.Closed(false))
+                && b.Drain().First().SequenceEqual(ItemTradePacketBuilder.Closed(false)));
+            using (var otherChannel = await Peer.Create(sessions, 62003, "trade-other-channel", a.Session.ListenerPort + 1))
+            {
+                await handler.Request(a.Session, default, PeerBody(otherChannel.Session.Player.UserId));
+                check("different channels still reject before inviting", a.Drain().Single()[15] == 0 && otherChannel.Drain().Count == 0);
+                await sessions.UnregisterAsync(62003, otherChannel.Session);
+            }
+            b.Session.Player.DungeonSelectionPending = true;
+            await handler.Request(a.Session, default, PeerBody(b.Session.Player.UserId));
+            check("cross-area trade still rejects dungeon selection", a.Drain().Single()[15] == 0 && b.Drain().Count == 0);
+            b.Session.Player.DungeonSelectionPending = false;
+            await handler.Request(a.Session, default, PeerBody(b.Session.Player.UserId)); a.Drain(); b.Drain();
+            await handler.Respond(b.Session, default, PeerBody(a.Session.Player.UserId)); a.Drain(); b.Drain();
+            await handler.CancelBeforeTransition(a.Session, (ushort)CmdPacketTypeA21.SET_USER_AREA);
+            check("active area transition still cancels existing cross-area trade", a.Drain().First().SequenceEqual(ItemTradePacketBuilder.Closed(false))
+                && b.Drain().First().SequenceEqual(ItemTradePacketBuilder.Closed(false)));
             await handler.Request(a.Session, default, PeerBody(b.Session.Player.UserId)); a.Drain(); b.Drain();
             await handler.Respond(b.Session, default, PeerBody(a.Session.Player.UserId)); a.Drain(); b.Drain();
             await handler.CancelBeforeTransition(a.Session, (ushort)CmdPacketTypeA21.ENTER_SELECT_DUNGEON);

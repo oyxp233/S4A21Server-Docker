@@ -10,7 +10,7 @@ namespace DfoServer.Game.Inventory
 
     internal static class InventoryExchangeCommitService
     {
-        // The first trading slice uses main-inventory instances. Detail-bearing,
+        // Main instances and crystal wallet projections only. Detail-bearing,
         // account-bound items must not pass through the ordinary-item path.
         internal static bool CanOffer(ItemCore core, int count, int senderAccountId, int receiverAccountId)
         {
@@ -101,6 +101,19 @@ namespace DfoServer.Game.Inventory
         internal static bool Current(InventoryLease lease) => lease != null
             && InventoryContext.IsCurrentLease(lease, lease.SessionId, lease.CharacterId);
 
+        internal static bool IsCrystalSlot(short slot) => slot >= InventoryService.MainVirtualCubeSlotStart
+            && slot <= InventoryService.MainVirtualCubeSlotEnd;
+
+        internal static ItemCore ReadSource(InventoryService inventory, short slot)
+        {
+            if (slot >= 3 && slot < 352) return inventory.GetItem(InventoryListType.Main, slot);
+            if (!IsCrystalSlot(slot)) return null;
+            var balance = inventory.GetMainVirtualCount(slot);
+            if (balance == null || balance.Count <= 0) return null;
+            // Quote-only snapshot. Never attach this core to an inventory container.
+            return new ItemCore { ItemKind = ItemCore.KindMaterial, ItemId = balance.ItemId, Count = balance.Count };
+        }
+
         private static bool Validate(InventoryLease lease, int receiverAccountId, IReadOnlyList<InventoryExchangeOffer> offers, int gold)
         {
             if ((lease.Inventory.GetMainVirtualCount(0)?.Count ?? 0) < gold
@@ -108,8 +121,8 @@ namespace DfoServer.Game.Inventory
                 return false;
             foreach (var offer in offers)
             {
-                var actual = lease.Inventory.GetItem(InventoryListType.Main, offer.SourceSlot);
-                if (offer.SourceSlot < 3 || offer.SourceSlot >= 352 || !CanOffer(actual, offer.Count, lease.AccountId, receiverAccountId)
+                var actual = ReadSource(lease.Inventory, offer.SourceSlot);
+                if (!CanOffer(actual, offer.Count, lease.AccountId, receiverAccountId)
                     || offer.Snapshot == null || !actual.ToBytes().SequenceEqual(offer.Snapshot.ToBytes()))
                     return false;
             }
@@ -119,9 +132,16 @@ namespace DfoServer.Game.Inventory
         private static bool Remove(InventoryService inventory, IReadOnlyList<InventoryExchangeOffer> offers)
         {
             foreach (var offer in offers)
+            {
+                if (IsCrystalSlot(offer.SourceSlot))
+                {
+                    if (!inventory.TryConsumeMainItem(offer.Snapshot.ItemId, offer.Count, out _)) return false;
+                    continue;
+                }
                 if (!InventoryDeleteService.TryConsumeFromSlot(inventory, InventoryListType.Main,
                         offer.SourceSlot, offer.Snapshot.ItemId, offer.Count, out _))
                     return false;
+            }
             return true;
         }
 
@@ -130,6 +150,16 @@ namespace DfoServer.Game.Inventory
             foreach (var offer in offers)
             {
                 var core = offer.Snapshot.Copy();
+                if (IsCrystalSlot(offer.SourceSlot))
+                {
+                    // The grant service saturates virtual rewards; exchange must conserve every unit.
+                    if ((long)inventory.CountMainItem(core.ItemId) + offer.Count > int.MaxValue
+                        || !InventoryRewardGrantService.TryInsertExisting(inventory, core, offer.Count, out var crystal)
+                        || crystal.Kind != InventoryRewardGrantKind.MainVirtualCount
+                        || crystal.SlotIndex != offer.SourceSlot || crystal.GrantedCount != offer.Count)
+                        return false;
+                    continue;
+                }
                 if (MailboxSendPolicy.IsTradeLimitItem(ItemMetadataResolver.Resolve(core.ItemId)))
                     core.StackTradeCount--;
                 if (InventoryStackRuleService.IsStackable(core))

@@ -58,8 +58,8 @@ namespace DfoServer.Game.Inventory
                         tradeSlot = 0;
                         return true;
                     }
-                    var core = lease.Inventory.GetItem(InventoryListType.Main, sourceSlot);
-                    if (sourceSlot < 3 || sourceSlot >= 352 || core?.ItemId != itemId
+                    var core = InventoryExchangeCommitService.ReadSource(lease.Inventory, sourceSlot);
+                    if (core?.ItemId != itemId
                         || !InventoryExchangeCommitService.CanOffer(core, count, lease.AccountId, Leases[1 - side].AccountId)
                         || _offers[side].Values.Any(x => x.SourceSlot == sourceSlot))
                         return false;
@@ -93,7 +93,7 @@ namespace DfoServer.Game.Inventory
                 var lease = Leases[side];
                 lock (lease.SyncRoot)
                 {
-                    var current = lease.Inventory.GetItem(InventoryListType.Main, offer.SourceSlot);
+                    var current = InventoryExchangeCommitService.ReadSource(lease.Inventory, offer.SourceSlot);
                     if (current == null || !current.ToBytes().SequenceEqual(offer.Snapshot.ToBytes())) return false;
                     sourceSlot = offer.SourceSlot;
                     if (count == offer.Count) _offers[side].Remove(tradeSlot);

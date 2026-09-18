@@ -697,6 +697,9 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            var player = session.Player;
+            var previousTownId = player.CurTownId;
+            var previousAreaId = player.CurAreaId;
             var persistPosition = GameChannelSpawnPolicy.ShouldPersistPosition(
                 session.ListenerPort);
             if (!TeleportConsumableCommitService.TryCommit(
@@ -727,6 +730,23 @@ namespace DfoServer.Network.Handlers
             if (persistPosition)
                 session.Player.LastPositionPersistAt = DateTime.UtcNow;
 
+            // A later SET_USER_AREA can no longer recover the source area after
+            // this commit. Reuse normal town departure; USER_LEAVE clears party slots.
+            var selfSnapshot = TownAreaNotificationBuilder.CreateCurrentSnapshot(
+                session.Player);
+            if (_sessions != null)
+            {
+                await _sessions.BroadcastToAreaAsync(
+                    previousTownId,
+                    previousAreaId,
+                    cid,
+                    BuildAreaTransitionDeparturePacket(selfSnapshot),
+                    session.ListenerPort);
+                if (!ReferenceEquals(session.Player, player)
+                    || !InventoryContext.IsCurrentLease(lease, session.SessionId, cid))
+                    return;
+            }
+
             FileLogger.Log(
                 $"[{ProtocolName}] TELEPORT: consumed item=" +
                 $"0x{request.ItemTemplateId:X8} slot={consumeResult.SlotIndex} " +
@@ -741,8 +761,6 @@ namespace DfoServer.Network.Handlers
                     session,
                     InventoryListType.Main,
                     consumeResult.SlotIndex);
-            var selfSnapshot = TownAreaNotificationBuilder.CreateCurrentSnapshot(
-                session.Player);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
                 0x0017,

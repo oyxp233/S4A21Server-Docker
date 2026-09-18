@@ -42,6 +42,8 @@ namespace DfoServer.Network.Handlers
                 && ReferenceEquals(lease, l) && lease.IsOwnedBy(s.SessionId);
         }
 
+        // Trading is channel-scoped, not town/area-presence scoped. Both peers
+        // must still be current, town-ready and outside dungeon transitions.
         private bool Eligible(EnhancedClientSession a, EnhancedClientSession b)
             => a != null && b != null && a != b && a.ListenerPort == b.ListenerPort
             && a.Player.CharacterId != b.Player.CharacterId && a.Player.UserId != 0 && b.Player.UserId != 0
@@ -49,7 +51,6 @@ namespace DfoServer.Network.Handlers
             && a.Player.TownPresenceReady && b.Player.TownPresenceReady
             && !a.Player.DungeonSelectionPending && !b.Player.DungeonSelectionPending
             && a.Player.CurrentRun == null && b.Player.CurrentRun == null
-            && a.Player.CurTownId == b.Player.CurTownId && a.Player.CurAreaId == b.Player.CurAreaId
             && !_blacklist.IsBlocked(a.Player.CharacterId, b.Player.CharacterId)
             && !_blacklist.IsBlocked(b.Player.CharacterId, a.Player.CharacterId);
 

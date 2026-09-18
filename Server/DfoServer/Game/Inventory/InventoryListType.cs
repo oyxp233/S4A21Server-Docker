@@ -16,6 +16,7 @@ namespace DfoServer.Game.Inventory
         QuickSlot = 29,
         KnightShieldEquipped = 33,
         KnightShieldCatalog = 34,
+        CrystalWarehouse = 36, // A21 wire alias; balances remain Main virtual slots, not a container.
         GuildMedal = 38,
     }
 }
