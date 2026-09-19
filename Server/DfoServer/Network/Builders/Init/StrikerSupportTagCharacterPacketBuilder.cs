@@ -71,6 +71,62 @@ namespace DfoServer.Network.Builders
             }
         }
 
+        // 组队进本投影：为名单内每个设置了支援兵的 owner 各构建一条 record，
+        // 聚合成 count=N 的 0x019F body。record 顺序与输入名单一致（调用方按
+        // 队伍 SlotIndex 排序传入）；校验/构建失败的成员记日志后跳过。
+        public static bool TryBuildPartySupportBody(
+            IReadOnlyList<int> ownerCharacterIds,
+            IGameDatabase database,
+            out byte[] body)
+        {
+            if (database == null)
+                throw new ArgumentNullException(nameof(database));
+
+            body = null;
+            if (ownerCharacterIds == null || ownerCharacterIds.Count == 0)
+                return false;
+            if (StrikerSkillDataProvider.GetMaxActiveSupportCount() != 1)
+            {
+                FileLogger.Log("[GameProtocol] MERCENARY/STRIKER unsupported PVF active-support count");
+                return false;
+            }
+
+            var repository = new SqliteMercenarySupportRepository(database);
+            var records = new List<byte[]>();
+            var seenOwners = new HashSet<int>();
+            foreach (var ownerCharacterId in ownerCharacterIds)
+            {
+                if (ownerCharacterId <= 0 || !seenOwners.Add(ownerCharacterId))
+                    continue;
+                try
+                {
+                    var state = repository.LoadSlot(
+                        ownerCharacterId,
+                        MercenarySupportState.SingletonStateKey);
+                    if (state == null)
+                        continue;
+                    if (TryBuildRecord(ownerCharacterId, state, database, out var record))
+                        records.Add(record);
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Log(
+                        $"[GameProtocol] MERCENARY/STRIKER 0x{TagCharacterInfoNotiType:X4}" +
+                        $" party build failed owner={ownerCharacterId}: {ex.Message}");
+                }
+            }
+
+            if (records.Count == 0)
+                return false;
+
+            var writer = new GamePacketWriter();
+            writer.WriteUInt16(checked((ushort)records.Count));
+            foreach (var record in records)
+                writer.WriteBytes(record);
+            body = writer.ToArray();
+            return true;
+        }
+
         private static byte[] BuildOwnerMappedBodyCore(
             int activeCharacterId,
             MercenarySupportState state,
@@ -81,23 +137,41 @@ namespace DfoServer.Network.Builders
                 FileLogger.Log("[GameProtocol] MERCENARY/STRIKER unsupported PVF active-support count");
                 return null;
             }
+            if (!TryBuildRecord(activeCharacterId, state, database, out var record))
+                return null;
+
+            var writer = new GamePacketWriter();
+            writer.WriteUInt16(1);
+            writer.WriteBytes(record);
+            return writer.ToArray();
+        }
+
+        // 单条 0x019F record（不含 count 前缀）。状态校验/快照/装备/技能
+        // 任一步失败都记 FileLogger 并返回 false。
+        private static bool TryBuildRecord(
+            int ownerCharacterId,
+            MercenarySupportState state,
+            IGameDatabase database,
+            out byte[] record)
+        {
+            record = null;
             if (!TryLoadAndValidateState(
-                    activeCharacterId,
+                    ownerCharacterId,
                     state,
                     database,
                     out var support,
                     out var reason))
             {
-                FileLogger.Log($"[GameProtocol] MERCENARY/STRIKER state rejected owner={activeCharacterId}: {reason}");
-                return null;
+                FileLogger.Log($"[GameProtocol] MERCENARY/STRIKER state rejected owner={ownerCharacterId}: {reason}");
+                return false;
             }
 
             var snapshot = new SqliteSubtype1Repository(database)
                 .Load(support.CharacterId);
             if (snapshot == null)
             {
-                FileLogger.Log($"[GameProtocol] MERCENARY/STRIKER state rejected owner={activeCharacterId}: support subtype1 missing cid={support.CharacterId}");
-                return null;
+                FileLogger.Log($"[GameProtocol] MERCENARY/STRIKER state rejected owner={ownerCharacterId}: support subtype1 missing cid={support.CharacterId}");
+                return false;
             }
             ApplyOfflineInventoryProjection(
                 snapshot,
@@ -106,8 +180,8 @@ namespace DfoServer.Network.Builders
 
             if (!TryBuildEquipmentList(snapshot, support, out var equipment, out reason))
             {
-                FileLogger.Log($"[GameProtocol] MERCENARY/STRIKER equipment rejected owner={activeCharacterId} support={support.CharacterId}: {reason}");
-                return null;
+                FileLogger.Log($"[GameProtocol] MERCENARY/STRIKER equipment rejected owner={ownerCharacterId} support={support.CharacterId}: {reason}");
+                return false;
             }
 
             var skills = StrikerSupportSkillListSource.Load(
@@ -118,12 +192,12 @@ namespace DfoServer.Network.Builders
                 database);
             if (skills.Count == 0 || skills.Count > byte.MaxValue)
             {
-                FileLogger.Log($"[GameProtocol] MERCENARY/STRIKER skill page rejected owner={activeCharacterId} support={support.CharacterId}: count={skills.Count}");
-                return null;
+                FileLogger.Log($"[GameProtocol] MERCENARY/STRIKER skill page rejected owner={ownerCharacterId} support={support.CharacterId}: count={skills.Count}");
+                return false;
             }
 
-            var record = BuildRecord(
-                checked((ushort)activeCharacterId),
+            record = BuildRecord(
+                checked((ushort)ownerCharacterId),
                 support.Name,
                 support.Level,
                 support.Job,
@@ -132,11 +206,7 @@ namespace DfoServer.Network.Builders
                 snapshot,
                 equipment,
                 skills);
-
-            var writer = new GamePacketWriter();
-            writer.WriteUInt16(1);
-            writer.WriteBytes(record);
-            return writer.ToArray();
+            return true;
         }
 
         private static byte[] BuildRecord(

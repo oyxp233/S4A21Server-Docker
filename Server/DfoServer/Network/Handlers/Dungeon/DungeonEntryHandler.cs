@@ -3421,15 +3421,18 @@ namespace DfoServer.Network.Handlers.Dungeon
                     run,
                     req.DungeonId,
                     selectedMazeIndex);
-            if (StrikerSupportTagCharacterPacketBuilder.TryBuildOwnerSupportBody(
-                    s.Player.CharacterId,
+            if (StrikerSupportTagCharacterPacketBuilder.TryBuildPartySupportBody(
+                    ResolveStrikerSupportOwnerIds(s, run),
                     _svc.Database,
                     out var strikerBody))
-                await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x019F, strikerBody));
+                await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.TAG_CHARACTER_INFO,
+                    strikerBody));
             else
                 await s.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                     0x00,
-                    0x019F,
+                    (ushort)NotiPacketTypeA21.TAG_CHARACTER_INFO,
                     StrikerSupportTagCharacterBodyBuilder.BuildEmptyBody()));
             if (!s.Player.IsCurrentDungeonRun(runIdentity)
                 || !run.IsCurrentLoadingProjection(loadingProjectionId))
@@ -3490,6 +3493,23 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return false;
 
             return true;
+        }
+
+        // 进本 0x019F 需要覆盖全队：每个队员的客户端都按 mappedCharacterId
+        // （= 成员 cid）查本地表来渲染队友支援兵。名单优先取进本时冻结的
+        // selection cohort（leader/follower 的 run 挂同一对象，见
+        // DungeonRunLifecycle.BeginRunFromSelection）；单人进本无 cohort，只发本人。
+        private static IReadOnlyList<int> ResolveStrikerSupportOwnerIds(
+            EnhancedClientSession s,
+            DungeonRun run)
+        {
+            var cohort = run?.EntryPartySelectionCohort;
+            if (cohort == null)
+                return new[] { s.Player.CharacterId };
+            return cohort.Participants
+                .OrderBy(participant => participant.SlotIndex)
+                .Select(participant => participant.CharacterId)
+                .ToList();
         }
 
         private bool TryBuildPartyEntryAdmissionPlans(
