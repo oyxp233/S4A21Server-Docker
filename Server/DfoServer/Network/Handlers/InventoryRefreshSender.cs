@@ -307,23 +307,6 @@ namespace DfoServer.Network.Handlers
             await SendUpdateItemList(session, listType, slotIndex);
         }
 
-        public async Task SendSortItemLockRefresh(EnhancedClientSession session, InventoryListType listType)
-        {
-            var (cid, _) = SessionOwnerResolver.Resolve(session);
-            var refreshListType = MapToSortLockListType(listType);
-            var locks = LoadOnlineSortItemLocks(session, cid, refreshListType);
-            foreach (var entry in locks)
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x02CA, SortItemLockBuilder.BuildLock(entry)));
-        }
-
-        public async Task SendAllSortItemLockRefresh(EnhancedClientSession session)
-        {
-            var (cid, _) = SessionOwnerResolver.Resolve(session);
-            var locks = LoadOnlineSortItemLocks(session, cid, null);
-            foreach (var entry in locks)
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x02CA, SortItemLockBuilder.BuildLock(entry)));
-        }
-
         public async Task SendEquipmentItemLockListRefresh(EnhancedClientSession session, InventoryListType listType)
         {
             if (!IsEquipmentItemLockListType(listType))
@@ -343,18 +326,6 @@ namespace DfoServer.Network.Handlers
             LogEquipmentItemLockList("ITEM_LOCK_LIST_ALL", locks);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x00FB,
                 EquipmentItemLockBuilder.BuildLockList(locks)));
-        }
-
-        private static IReadOnlyList<SortItemLockEntry> LoadOnlineSortItemLocks(
-            EnhancedClientSession session,
-            int characterId,
-            InventoryListType? listType)
-        {
-            if (!InventoryContext.TryGetLease(characterId, out var lease) || !lease.IsOwnedBy(session.SessionId))
-                return Array.Empty<SortItemLockEntry>();
-
-            lock (lease.SyncRoot)
-                return InventoryLockService.LoadSortItemLocks(lease.Inventory, listType);
         }
 
         private static IReadOnlyList<EquipmentItemLockEntry> LoadOnlineEquipmentItemLocks(

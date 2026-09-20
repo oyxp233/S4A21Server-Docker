@@ -61,7 +61,6 @@ namespace DfoServer.Network.Handlers
                 PurifyItemAckBuilder.BuildSuccess(result)));
 
             await _refresh.SendUpdateItemList(session, InventoryListType.Main, new[] { result.TargetSlotIndex, result.MaterialSlotIndex });
-            await _refresh.SendSortItemLockRefresh(session, InventoryListType.Main);
             FileLogger.Log($"[{ProtocolName}] PURIFY_ITEM: OK action={result.Action} targetSlot={result.TargetSlotIndex} materialSlot={result.MaterialSlotIndex} amplifyType=0x{result.AmplifyType:X2} amplifyValue={result.AmplifyValue}");
         }
     }

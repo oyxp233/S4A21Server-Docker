@@ -86,9 +86,6 @@ namespace DfoServer.Network.Handlers
                 InventoryListType.Main,
                 new[] { result.TargetSlotIndex, result.MaterialSlotIndex });
 
-            if (result.MaterialRemainingCount == 0)
-                await _refresh.SendSortItemLockRefresh(session, InventoryListType.Main);
-
             FileLogger.Log($"[{ProtocolName}] RESET_ITEM_ATTR: OK mode={result.Mode} targetSlot={result.TargetSlotIndex} material=0x{result.MaterialItemTemplateId:X8}@{result.MaterialSlotIndex} remaining={result.MaterialRemainingCount} quality={result.OldQualitySeed}->{result.NewQualitySeed}");
         }
 

@@ -115,7 +115,6 @@ namespace DfoServer.Network.Handlers
             var ackResult = CreateMoveAckResult(request, moveResult);
             FileLogger.Log($"[{ProtocolName}] MOVE_ITEMSPACE: OK src=({ackResult.SourceListType},{ackResult.SourceSlotIndex}) dst=({ackResult.DestinationListType},{ackResult.DestinationSlotIndex}) moveVal={ackResult.MoveValue32}");
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0013, MoveItemSpaceAckBuilder.Build(ackResult)));
-            await SendMoveSortLockSignals(session, lease, moveResult);
             await PetInventoryMoveCoordinator.CompleteAsync(
                 session,
                 ackResult,
@@ -436,52 +435,6 @@ namespace DfoServer.Network.Handlers
         {
             var notiListType = InventoryRefreshSender.MapToSortLockListType(listType);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x02CB, SortItemLockBuilder.BuildUnlock(notiListType, slotIndex)));
-        }
-
-        private async Task SendMoveSortLockSignals(EnhancedClientSession session, InventoryLease lease, InventoryMoveServiceResult result)
-        {
-            if (lease == null || result == null || !result.Mutated || result.Changes == null || !result.Changes.HasChanges)
-                return;
-
-            var lockedSlots = new List<SortItemLockEntry>();
-            lock (lease.SyncRoot)
-            {
-                foreach (var change in result.Changes.Slots)
-                {
-                    if (!ShouldSendSortLockSignal(change.ListType, change.SlotIndex))
-                        continue;
-
-                    var item = lease.Inventory.GetItem(change.ListType, change.SlotIndex);
-                    if (item == null || item.SortLockFlag != 1)
-                        continue;
-
-                    lockedSlots.Add(new SortItemLockEntry
-                    {
-                        ListType = InventoryRefreshSender.MapToSortLockListType(change.ListType),
-                        SlotIndex = change.SlotIndex,
-                        State = 1,
-                    });
-                }
-            }
-
-            foreach (var entry in lockedSlots)
-            {
-                FileLogger.Log($"[{ProtocolName}] MOVE sort-lock refresh: list={entry.ListType} slot={entry.SlotIndex}");
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x02CA, SortItemLockBuilder.BuildLock(entry)));
-            }
-        }
-
-        private static bool ShouldSendSortLockSignal(InventoryListType listType, short slotIndex)
-        {
-            if (listType == InventoryListType.Equipment)
-                return false;
-
-            if (listType == InventoryListType.Main
-                && slotIndex >= ItemSlotBoundService.MainQuickSlotStart
-                && slotIndex <= ItemSlotBoundService.MainQuickSlotEnd)
-                return false;
-
-            return true;
         }
     }
 }

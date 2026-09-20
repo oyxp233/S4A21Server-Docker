@@ -802,9 +802,11 @@ namespace DfoServer.Game.Inventory
             if (item == null || item.SortLockFlag == 0)
                 return true;
 
+            // 位置锁采用槽位语义：穿戴栏不展示位置锁，穿/脱一律不携带锁，
+            // 同时清掉历史遗留的穿戴栏锁脏数据。
             if (sourceListType == InventoryListType.Equipment
                 || destinationListType == InventoryListType.Equipment)
-                return true;
+                return false;
 
             if (sourceListType != destinationListType)
                 return false;

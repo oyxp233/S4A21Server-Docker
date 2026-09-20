@@ -297,7 +297,6 @@ namespace DfoServer.Network.Handlers
             {
                 await _inventoryRefreshSender.SendUpdateItemList(session, pair.Key, pair.Value).ConfigureAwait(false);
             }
-            await _inventoryRefreshSender.SendAllSortItemLockRefresh(session).ConfigureAwait(false);
             await _inventoryRefreshSender.SendAllEquipmentItemLockListRefresh(session).ConfigureAwait(false);
             FileLogger.Log(
                 $"[Mailbox] SEND failure restored attachment slots={FormatClaimRefreshSlots(slotsByList)} " +
