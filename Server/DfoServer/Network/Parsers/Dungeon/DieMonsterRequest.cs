@@ -60,10 +60,15 @@ namespace DfoServer.Network.Parsers.Dungeon
             {
                 int atkCount = body[20];
                 int flagOffset = 21 + atkCount * 10 + 6;
-                if (flagOffset - 1 < body.Length)
-                    isCapture = body[flagOffset - 1] != 0;
                 if (flagOffset < body.Length)
                     isPassive = body[flagOffset] == 1;
+            }
+            if (body.Length > 23)
+            {
+                int attackRecordCount = body[22];
+                int captureFlagOffset = 23 + attackRecordCount * 10 + 5;
+                if (captureFlagOffset < body.Length)
+                    isCapture = body[captureFlagOffset] != 0;
             }
             return new DieMonsterRequest(
                 localIndex,

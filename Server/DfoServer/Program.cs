@@ -82,6 +82,7 @@ namespace DfoServer
             ("--selftest-anton-awakening-reward-packet", SelfTests.AntonAwakeningRewardPacketBuilderSelfTest.Run),
             ("--selftest-anton-awakening-auto-reward", SelfTests.AntonAwakeningAutoRewardSelfTest.Run),
             ("--selftest-experience-item-definition", SelfTests.ExperienceItemDefinitionSelfTest.Run),
+            ("--selftest-die-monster-request", SelfTests.DieMonsterRequestSelfTest.Run),
         };
 
         // 顺序跑全部自测, 输出汇总表; 任一失败(或抛异常)退出码为 1。
