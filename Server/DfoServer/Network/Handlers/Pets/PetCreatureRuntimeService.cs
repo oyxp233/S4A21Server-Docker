@@ -188,8 +188,9 @@ namespace DfoServer.Network.Handlers.Pets
 
             if (!continueTiming)
                 session.Player.PetCreatureSatietyDungeonStartUtc = DateTime.MinValue;
-            else if (update.StateChanged)
-                session.Player.PetCreatureSatietyDungeonStartUtc = now;
+            else
+                session.Player.PetCreatureSatietyDungeonStartUtc =
+                    PetCreatureSatietyService.AdvanceDungeonAnchor(startUtc, update);
             if (!continueTiming)
                 session.Player.PetCreatureSatietyDungeonId = 0;
 
@@ -254,7 +255,6 @@ namespace DfoServer.Network.Handlers.Pets
             var now = DateTime.UtcNow;
             session.Player.PetCreatureSatietyDungeonStartUtc = now;
             session.Player.PetCreatureSatietyDungeonId = session.Player.CurrentRun.DungeonId;
-            session.Player.PetCreatureLastDeathCreatureKey = 0;
 
             if (!TryGetInventoryLease(session, out var lease))
                 return;
@@ -262,6 +262,11 @@ namespace DfoServer.Network.Handlers.Pets
             PetCreatureSatietyUpdate current;
             lock (lease.SyncRoot)
                 current = PetCreatureSatietyService.LoadEquippedCreatureSatiety(lease.Inventory);
+            if (current.CreatureKey > 0
+                && session.Player.PetCreatureLastDeathCreatureKey != current.CreatureKey)
+            {
+                session.Player.PetCreatureLastDeathCreatureKey = 0;
+            }
             if (current.CreatureKey <= 0)
             {
                 ClearDungeonAnchor(session);
@@ -503,21 +508,14 @@ namespace DfoServer.Network.Handlers.Pets
 
             if (current.Before <= 0)
             {
-                var immediateVersion = AdvanceDeathTimerVersion(session);
-                ScheduleDeathCheck(
-                    session,
-                    now,
-                    immediateVersion,
-                    runIdentity,
-                    $"{source}:zero");
-                FileLogger.Log($"[{ProtocolName}] PetCreatureDeathTimer: schedule immediate source={source} cid={session.Player.CharacterId} key={current.CreatureKey} satiety={current.Before} version={immediateVersion}");
+                // 宠物已死: 死亡通知在判死时已发过, 不再排即时检查, 避免重复 DIED_CREATURE。
+                CancelDeathCheck(session);
+                FileLogger.Log($"[{ProtocolName}] PetCreatureDeathTimer: schedule skipped pet already dead source={source} cid={session.Player.CharacterId} key={current.CreatureKey} satiety={current.Before}");
                 return;
             }
 
             var multiplier = current.FoodConsumeMultiplier;
-            var delaySeconds = current.Before <= 1
-                ? 0.0
-                : (current.Before - 1) * 60.0 / Math.Max(0.01, multiplier);
+            var delaySeconds = current.Before * 60.0 / Math.Max(0.01, multiplier);
             var dueUtc = now.AddSeconds(delaySeconds);
             var version = AdvanceDeathTimerVersion(session);
             ScheduleDeathCheck(session, dueUtc, version, runIdentity, source);
@@ -666,12 +664,23 @@ namespace DfoServer.Network.Handlers.Pets
                     return;
                 }
 
+                if (update.CreatureKey > 0 && update.StateChanged && update.After <= 0)
+                {
+                    // 巡检直接算出饱食度耗尽: 同步提交已完成, 这里同步登记死亡状态, DIED 通知异步派发。
+                    HandleCommittedDungeonDeath(session, source, update, dungeonId);
+                    return;
+                }
+
                 if (!continueTiming)
+                {
                     session.Player.PetCreatureSatietyDungeonStartUtc = DateTime.MinValue;
-                else if (update.StateChanged)
-                    session.Player.PetCreatureSatietyDungeonStartUtc = now;
-                if (!continueTiming)
                     session.Player.PetCreatureSatietyDungeonId = 0;
+                }
+                else
+                {
+                    session.Player.PetCreatureSatietyDungeonStartUtc =
+                        PetCreatureSatietyService.AdvanceDungeonAnchor(startUtc, update);
+                }
                 SetSessionCreatureAliveState(session, update.CreatureKey > 0 && update.After > 0 ? (byte)1 : (byte)0);
 
                 FileLogger.Log($"[{ProtocolName}] PetCreatureSatiety: dungeon persist source={source} cid={session.Player.CharacterId} dungeon={dungeonId} key={update.CreatureKey} elapsed={update.ElapsedSeconds:0.0}s foodRate={update.FoodConsumeRatePercent}% multiplier={update.FoodConsumeMultiplier:0.###} consumed={update.ConsumedSatiety} satiety={update.Before}->{update.After} changed={update.Changed}");
@@ -756,7 +765,8 @@ namespace DfoServer.Network.Handlers.Pets
                 if (update.After > 0)
                 {
                     if (update.StateChanged)
-                        session.Player.PetCreatureSatietyDungeonStartUtc = now;
+                        session.Player.PetCreatureSatietyDungeonStartUtc =
+                            PetCreatureSatietyService.AdvanceDungeonAnchor(startUtc, update);
                     SetSessionCreatureAliveState(session, 1);
                     return PetCreatureDeathCheckOutcome.NoDeath;
                 }
@@ -764,24 +774,8 @@ namespace DfoServer.Network.Handlers.Pets
                 if (session.Player.PetCreatureLastDeathCreatureKey == update.CreatureKey)
                     return PetCreatureDeathCheckOutcome.Died;
 
-                CancelDeathCheck(session);
-                session.Player.PetCreatureSatietyDungeonStartUtc = DateTime.MinValue;
-                session.Player.PetCreatureSatietyDungeonId = 0;
-                session.Player.PetCreatureLastDeathCreatureKey = update.CreatureKey;
-                SetSessionCreatureAliveState(session, 0);
-
-                try
-                {
-                    var writer = new GamePacketWriter();
-                    writer.WriteUInt16(session.Player.UserId);
-                    await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0064, writer.ToArray()));
-                }
-                catch (Exception ex)
-                {
-                    FileLogger.Log($"[{ProtocolName}] PetCreatureDeath: notification failed after commit source={source} cid={session.Player.CharacterId}: {ex.Message}");
-                }
-
-                FileLogger.Log($"[{ProtocolName}] PetCreatureDeath: DIED_CREATURE source={source} uid={session.Player.UserId} cid={session.Player.CharacterId} key={update.CreatureKey} elapsed={update.ElapsedSeconds:0.0}s foodRate={update.FoodConsumeRatePercent}% multiplier={update.FoodConsumeMultiplier:0.###} satiety={update.Before}->0");
+                MarkCommittedDungeonDeath(session, update);
+                await SendCommittedDungeonDeathNotificationAsync(session, source, update);
                 return PetCreatureDeathCheckOutcome.Died;
             }
             catch (Exception ex)
@@ -790,6 +784,83 @@ namespace DfoServer.Network.Handlers.Pets
                 return PetCreatureDeathCheckOutcome.Retry;
             }
         }
+
+        // 分钟巡检在 Clock 线程内同步提交后直接算出饱食度耗尽时走这里:
+        // 死亡状态(取消 timer、清锚点、alive 置 0、登记已通知 key)同步完成,
+        // DIED 通知经 ScheduleOneShotAsync 一次性 timer 异步派发, 回调异常由 ClockService 捕获记录。
+        private static void HandleCommittedDungeonDeath(
+            EnhancedClientSession session,
+            string source,
+            PetCreatureSatietyUpdate update,
+            int dungeonId)
+        {
+            var alreadyNotified = MarkCommittedDungeonDeath(session, update);
+            FileLogger.Log(
+                $"[{ProtocolName}] PetCreatureDeath: dungeon death committed "
+                + $"source={source} cid={session.Player.CharacterId} dungeon={dungeonId} "
+                + $"key={update.CreatureKey} elapsed={update.ElapsedSeconds:0.0}s "
+                + $"foodRate={update.FoodConsumeRatePercent}% "
+                + $"multiplier={update.FoodConsumeMultiplier:0.###} "
+                + $"satiety={update.Before}->0 alreadyNotified={alreadyNotified}");
+
+            if (alreadyNotified)
+                return;
+
+            var creatureKey = update.CreatureKey;
+            var notifySource = source;
+            ClockService.Instance.ScheduleOneShotAsync(
+                BuildDeathNotifyTimerName(session),
+                DateTime.UtcNow,
+                async utcNow =>
+                {
+                    if (!HasCharacter(session)
+                        || session.Player.PetCreatureLastDeathCreatureKey != creatureKey)
+                    {
+                        return;
+                    }
+
+                    await SendCommittedDungeonDeathNotificationAsync(
+                        session,
+                        $"{notifySource}:notify",
+                        update);
+                });
+        }
+
+        private static bool MarkCommittedDungeonDeath(
+            EnhancedClientSession session,
+            PetCreatureSatietyUpdate update)
+        {
+            var alreadyNotified =
+                session.Player.PetCreatureLastDeathCreatureKey == update.CreatureKey;
+            CancelDeathCheck(session);
+            session.Player.PetCreatureSatietyDungeonStartUtc = DateTime.MinValue;
+            session.Player.PetCreatureSatietyDungeonId = 0;
+            session.Player.PetCreatureLastDeathCreatureKey = update.CreatureKey;
+            SetSessionCreatureAliveState(session, 0);
+            return alreadyNotified;
+        }
+
+        private static async Task SendCommittedDungeonDeathNotificationAsync(
+            EnhancedClientSession session,
+            string source,
+            PetCreatureSatietyUpdate update)
+        {
+            try
+            {
+                var writer = new GamePacketWriter();
+                writer.WriteUInt16(session.Player.UserId);
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0064, writer.ToArray()));
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"[{ProtocolName}] PetCreatureDeath: notification failed after commit source={source} cid={session.Player.CharacterId}: {ex.Message}");
+            }
+
+            FileLogger.Log($"[{ProtocolName}] PetCreatureDeath: DIED_CREATURE source={source} uid={session.Player.UserId} cid={session.Player.CharacterId} key={update.CreatureKey} elapsed={update.ElapsedSeconds:0.0}s foodRate={update.FoodConsumeRatePercent}% multiplier={update.FoodConsumeMultiplier:0.###} satiety={update.Before}->0");
+        }
+
+        private static string BuildDeathNotifyTimerName(EnhancedClientSession session)
+            => "pet-creature-death-notify:" + session.SessionId.ToString("N");
 
         private static async Task TryRevivePetCreatureOnTownReturnAsync(
             EnhancedClientSession session,

@@ -4,6 +4,9 @@ namespace DfoServer.Game.Inventory
 {
     internal static class PetCreatureSatietyService
     {
+        // 副本内真实 stomach 耗尽判定允许的浮点误差；存库整数值视为锚点时刻的精确值。
+        private const double DungeonDeathStomachEpsilon = 1e-6;
+
         internal static PetCreatureSatietyUpdate LoadEquippedCreatureSatiety(InventoryService inventory)
         {
             if (inventory == null)
@@ -127,7 +130,7 @@ namespace DfoServer.Game.Inventory
                 before,
                 elapsedSeconds,
                 foodConsumeRatePercent);
-            var shouldDie = stomach <= 1.0;
+            var shouldDie = stomach <= DungeonDeathStomachEpsilon;
             var after = shouldDie
                 ? 0
                 : CalculateVisibleSatiety(stomach, clampAliveMinimum: true);
@@ -235,6 +238,24 @@ namespace DfoServer.Game.Inventory
         {
             var multiplier = 1.0 + foodConsumeRatePercent / 100.0;
             return multiplier <= 0 ? 0.01 : multiplier;
+        }
+
+        // 结算后从旧锚点前进"已扣点数 × 60 / 消耗乘区"秒, 把小数时间余额保留在锚点内,
+        // 而不是重置到结算时刻; 未变化时锚点保持不动, 由调用方在清空计时时置 MinValue。
+        internal static DateTime AdvanceDungeonAnchor(
+            DateTime startUtc,
+            PetCreatureSatietyUpdate update)
+        {
+            if (startUtc == DateTime.MinValue
+                || !update.StateChanged
+                || update.ConsumedSatiety <= 0)
+            {
+                return startUtc;
+            }
+
+            var consumedSeconds = update.ConsumedSatiety * 60.0
+                / Math.Max(0.01, update.FoodConsumeMultiplier);
+            return startUtc.AddSeconds(consumedSeconds);
         }
 
         private static int CalculateDungeonSatietyAfter(
