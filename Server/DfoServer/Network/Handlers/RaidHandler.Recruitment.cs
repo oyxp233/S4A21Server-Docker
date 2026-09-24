@@ -316,10 +316,11 @@ public sealed partial class RaidHandler
 		IReadOnlyList<RaidMemberSnapshot> members = ToPacketMembers(raid);
 		await session.SendPacketAsync(BuildRaidMembersPacketForRecipient(session, raid.RaidId, members));
 		await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.RAID_ENTRY_COST_INFO, RaidPacketBuilder.BuildEntryCostInfo(BuildEntryCostStatuses(raid))));
+		await SendRaidTimerSnapshotAsync(session, raid, DateTime.UtcNow);
 		if (raid.State != 0)
 		{
 			await SendRaidClearCountsAsync(session, raid);
-			await SendRaidBuffStatusAsync(session, raid.RaidId);
+			await SendRaidBuffStatusAsync(session, raid);
 			await SendRaidMonsterStatusAsync(session, raid);
 		}
 	}

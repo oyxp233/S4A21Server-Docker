@@ -27,29 +27,52 @@ public sealed partial class RaidHandler
 
 	private readonly RaidManager _raids;
 
+	private readonly ClockService _clock;
+
+	private readonly AntonRaidTimerConfiguration _timerConfiguration;
+
 	private readonly ConcurrentDictionary<Guid, byte> _objectSent = new ConcurrentDictionary<Guid, byte>();
 
-	private readonly ConcurrentDictionary<string, Guid> _timerVersions = new ConcurrentDictionary<string, Guid>();
+	private readonly object _timerRegistrationLock = new object();
 
-	private readonly ConcurrentDictionary<(uint RaidId, uint SymbolId), uint> _symbolValues = new ConcurrentDictionary<(uint, uint), uint>();
+	private readonly Dictionary<string, RaidTimerRegistration> _timerRegistrations = new Dictionary<string, RaidTimerRegistration>(StringComparer.Ordinal);
 
-	private readonly ConcurrentDictionary<uint, uint> _infectionDungeonByRaid = new ConcurrentDictionary<uint, uint>();
+	private readonly ConcurrentDictionary<(Guid RaidInstanceId, uint SymbolId), uint> _symbolValues = new ConcurrentDictionary<(Guid, uint), uint>();
 
-	private readonly ConcurrentDictionary<uint, byte> _blackVolcanoBarrierBroken = new ConcurrentDictionary<uint, byte>();
+	private readonly ConcurrentDictionary<Guid, uint> _infectionDungeonByRaid = new ConcurrentDictionary<Guid, uint>();
 
-	private readonly ConcurrentDictionary<uint, object> _raidRuntimeLocks = new ConcurrentDictionary<uint, object>();
+	private readonly ConcurrentDictionary<Guid, byte> _blackVolcanoBarrierBroken = new ConcurrentDictionary<Guid, byte>();
 
-	private readonly ConcurrentDictionary<uint, PhaseRewardFlow> _phaseRewardFlows = new ConcurrentDictionary<uint, PhaseRewardFlow>();
+	private readonly ConcurrentDictionary<Guid, object> _raidRuntimeLocks = new ConcurrentDictionary<Guid, object>();
 
-	private readonly ConcurrentDictionary<(uint RaidId, byte BuffType), AntonRaidBuffActivation> _raidBuffActivations = new ConcurrentDictionary<(uint, byte), AntonRaidBuffActivation>();
+	private readonly ConcurrentDictionary<Guid, PhaseRewardFlow> _phaseRewardFlows = new ConcurrentDictionary<Guid, PhaseRewardFlow>();
 
-	private readonly ConcurrentDictionary<(uint RaidId, ushort SituationIndex, uint SoloMemberKey, uint DungeonId), uint[]> _raidMonsterRuntimeValues = new ConcurrentDictionary<(uint, ushort, uint, uint), uint[]>();
+	private readonly ConcurrentDictionary<(Guid RaidInstanceId, byte BuffType), AntonRaidBuffActivation> _raidBuffActivations = new ConcurrentDictionary<(Guid, byte), AntonRaidBuffActivation>();
+
+	private readonly ConcurrentDictionary<(Guid RaidInstanceId, ushort SituationIndex, uint SoloMemberKey, uint DungeonId), uint[]> _raidMonsterRuntimeValues = new ConcurrentDictionary<(Guid, ushort, uint, uint), uint[]>();
 
 	public RaidHandler(ICharacterRepository characterRepository, ISessionDirectory sessions, RaidManager raids)
+		: this(
+			characterRepository,
+			sessions,
+			raids,
+			ClockService.Instance,
+			AntonRaidRewardProvider.GetTimerConfiguration())
+	{
+	}
+
+	internal RaidHandler(
+		ICharacterRepository characterRepository,
+		ISessionDirectory sessions,
+		RaidManager raids,
+		ClockService clock,
+		AntonRaidTimerConfiguration timerConfiguration)
 	{
 		_characterRepository = characterRepository ?? throw new ArgumentNullException("characterRepository");
 		_sessions = sessions ?? throw new ArgumentNullException("sessions");
 		_raids = raids ?? throw new ArgumentNullException("raids");
+		_clock = clock ?? throw new ArgumentNullException(nameof(clock));
+		_timerConfiguration = timerConfiguration ?? throw new ArgumentNullException(nameof(timerConfiguration));
 	}
 
 	private static void RunInBackground(Task task, string operation)
@@ -184,7 +207,7 @@ public sealed partial class RaidHandler
 	{
 		ushort userId = 0;
 		RaidSnapshot raid = null;
-		bool ok = TryReadRaidSetSymbolRequest(body, out var symbolId, out var operand, out var operation) && TryResolveUserId(session, out userId) && _raids.TryGetByUser(userId, out raid) && raid.State == 2 && raid.PhaseIndex == 1 && symbolId == 110 && _symbolValues.ContainsKey((raid.RaidId, symbolId));
+		bool ok = TryReadRaidSetSymbolRequest(body, out var symbolId, out var operand, out var operation) && TryResolveUserId(session, out userId) && _raids.TryGetByUser(userId, out raid) && raid.State == 2 && raid.PhaseIndex == 1 && symbolId == 110 && _symbolValues.ContainsKey((raid.InstanceId, symbolId));
 		await SendAckAsync(session, header.type, ok);
 		if (!ok)
 		{
@@ -497,13 +520,14 @@ public sealed partial class RaidHandler
 	{
 		if (_raids.TryGetByRaidId(raid.RaidId, out var raid2) && raid2.InstanceId != raid.InstanceId)
 		{
+			CleanupRaidRuntimeState(raid);
 			return;
 		}
 		foreach (RaidMember member in raid.Members)
 		{
 			_objectSent.TryRemove(member.SessionId, out var _);
 		}
-		CleanupRaidRuntimeState(raid.RaidId);
+		CleanupRaidRuntimeState(raid);
 	}
 
 	private Task BroadcastRaidDepartureAsync(RaidSnapshot previousRaid)

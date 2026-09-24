@@ -10,6 +10,7 @@ namespace DfoServer.Network.Handlers
         internal void RegisterHandlers(GameCommandRegistry.GameCommandRegistrationGroup group)
         {
             group[(ushort)CmdPacketTypeA21.SEND_MESSAGE] = Handle_SEND_MESSAGE;
+            group[(ushort)CmdPacketTypeA21.ITEM_HYPERLINK_MESSAGE] = Handle_ITEM_HYPERLINK_MESSAGE;
             group[(ushort)CmdPacketTypeA21.CREATE_GROUP] = Handle_CREATE_GROUP;
             group[(ushort)CmdPacketTypeA21.LEAVE_FROM_GROUP] = Handle_LEAVE_FROM_GROUP;
             group[(ushort)CmdPacketTypeA21.ONE_TO_ONE_CHAT_STATE] = Handle_ONE_TO_ONE_CHAT_STATE;

@@ -9,6 +9,7 @@ namespace DfoServer.Game.Quests
         ClearMap = 1,
         ClearDungeon = 2,
         HuntEnemy = 3,
+        ActorDeath = 4,
     }
 
     public sealed class DungeonQuestProgressEvent
@@ -75,6 +76,23 @@ namespace DfoServer.Game.Quests
                 actorCode: enemyCode,
                 monsterType: 0,
                 enemyType: enemyType);
+
+        public static DungeonQuestProgressEvent ActorDeath(
+            DungeonEventEnvelope envelope,
+            int dungeonId,
+            int difficulty,
+            int actorCode,
+            byte actorType,
+            int enemyType) =>
+            new DungeonQuestProgressEvent(
+                envelope,
+                DungeonQuestProgressKind.ActorDeath,
+                dungeonId,
+                difficulty,
+                mapId: 0,
+                actorCode,
+                monsterType: actorType,
+                enemyType);
 
         public static DungeonQuestProgressEvent ClearMap(
             DungeonEventEnvelope envelope,

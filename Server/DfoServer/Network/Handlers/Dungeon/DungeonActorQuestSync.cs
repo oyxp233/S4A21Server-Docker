@@ -37,31 +37,15 @@ namespace DfoServer.Network.Handlers.Dungeon
                 actorType,
                 enemyType,
                 sourceEvent);
-            if (enemyType == QuestDropProvider.EnemyTypeMonster)
-            {
-                await DungeonQuestBridge.ApplyAsync(
-                    session,
-                    DungeonQuestProgressEvent.HuntMonster(
-                        sourceEvent,
-                        run.DungeonId,
-                        run.Difficulty,
-                        actorCode,
-                        actorType));
-                if (!run.Matches(sourceEvent.RunIdentity))
-                    return;
-            }
-
-            if (!QuestData.IsServerDrivenHuntEnemyActorType(enemyType))
-                return;
-
             await DungeonQuestBridge.ApplyAsync(
                 session,
-                DungeonQuestProgressEvent.HuntEnemy(
+                DungeonQuestProgressEvent.ActorDeath(
                     sourceEvent,
                     run.DungeonId,
                     run.Difficulty,
-                        actorCode,
-                        enemyType));
+                    actorCode,
+                    actorType,
+                    enemyType));
         }
 
         private static void ApplyAnotherAradActorDeath(

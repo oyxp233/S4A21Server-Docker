@@ -267,7 +267,7 @@ public sealed partial class RaidHandler
 		ushort userId = 0;
 		RaidSnapshot raid = null;
 		PhaseRewardFlow flow = null;
-		bool ok = TryResolveUserId(session, out userId) && _raids.TryGetByUser(userId, out raid) && raid.State == 3 && _phaseRewardFlows.TryGetValue(raid.RaidId, out flow) && flow.ResultStarted;
+		bool ok = TryResolveUserId(session, out userId) && _raids.TryGetByUser(userId, out raid) && raid.State == 3 && TryGetPhaseRewardFlow(raid, out flow) && flow.ResultStarted;
 		await SendAckAsync(session, header.type, ok);
 		if (!ok)
 		{
@@ -277,7 +277,7 @@ public sealed partial class RaidHandler
 		bool movieFinished = IsRaidMovieFinishedRequest(body);
 		if (movieFinished)
 		{
-			await BeginPhaseOneCardSelectionAsync(raid.RaidId, "movie-finished");
+			await BeginPhaseOneCardSelectionAsync(raid, "movie-finished");
 			await SendRaidStateValueAsync(session, 4u, raid.StateArgument);
 			RaidMember raidMember = raid.Members.FirstOrDefault((RaidMember entry) => entry.UserId == userId);
 			if (raidMember != null)
@@ -297,9 +297,12 @@ public sealed partial class RaidHandler
 		return false;
 	}
 
-	private async Task StartPhaseOneResultMovieAsync(uint raidId)
+	private async Task StartPhaseOneResultMovieAsync(RaidSnapshot expected)
 	{
-		if (!_phaseRewardFlows.TryGetValue(raidId, out var flow) || !flow.TryStartResult() || !_raids.TryGetByRaidId(raidId, out var raid) || raid.State != 3)
+		if (!TryGetCurrentRaid(expected, out var raid)
+			|| raid.State != 3
+			|| !TryGetPhaseRewardFlow(expected, out var flow)
+			|| !flow.TryStartResult())
 		{
 			return;
 		}
@@ -315,17 +318,20 @@ public sealed partial class RaidHandler
 			}
 		}
 		await BroadcastRaidStateAsync(raid);
-		RunInBackground(ShowPhaseOneMovieSkipPromptAsync(raidId), "phase-one-movie-prompt");
-		FileLogger.Log($"[GameProtocol] RAID_PHASE1_MOVIE raid={raidId} eligible={flow.EligibleCount} sent={resultSent}");
+		RunInBackground(ShowPhaseOneMovieSkipPromptAsync(expected), "phase-one-movie-prompt");
+		FileLogger.Log($"[GameProtocol] RAID_PHASE1_MOVIE raid={raid.RaidId} eligible={flow.EligibleCount} sent={resultSent}");
 	}
 
-	private async Task ShowPhaseOneMovieSkipPromptAsync(uint raidId)
+	private async Task ShowPhaseOneMovieSkipPromptAsync(RaidSnapshot expected)
 	{
 		await Task.Delay(2000);
-		if (_phaseRewardFlows.TryGetValue(raidId, out var value) && !value.CardSelectionStarted && _raids.TryGetByRaidId(raidId, out var raid) && raid.State == 3)
+		if (TryGetCurrentRaid(expected, out var raid)
+			&& raid.State == 3
+			&& TryGetPhaseRewardFlow(expected, out var value)
+			&& !value.CardSelectionStarted)
 		{
 			await BroadcastRaidNotificationAsync(raid, NotiPacketTypeA21.RAID_MOVIE_SKIP, RaidPacketBuilder.BuildRaidMovieSkip(0u, 0u));
-			FileLogger.Log($"[GameProtocol] RAID_PHASE1_MOVIE_PROMPT raid={raidId}");
+			FileLogger.Log($"[GameProtocol] RAID_PHASE1_MOVIE_PROMPT raid={raid.RaidId}");
 		}
 	}
 
@@ -354,7 +360,7 @@ public sealed partial class RaidHandler
 			await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.RAID_REWARD_LIST, RaidPacketBuilder.BuildRaidRewardList(1u, partyCardRewards)));
 			if (flow.TryStartAutomaticCardSelection())
 			{
-				RunInBackground(AutoSelectPendingPhaseOneCardsAsync(raid.RaidId), "phase-one-auto-card");
+				RunInBackground(AutoSelectPendingPhaseOneCardsAsync(raid), "phase-one-auto-card");
 			}
 			FileLogger.Log($"[GameProtocol] RAID_PHASE1_PARTY_REWARD_LIST raid={raid.RaidId} phase={raid.PhaseIndex} user={receiver.UserId} party={receiver.PartyIndex} members={partyMembers.Length} revealedGold={rewards.Length} revealedItems={partyCardRewards.Length}");
 		}
@@ -380,10 +386,12 @@ public sealed partial class RaidHandler
 		return list.ToArray();
 	}
 
-	private async Task AutoSelectPendingPhaseOneCardsAsync(uint raidId)
+	private async Task AutoSelectPendingPhaseOneCardsAsync(RaidSnapshot expected)
 	{
 		await Task.Delay(10000);
-		if (!_phaseRewardFlows.TryGetValue(raidId, out var flow) || !_raids.TryGetByRaidId(raidId, out var raid) || raid.State != 3)
+		if (!TryGetCurrentRaid(expected, out var raid)
+			|| raid.State != 3
+			|| !TryGetPhaseRewardFlow(expected, out var flow))
 		{
 			return;
 		}
@@ -411,17 +419,17 @@ public sealed partial class RaidHandler
 				}
 			}
 		}
-		RunInBackground(CompletePhaseOnePartyRewardsAfterRevealAsync(raidId), "phase-one-party-reward-complete");
-		FileLogger.Log($"[GameProtocol] RAID_PHASE1_AUTO_CARD_SELECTION raid={raidId}");
+		RunInBackground(CompletePhaseOnePartyRewardsAfterRevealAsync(raid), "phase-one-party-reward-complete");
+		FileLogger.Log($"[GameProtocol] RAID_PHASE1_AUTO_CARD_SELECTION raid={raid.RaidId}");
 	}
 
-	private Task BeginPhaseOneCardSelectionAsync(uint raidId, string reason)
+	private Task BeginPhaseOneCardSelectionAsync(RaidSnapshot raid, string reason)
 	{
-		if (!_phaseRewardFlows.TryGetValue(raidId, out var value) || !value.TryStartCardSelection())
+		if (!TryGetPhaseRewardFlow(raid, out var value) || !value.TryStartCardSelection())
 		{
 			return Task.CompletedTask;
 		}
-		FileLogger.Log($"[GameProtocol] RAID_PHASE1_CARD_REWARD raid={raidId} reason={reason} eligible={value.EligibleCount}");
+		FileLogger.Log($"[GameProtocol] RAID_PHASE1_CARD_REWARD raid={raid.RaidId} reason={reason} eligible={value.EligibleCount}");
 		return Task.CompletedTask;
 	}
 
@@ -431,7 +439,7 @@ public sealed partial class RaidHandler
 		ushort userId = 0;
 		RaidSnapshot raid = null;
 		PhaseRewardFlow flow = null;
-		bool ok = flag && TryResolveUserId(session, out userId) && _raids.TryGetByUser(userId, out raid) && raid.State == 3 && _phaseRewardFlows.TryGetValue(raid.RaidId, out flow) && flow.CardSelectionStarted && flow.IsEligible(userId);
+		bool ok = flag && TryResolveUserId(session, out userId) && _raids.TryGetByUser(userId, out raid) && raid.State == 3 && TryGetPhaseRewardFlow(raid, out flow) && flow.CardSelectionStarted && flow.IsEligible(userId);
 		bool recordedNow = false;
 		bool allSelected = false;
 		if (ok)
@@ -458,19 +466,19 @@ public sealed partial class RaidHandler
 		}
 		if (allSelected)
 		{
-			RunInBackground(CompletePhaseOnePartyRewardsAfterRevealAsync(raid.RaidId), "phase-one-selected-reward-complete");
+			RunInBackground(CompletePhaseOnePartyRewardsAfterRevealAsync(raid), "phase-one-selected-reward-complete");
 		}
 		FileLogger.Log($"[GameProtocol] SELECT_RAID_REWARD_CARD body={BitConverter.ToString(body ?? Array.Empty<byte>())} type={rewardType} card={cardIndex} ok={ok} recorded={recordedNow} all={allSelected}");
 	}
 
-	private async Task CompletePhaseOnePartyRewardsAfterRevealAsync(uint raidId)
+	private async Task CompletePhaseOnePartyRewardsAfterRevealAsync(RaidSnapshot expected)
 	{
-		if (_phaseRewardFlows.TryGetValue(raidId, out var value) && value.TryStartPartyRewardCompletion())
+		if (TryGetPhaseRewardFlow(expected, out var value) && value.TryStartPartyRewardCompletion())
 		{
 			await Task.Delay(2000);
-			if (_raids.TryGetByRaidId(raidId, out var raid) && raid.State == 3)
+			if (TryGetCurrentRaid(expected, out var raid) && raid.State == 3)
 			{
-				await ShowPhaseOneSquadRewardsAsync(raidId, "client-selection-complete");
+				await ShowPhaseOneSquadRewardsAsync(expected, "client-selection-complete");
 			}
 		}
 	}
@@ -574,7 +582,7 @@ public sealed partial class RaidHandler
 
 	private async Task GrantPhaseOnePartyRewardAsync(RaidSnapshot raid, RaidMember member, byte rewardType, byte cardIndex)
 	{
-		if (_phaseRewardFlows.TryGetValue(raid.RaidId, out var value))
+		if (TryGetPhaseRewardFlow(raid, out var value))
 		{
 			int partyRewardIndex = GetPartyRewardIndex(cardIndex);
 			uint configurationItemId = ((rewardType == 1) ? AntonRaidRewardProvider.RollRewardContainer(raid.PhaseIndex, "party_card", GetAntonPhaseRank(raid.PhaseIndex, raid.PhaseDeathCount)) : AntonRaidRewardProvider.RollRewardContainer(raid.PhaseIndex, "gold", GetAntonPhaseRank(raid.PhaseIndex, raid.PhaseDeathCount)));
@@ -590,9 +598,12 @@ public sealed partial class RaidHandler
 		}
 	}
 
-	private async Task ShowPhaseOneSquadRewardsAsync(uint raidId, string reason)
+	private async Task ShowPhaseOneSquadRewardsAsync(RaidSnapshot expected, string reason)
 	{
-		if (!_phaseRewardFlows.TryGetValue(raidId, out var flow) || !flow.TryStartSquadReward() || !_raids.TryGetByRaidId(raidId, out var raid) || raid.State != 3)
+		if (!TryGetCurrentRaid(expected, out var raid)
+			|| raid.State != 3
+			|| !TryGetPhaseRewardFlow(expected, out var flow)
+			|| !flow.TryStartSquadReward())
 		{
 			return;
 		}
@@ -608,7 +619,7 @@ public sealed partial class RaidHandler
 					continue;
 				}
 				byte squadDisplayFlags = AntonRaidRewardProvider.GetSquadDisplayFlags(itemId, (itemId == 0) ? null : ItemMetadataResolver.Resolve((int)itemId));
-				FileLogger.Log($"[GameProtocol] RAID_GOLD_CLASSIFICATION raid={raidId} phase={raid.PhaseIndex} user={item.UserId} config={num} item={itemId} configuredFlag={flags} actualFlag={squadDisplayFlags}");
+				FileLogger.Log($"[GameProtocol] RAID_GOLD_CLASSIFICATION raid={raid.RaidId} phase={raid.PhaseIndex} user={item.UserId} config={num} item={itemId} configuredFlag={flags} actualFlag={squadDisplayFlags}");
 				resolvedRewards.Add((item, num, new ResolvedRaidReward(itemId, count), squadDisplayFlags));
 			}
 			RaidRewardEntry[] rewards = resolvedRewards.Select(((RaidMember Member, uint ConfigurationItemId, ResolvedRaidReward Reward, byte Flags) tuple) => new RaidRewardEntry
@@ -621,28 +632,40 @@ public sealed partial class RaidHandler
 			}).ToArray();
 			await BroadcastRaidNotificationAsync(raid, NotiPacketTypeA21.RAID_REWARD_LIST, RaidPacketBuilder.BuildRaidRewardList(3u, rewards));
 			await Task.Delay(5000);
+			if (!TryGetCurrentRaid(expected, out var current)
+				|| current.State != raid.State
+				|| current.PhaseIndex != raid.PhaseIndex
+				|| !TryGetPhaseRewardFlow(expected, out var currentFlow)
+				|| !ReferenceEquals(currentFlow, flow))
+			{
+				return;
+			}
 			foreach (var entry in resolvedRewards)
 			{
 				bool value = await GrantResolvedRaidRewardAsync(entry.Member, entry.Reward);
 				FileLogger.Log($"[GameProtocol] RAID_PHASE1_SQUAD_REWARD_GRANTED user={entry.Member.UserId} config={entry.ConfigurationItemId} item={entry.Reward.ItemId} count={entry.Reward.Count} granted={value}");
 			}
-			RunInBackground(FinishPhaseOneRewardsAfterDelayAsync(raidId), "phase-one-finish-delay");
-			FileLogger.Log($"[GameProtocol] RAID_PHASE1_SQUAD_REWARD raid={raidId} reason={reason} rewards={rewards.Length}");
+			RunInBackground(FinishPhaseOneRewardsAfterDelayAsync(expected), "phase-one-finish-delay");
+			FileLogger.Log($"[GameProtocol] RAID_PHASE1_SQUAD_REWARD raid={raid.RaidId} reason={reason} rewards={rewards.Length}");
 		}
 	}
 
-	private async Task FinishPhaseOneRewardsAfterDelayAsync(uint raidId)
+	private async Task FinishPhaseOneRewardsAfterDelayAsync(RaidSnapshot expected)
 	{
-		if (_raids.TryGetByRaidId(raidId, out var raid) && raid.State == 3 && _phaseRewardFlows.TryGetValue(raidId, out var value) && value.TryFinish() && _raids.TryCompletePhase(raidId, out var completed))
+		if (TryGetCurrentRaid(expected, out var raid)
+			&& raid.State == 3
+			&& TryGetPhaseRewardFlow(expected, out var value)
+			&& value.TryFinish()
+			&& _raids.TryCompletePhase(raid, out var completed))
 		{
 			PhaseRewardFlow value2;
 			if (completed.PhaseIndex == 1)
 			{
-				CancelAllPhaseTwoTimers(raidId);
+				CancelAllPhaseTwoTimers(completed);
 				await EnablePhaseOneDungeonReturnAsync(completed);
-				_phaseRewardFlows.TryRemove(raidId, out value2);
-				CleanupRaidRuntimeState(raidId);
-				FileLogger.Log($"[GameProtocol] RAID_PHASE2_COMPLETE raid={raidId} state={completed.State}");
+				_phaseRewardFlows.TryRemove(completed.InstanceId, out value2);
+				CleanupRaidRuntimeState(completed);
+				FileLogger.Log($"[GameProtocol] RAID_PHASE2_COMPLETE raid={completed.RaidId} state={completed.State}");
 			}
 			else
 			{
@@ -651,9 +674,9 @@ public sealed partial class RaidHandler
 				await BroadcastRaidNotificationAsync(completed, NotiPacketTypeA21.RAID_SET_TIMER, RaidPacketBuilder.BuildSetTimer(0u, 0u, remainingBreakSeconds));
 				await BroadcastRaidNotificationAsync(completed, NotiPacketTypeA21.RAID_REMAIN_TIME, RaidPacketBuilder.BuildRemainTime(1, remainingBreakSeconds));
 				await EnablePhaseOneDungeonReturnAsync(completed);
-				_phaseRewardFlows.TryRemove(raidId, out value2);
+				_phaseRewardFlows.TryRemove(completed.InstanceId, out value2);
 				SchedulePhaseBreakTimer(completed, remainingBreakSeconds);
-				FileLogger.Log($"[GameProtocol] RAID_PHASE1_BREAK raid={raidId} state={completed.State} break={remainingBreakSeconds}");
+				FileLogger.Log($"[GameProtocol] RAID_PHASE1_BREAK raid={completed.RaidId} state={completed.State} break={remainingBreakSeconds}");
 			}
 		}
 	}

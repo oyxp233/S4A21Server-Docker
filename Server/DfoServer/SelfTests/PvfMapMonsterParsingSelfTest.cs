@@ -1,11 +1,14 @@
 using DfoServer.GameWorld;
 using DfoServer.Game.Quests;
 using DfoServer.Game.Dungeon;
+using DfoServer.Network;
 using Microsoft.Data.Sqlite;
 using PvfLib;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 
 namespace DfoServer.SelfTests
 {
@@ -25,11 +28,104 @@ namespace DfoServer.SelfTests
             VerifyAnotherAradQuestRuntime(ref failures);
             VerifySceneOwnedTimedMonsterWave(ref failures);
             VerifyWorldMapHuntMonsterQuestLayout(ref failures);
+            VerifyQuestAutomaticDropProjection(ref failures);
 
             Console.WriteLine(failures == 0
                 ? "PVF_MAP_MONSTER_PARSING selftest passed"
                 : $"PVF_MAP_MONSTER_PARSING selftest failed: {failures}");
             return failures == 0 ? 0 : 1;
+        }
+
+        private static void VerifyQuestAutomaticDropProjection(ref int failures)
+        {
+            var success = typeof(QuestDropCommitResult).GetMethods(
+                    BindingFlags.Static | BindingFlags.NonPublic)
+                .FirstOrDefault(method =>
+                    method.Name == "Success"
+                    && method.GetParameters().Length == 2
+                    && method.GetParameters()[1].ParameterType
+                        == typeof(IReadOnlyList<QuestSetTriggerResult>));
+            var triggerChanges = typeof(QuestDropCommitResult).GetProperty(
+                "TriggerChanges",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Check(
+                "automatic quest-item commit preserves trigger changes for client projection",
+                success != null && triggerChanges != null,
+                ref failures);
+
+            var projectionOrder = new List<string>();
+            var projectedTriggers = new List<QuestSetTriggerResult>();
+            var batcher = new QuestDropNotificationBatcher(
+                (_, slots) =>
+                {
+                    projectionOrder.Add("inventory:" + string.Join(",", slots));
+                    return System.Threading.Tasks.Task.CompletedTask;
+                },
+                (_, changes) =>
+                {
+                    projectionOrder.Add("trigger");
+                    projectedTriggers.AddRange(changes);
+                    return System.Threading.Tasks.Task.CompletedTask;
+                });
+            var session = new EnhancedClientSession(
+                null,
+                new GamePacketHeader());
+            session.Player.CharacterId = 1;
+            batcher.Queue(
+                session,
+                new short[] { 187 },
+                new[]
+                {
+                    new QuestSetTriggerResult
+                    {
+                        QuestId = 2045,
+                        PreviousTriggerValue = 20,
+                        TriggerValue = 19,
+                    },
+                    new QuestSetTriggerResult
+                    {
+                        QuestId = 2045,
+                        PreviousTriggerValue = 19,
+                        TriggerValue = 18,
+                    },
+                });
+            batcher.FlushPendingAsync(session).GetAwaiter().GetResult();
+            Check(
+                "automatic quest-item projection sends inventory before the latest trigger",
+                projectionOrder.SequenceEqual(
+                    new[] { "inventory:187", "trigger" })
+                    && projectedTriggers.Count == 1
+                    && projectedTriggers[0].QuestId == 2045
+                    && projectedTriggers[0].TriggerValue == 18,
+                ref failures);
+
+            projectionOrder.Clear();
+            projectedTriggers.Clear();
+            batcher.Queue(
+                session,
+                new short[] { 187 },
+                new[]
+                {
+                    new QuestSetTriggerResult
+                    {
+                        QuestId = 2045,
+                        PreviousTriggerValue = 19,
+                        TriggerValue = 18,
+                    },
+                    new QuestSetTriggerResult
+                    {
+                        QuestId = 2045,
+                        PreviousTriggerValue = 20,
+                        TriggerValue = 19,
+                    },
+                });
+            batcher.FlushPendingAsync(session).GetAwaiter().GetResult();
+            Check(
+                "automatic quest-item projection keeps the latest state when notifications arrive out of order",
+                projectedTriggers.Count == 1
+                    && projectedTriggers[0].QuestId == 2045
+                    && projectedTriggers[0].TriggerValue == 18,
+                ref failures);
         }
 
         private static void VerifyDummyBossAlignment(ref int failures)

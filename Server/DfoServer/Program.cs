@@ -20,6 +20,7 @@ namespace DfoServer
             ("--selftest-a21-raid-protocol", SelfTests.A21RaidProtocolSelfTest.Run),
             ("--selftest-raid-persistence", SelfTests.RaidPersistenceSelfTest.Run),
             ("--selftest-packet-framing-bounds", SelfTests.PacketFramingBoundsSelfTest.Run),
+            ("--selftest-packet-capture-runtime", SelfTests.PacketCaptureRuntimeSelfTest.Run),
             ("--selftest-a21-channel-protocol", SelfTests.A21ChannelProtocolSelfTest.Run),
             ("--selftest-a21-user-channel", SelfTests.A21UserChannelSelfTest.Run),
             ("--selftest-a21-create-character-protocol", SelfTests.A21CreateCharacterProtocolSelfTest.Run),
@@ -43,6 +44,7 @@ namespace DfoServer
             ("--selftest-buy-skill-tp-refund", SelfTests.BuySkillTpRefundSelfTest.Run),
             ("--selftest-compound-item-ack", SelfTests.CompoundItemAckSelfTest.Run),
             ("--selftest-daily-reset-account", SelfTests.DailyResetAccountSelfTest.Run),
+            ("--selftest-daily-quest-completion-cycle", SelfTests.DailyQuestCompletionCycleSelfTest.Run),
             ("--selftest-a21-daily-challenge", SelfTests.A21DailyChallengeSelfTest.Run),
             ("--selftest-a21-joust-event", SelfTests.A21JoustEventSelfTest.Run),
             ("--selftest-a21-pcroom-timepoint-event", SelfTests.A21PcRoomTimePointEventSelfTest.Run),
@@ -61,6 +63,7 @@ namespace DfoServer
             ("--selftest-fixed-daily-ticket", SelfTests.FixedDailyTicketSelfTest.Run),
             ("--selftest-stacked-orb-conversion", SelfTests.StackedOrbConversionSelfTest.Run),
             ("--selftest-quest-completion-ticket", SelfTests.QuestCompletionTicketSelfTest.Run),
+            ("--selftest-quest-progress-batch", SelfTests.QuestProgressBatchSelfTest.Run),
             ("--selftest-level-up-ticket", SelfTests.LevelUpTicketSelfTest.Run),
             ("--selftest-growup-change", SelfTests.GrowupChangeSelfTest.Run),
             ("--selftest-cargo-transport-stone", SelfTests.CargoTransportStoneSelfTest.Run),
@@ -71,6 +74,7 @@ namespace DfoServer
             ("--selftest-gold-limit", SelfTests.GoldLimitSelfTest.Run),
             ("--selftest-friends", SelfTests.UnitedFriendSystemSelfTest.Run),
             ("--selftest-a21-one-to-one-chat", SelfTests.A21OneToOneChatSelfTest.Run),
+            ("--selftest-a21-item-hyperlink-chat", SelfTests.A21ItemHyperlinkChatSelfTest.Run),
             ("--selftest-a21-blacklist", SelfTests.A21BlacklistSelfTest.Run),
             ("--selftest-a21-guild-creation", SelfTests.A21GuildCreationSelfTest.Run),
             ("--selftest-pvf-map-monster-parsing", SelfTests.PvfMapMonsterParsingSelfTest.Run),
@@ -376,6 +380,7 @@ namespace DfoServer
 
             server.Stop();
             Game.Inventory.InventoryPersistenceService.SaveAllDirty();
+            PacketFileLogger.Shutdown(TimeSpan.FromSeconds(5));
             // 服务停止后不再产生常规业务日志，此时完成队列并等待后台写入结束，避免退出时丢失尾部日志。
             FileLogger.Shutdown(TimeSpan.FromSeconds(5));
             Console.WriteLine("Server stopped.");

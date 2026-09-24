@@ -418,11 +418,19 @@ namespace DfoServer.Game.Quests
                 grantedSlots.Add(grant.SlotIndex);
             }
 
-            if (grantedSlots.Count <= 0)
+            if (grantedSlots.Count <= 0
+                && committed.TriggerChanges.Count <= 0)
                 return Task.CompletedTask;
 
-            // Coalesce only client projections after online inventory and quest state settle.
-            _notificationBatcher.Queue(session, grantedSlots);
+            // Coalesce client projections only after online inventory and quest
+            // state settle.  Seeking-item progress is committed in the same
+            // transaction as the item grant, so the corresponding trigger must
+            // travel with the inventory update or the client keeps displaying
+            // its stale pre-drop objective value.
+            _notificationBatcher.Queue(
+                session,
+                grantedSlots,
+                committed.TriggerChanges);
             return Task.CompletedTask;
         }
 
@@ -583,7 +591,9 @@ namespace DfoServer.Game.Quests
                                 transaction.Commit();
                                 committed = true;
                                 inventory.ClearDirtyState();
-                                return QuestDropCommitResult.Success(grants);
+                                return QuestDropCommitResult.Success(
+                                    grants,
+                                    progress.Changes);
                             }
                         }
                     }
@@ -982,14 +992,21 @@ namespace DfoServer.Game.Quests
         internal bool Committed { get; private set; }
         internal bool DuplicateEvent { get; private set; }
         internal DungeonItemGrantBatchResult Grants { get; private set; }
+        internal IReadOnlyList<QuestSetTriggerResult> TriggerChanges
+            { get; private set; } = Array.Empty<QuestSetTriggerResult>();
         internal string Error { get; private set; } = string.Empty;
 
         internal static QuestDropCommitResult Success(
-            DungeonItemGrantBatchResult grants)
+            DungeonItemGrantBatchResult grants,
+            IReadOnlyList<QuestSetTriggerResult> triggerChanges)
             => new QuestDropCommitResult
             {
                 Committed = true,
                 Grants = grants,
+                TriggerChanges = triggerChanges == null
+                    ? Array.Empty<QuestSetTriggerResult>()
+                    : new List<QuestSetTriggerResult>(triggerChanges)
+                        .AsReadOnly(),
             };
 
         internal static QuestDropCommitResult Fail(string error)

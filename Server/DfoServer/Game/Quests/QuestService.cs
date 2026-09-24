@@ -489,6 +489,79 @@ namespace DfoServer.Game.Quests
             return applied.Changes;
         }
 
+        internal IReadOnlyList<QuestSetTriggerResult>
+            SyncActorDeathQuestProgress(
+                int characterId,
+                int dungeonId,
+                int difficulty,
+                int actorCode,
+                byte actorType,
+                int enemyType,
+                Guid sourceEventId = default,
+                IReadOnlyCollection<ushort> eligibleQuestIds = null,
+                IReadOnlyDictionary<ushort, QuestActivationId>
+                    eligibleQuestActivations = null)
+        {
+            if (characterId <= 0
+                || dungeonId <= 0
+                || actorCode <= 0)
+            {
+                return Array.Empty<QuestSetTriggerResult>();
+            }
+
+            var requests = new List<QuestProgressApplicationRequest>(2);
+            if (actorType <= 3)
+            {
+                requests.Add(new QuestProgressApplicationRequest
+                {
+                    CharacterId = characterId,
+                    Operation = QuestProgressOperation.HuntMonster,
+                    SourceEventId = sourceEventId,
+                    DungeonId = dungeonId,
+                    Difficulty = difficulty,
+                    MonsterCode = actorCode,
+                    MonsterType = actorType,
+                    EligibleQuestIds = eligibleQuestIds,
+                    EligibleQuestActivations = eligibleQuestActivations,
+                });
+            }
+
+            if (GameWorld.QuestData.IsServerDrivenHuntEnemyActorType(enemyType))
+            {
+                requests.Add(new QuestProgressApplicationRequest
+                {
+                    CharacterId = characterId,
+                    Operation = QuestProgressOperation.HuntEnemy,
+                    SourceEventId = sourceEventId,
+                    DungeonId = dungeonId,
+                    Difficulty = difficulty,
+                    MonsterCode = actorCode,
+                    EnemyType = enemyType,
+                    EligibleQuestIds = eligibleQuestIds,
+                    EligibleQuestActivations = eligibleQuestActivations,
+                });
+            }
+
+            if (requests.Count == 0)
+                return Array.Empty<QuestSetTriggerResult>();
+
+            var applied = _progress.ApplyBatch(requests);
+            if (!applied.Success)
+            {
+                FileLogger.Log(
+                    $"[QuestService] ACTOR_DEATH progress failed: "
+                    + $"cid={characterId} dungeon={dungeonId} "
+                    + $"actor={actorCode}/{actorType}/{enemyType} "
+                    + $"event={sourceEventId:N} error={applied.Error}");
+                return Array.Empty<QuestSetTriggerResult>();
+            }
+
+            var changes = new List<QuestSetTriggerResult>();
+            foreach (var result in applied.Results)
+                changes.AddRange(result.Changes);
+            return changes;
+        }
+
         internal static int SyncClearMapQuestProgressCore(
             string connectionString,
             int characterId,

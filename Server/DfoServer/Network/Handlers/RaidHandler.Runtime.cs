@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DfoServer.Game.Raid;
@@ -12,20 +13,31 @@ namespace DfoServer.Network.Handlers;
 
 public sealed partial class RaidHandler
 {
-	private async Task StartRecoveryTimerAsync(RaidSnapshot raid, uint dungeonId, uint recovery, uint active, Func<RaidSnapshot, Task> timeout)
+	private sealed class RaidTimerRegistration
 	{
-		Guid version = AdvanceTimer(raid.RaidId, 2u, dungeonId);
-		await SendTimerAsync(raid, 2u, dungeonId, recovery);
-		RunInBackground(RunRecoveryTimerAsync(raid, dungeonId, recovery, active, version, timeout), "dungeon-recovery");
+		internal Guid RaidInstanceId { get; init; }
+		internal uint PhaseIndex { get; init; }
+		internal uint TimerType { get; init; }
+		internal uint DungeonId { get; init; }
+		internal string Purpose { get; init; } = string.Empty;
+		internal Guid Version { get; init; }
+		internal DateTime DeadlineUtc { get; init; }
+		internal bool ProjectSetTimer { get; init; }
+		internal byte? RemainTimeState { get; init; }
+		internal ClockService.ClockTimerHandle Handle { get; set; }
 	}
 
-	private async Task RunRecoveryTimerAsync(RaidSnapshot raid, uint dungeonId, uint recovery, uint active, Guid version, Func<RaidSnapshot, Task> timeout)
+	private async Task StartRecoveryTimerAsync(RaidSnapshot raid, uint dungeonId, uint recovery, uint active, Func<RaidSnapshot, Task> timeout)
 	{
-		_ = 6;
-		try
-		{
-			await Task.Delay((int)(recovery * 1000));
-			if (TimerCurrent(raid.RaidId, 2u, dungeonId, version) && TryGetCurrentRaid(raid, out var current))
+		ScheduleRaidTimer(
+			raid,
+			2u,
+			dungeonId,
+			"recovery",
+			recovery,
+			projectSetTimer: true,
+			remainTimeState: null,
+			async (current, _) =>
 			{
 				await SetDungeonStateAsync(current, dungeonId, 0u);
 				_raids.ResetClearCounts(current.RaidId, new uint[1] { dungeonId });
@@ -36,89 +48,57 @@ public sealed partial class RaidHandler
 					await StartBlackFogPassiveTimerAsync(current);
 					break;
 				case 216u:
-					await SetSymbolAsync(current, 123u, 1u);
+					await SetSymbolAsync(current, AntonNavigunOnMovieSymbolId, 1u);
 					await StartNavalCannonMeteoTimerAsync(current);
 					break;
 				}
 				await StartActiveTimerAsync(current, dungeonId, active, timeout);
-			}
-		}
-		catch (Exception ex)
-		{
-			FileLogger.Log($"[GameProtocol] RAID_RECOVERY_TIMER failed raid={raid?.RaidId} dungeon={dungeonId} error={ex.Message}");
-		}
+			});
+		await SendTimerAsync(raid, 2u, dungeonId, recovery);
 	}
 
 	private async Task StartBlackFogPassiveTimerAsync(RaidSnapshot raid)
 	{
-		Guid version = AdvanceTimer(raid.RaidId, 3u, 211u);
-		await SendTimerAsync(raid, 3u, 211u, 240u);
-		RunInBackground(RunBlackFogPassiveTimerAsync(raid, version), "black-fog-passive");
-	}
-
-	private async Task RunBlackFogPassiveTimerAsync(RaidSnapshot raid, Guid version)
-	{
-		_ = 1;
-		try
-		{
-			await Task.Delay(240000);
-			if (TimerCurrent(raid.RaidId, 3u, 211u, version) && TryGetCurrentRaid(raid, out var current))
-			{
-				await SetSymbolAsync(current, 1u, 1u);
-			}
-		}
-		catch (Exception ex)
-		{
-			FileLogger.Log($"[GameProtocol] RAID_BLACK_FOG_PASSIVE_TIMER failed raid={raid?.RaidId} error={ex.Message}");
-		}
+		uint seconds = _timerConfiguration.GetDungeonPassiveSeconds(0u, 211u);
+		ScheduleRaidTimer(
+			raid,
+			3u,
+			211u,
+			"passive",
+			seconds,
+			projectSetTimer: true,
+			remainTimeState: null,
+			(current, _) => SetSymbolAsync(current, AntonSmokePassiveCreateSymbolId, 1u));
+		await SendTimerAsync(raid, 3u, 211u, seconds);
 	}
 
 	private async Task StartNavalCannonMeteoTimerAsync(RaidSnapshot raid)
 	{
-		Guid version = AdvanceTimer(raid.RaidId, 3u, 216u);
-		await SendTimerAsync(raid, 3u, 216u, 120u);
-		RunInBackground(RunNavalCannonMeteoTimerAsync(raid, version), "naval-cannon-meteo");
-	}
-
-	private async Task RunNavalCannonMeteoTimerAsync(RaidSnapshot raid, Guid version)
-	{
-		_ = 1;
-		try
-		{
-			await Task.Delay(120000);
-			if (TimerCurrent(raid.RaidId, 3u, 216u, version) && TryGetCurrentRaid(raid, out var current))
-			{
-				await SetSymbolAsync(current, 2u, 1u);
-			}
-		}
-		catch (Exception ex)
-		{
-			FileLogger.Log($"[GameProtocol] RAID_NAVAL_METEO_TIMER failed raid={raid?.RaidId} error={ex.Message}");
-		}
+		uint seconds = _timerConfiguration.GetDungeonPassiveSeconds(0u, 216u);
+		ScheduleRaidTimer(
+			raid,
+			3u,
+			216u,
+			"passive",
+			seconds,
+			projectSetTimer: true,
+			remainTimeState: null,
+			(current, _) => SetSymbolAsync(current, AntonMeteoPassiveCreateSymbolId, 1u));
+		await SendTimerAsync(raid, 3u, 216u, seconds);
 	}
 
 	private async Task StartActiveTimerAsync(RaidSnapshot raid, uint dungeonId, uint seconds, Func<RaidSnapshot, Task> timeout)
 	{
-		Guid version = AdvanceTimer(raid.RaidId, 1u, dungeonId);
+		ScheduleRaidTimer(
+			raid,
+			1u,
+			dungeonId,
+			"active",
+			seconds,
+			projectSetTimer: true,
+			remainTimeState: null,
+			(current, _) => timeout(current));
 		await SendTimerAsync(raid, 1u, dungeonId, seconds);
-		RunInBackground(RunActiveTimerAsync(raid, dungeonId, seconds, version, timeout), "dungeon-active");
-	}
-
-	private async Task RunActiveTimerAsync(RaidSnapshot raid, uint dungeonId, uint seconds, Guid version, Func<RaidSnapshot, Task> timeout)
-	{
-		_ = 1;
-		try
-		{
-			await Task.Delay((int)(seconds * 1000));
-			if (TimerCurrent(raid.RaidId, 1u, dungeonId, version) && TryGetCurrentRaid(raid, out var current))
-			{
-				await timeout(current);
-			}
-		}
-		catch (Exception ex)
-		{
-			FileLogger.Log($"[GameProtocol] RAID_ACTIVE_TIMER failed raid={raid?.RaidId} dungeon={dungeonId} error={ex.Message}");
-		}
 	}
 
 	private Task SendTimerAsync(RaidSnapshot raid, uint type, uint dungeonId, uint seconds)
@@ -133,7 +113,7 @@ public sealed partial class RaidHandler
 
 	private Task SetSymbolAsync(RaidSnapshot raid, uint symbolId, uint value)
 	{
-		_symbolValues[(raid.RaidId, symbolId)] = value;
+		_symbolValues[(raid.InstanceId, symbolId)] = value;
 		return BroadcastRaidNotificationAsync(raid, NotiPacketTypeA21.RAID_SET_SYMBOL, RaidPacketBuilder.BuildSetSymbol(symbolId, value));
 	}
 
@@ -141,7 +121,7 @@ public sealed partial class RaidHandler
 	{
 		foreach (KeyValuePair<uint, uint> value in values)
 		{
-			_symbolValues[(raid.RaidId, value.Key)] = value.Value;
+			_symbolValues[(raid.InstanceId, value.Key)] = value.Value;
 		}
 		return BroadcastRaidNotificationAsync(raid, NotiPacketTypeA21.RAID_SET_SYMBOL, RaidPacketBuilder.BuildSetSymbols(values));
 	}
@@ -149,17 +129,34 @@ public sealed partial class RaidHandler
 	private bool TryGetCurrentRaid(RaidSnapshot raid, out RaidSnapshot current)
 	{
 		current = null;
-		if (raid != null && _raids.TryGetByRaidId(raid.RaidId, out current) && current.InstanceId == raid.InstanceId && current.State == 2)
+		if (raid != null
+			&& _raids.TryGetByRaidId(raid.RaidId, out current)
+			&& current.InstanceId == raid.InstanceId
+			&& current.State == raid.State)
 		{
 			return current.PhaseIndex == raid.PhaseIndex;
 		}
 		return false;
 	}
 
+	private bool TryGetPhaseRewardFlow(RaidSnapshot raid, out PhaseRewardFlow flow)
+	{
+		flow = null;
+		return raid != null
+			&& _phaseRewardFlows.TryGetValue(raid.InstanceId, out flow);
+	}
+
 	private void StartAttackTimeoutTimer(RaidSnapshot raid, uint remainingSeconds)
 	{
-		Guid version = AdvanceTimer(raid.RaidId, 0u, 0u);
-		ClockService.Instance.ScheduleOneShotAfterAsync($"raid-attack:{raid.InstanceId}", TimeSpan.FromSeconds(remainingSeconds), (DateTime _) => RunAttackTimeoutAsync(raid, version));
+		ScheduleRaidTimer(
+			raid,
+			AttackTimerType,
+			AttackTimerDungeonId,
+			"attack",
+			remainingSeconds,
+			projectSetTimer: true,
+			remainTimeState: 0,
+			(current, version) => RunAttackTimeoutAsync(current, version));
 	}
 
 	private async Task RunAttackTimeoutAsync(RaidSnapshot expected, Guid version)
@@ -172,18 +169,19 @@ public sealed partial class RaidHandler
 			_ = 4;
 			try
 			{
-				if (!TimerCurrent(raidId, 0u, 0u, version) || !_raids.TryFailAndDisband(expected, out var failed))
+				if (!TimerCurrent(expected, AttackTimerType, AttackTimerDungeonId, "attack", version)
+					|| !_raids.TryFailAndDisband(expected, out var failed))
 				{
 					goto end_IL_0070;
 				}
 				disbanded = failed;
 				if (phaseIndex == 0)
 				{
-					CancelAllPhaseOneTimers(raidId);
+					CancelAllPhaseOneTimers(failed);
 				}
 				else
 				{
-					CancelAllPhaseTwoTimers(raidId);
+					CancelAllPhaseTwoTimers(failed);
 				}
 				uint[] array = ((phaseIndex == 0) ? AntonFirstPhaseDungeonIds : AntonSecondPhaseDungeonIds);
 				uint[] array2 = array;
@@ -225,90 +223,253 @@ public sealed partial class RaidHandler
 		}
 	}
 
-	internal Guid AdvanceTimer(uint raidId, uint type, uint dungeonId)
+	internal Guid ScheduleRaidTimer(
+		RaidSnapshot expected,
+		uint timerType,
+		uint dungeonId,
+		string purpose,
+		uint seconds,
+		bool projectSetTimer,
+		byte? remainTimeState,
+		Func<RaidSnapshot, Guid, Task> callback,
+		Guid? retainedVersion = null)
 	{
-		return _timerVersions.AddOrUpdate(TimerKey(raidId, type, dungeonId), Guid.NewGuid(), (string _, Guid _) => Guid.NewGuid());
-	}
-
-	private void CancelTimer(uint raidId, uint type, uint dungeonId)
-	{
-		AdvanceTimer(raidId, type, dungeonId);
-	}
-
-	internal bool TimerCurrent(uint raidId, uint type, uint dungeonId, Guid version)
-	{
-		if (_timerVersions.TryGetValue(TimerKey(raidId, type, dungeonId), out var value))
+		ArgumentNullException.ThrowIfNull(expected);
+		ArgumentNullException.ThrowIfNull(callback);
+		if (seconds == 0)
 		{
-			return value == version;
+			FileLogger.Log(
+				$"[GameProtocol] RAID_TIMER rejected zero duration " +
+				$"raid={expected.RaidId} instance={expected.InstanceId} " +
+				$"phase={expected.PhaseIndex} type={timerType} dungeon={dungeonId} purpose={purpose}");
+			return Guid.Empty;
 		}
-		return false;
+		string key = TimerKey(expected, timerType, dungeonId, purpose);
+		lock (_timerRegistrationLock)
+		{
+			if (retainedVersion.HasValue
+				&& (!_timerRegistrations.TryGetValue(key, out var continuing)
+					|| continuing.Version != retainedVersion.Value))
+			{
+				return Guid.Empty;
+			}
+
+			Guid version = retainedVersion ?? Guid.NewGuid();
+			DateTime deadlineUtc = DateTime.UtcNow.AddSeconds(seconds);
+			var registration = new RaidTimerRegistration
+			{
+				RaidInstanceId = expected.InstanceId,
+				PhaseIndex = expected.PhaseIndex,
+				TimerType = timerType,
+				DungeonId = dungeonId,
+				Purpose = purpose,
+				Version = version,
+				DeadlineUtc = deadlineUtc,
+				ProjectSetTimer = projectSetTimer,
+				RemainTimeState = remainTimeState,
+			};
+			registration.Handle = _clock.ScheduleOneShotAsync(key, deadlineUtc, async _ =>
+			{
+				try
+				{
+					if (TimerCurrent(expected, key, version) && TryGetCurrentRaid(expected, out var current))
+						await callback(current, version);
+				}
+				finally
+				{
+					RemoveRegistrationIfCurrent(key, registration);
+				}
+			});
+
+			if (_timerRegistrations.TryGetValue(key, out var previous))
+				previous.Handle?.Cancel();
+			_timerRegistrations[key] = registration;
+			return version;
+		}
 	}
 
-	private void CancelAllPhaseOneTimers(uint raidId)
+	private void RemoveRegistrationIfCurrent(string key, RaidTimerRegistration expected)
 	{
-		uint[] antonFirstPhaseDungeonIds = AntonFirstPhaseDungeonIds;
-		foreach (uint dungeonId in antonFirstPhaseDungeonIds)
+		lock (_timerRegistrationLock)
 		{
-			for (uint num = 1u; num <= 3; num++)
+			if (_timerRegistrations.TryGetValue(key, out var current) && ReferenceEquals(current, expected))
+				_timerRegistrations.Remove(key);
+		}
+	}
+
+	internal void CancelTimer(RaidSnapshot raid, uint type, uint dungeonId)
+	{
+		if (raid == null)
+			return;
+		lock (_timerRegistrationLock)
+		{
+			string[] keys = _timerRegistrations
+				.Where(entry => entry.Value.RaidInstanceId == raid.InstanceId
+					&& entry.Value.TimerType == type
+					&& entry.Value.DungeonId == dungeonId)
+				.Select(entry => entry.Key)
+				.ToArray();
+			foreach (string key in keys)
 			{
-				CancelTimer(raidId, num, dungeonId);
+				RaidTimerRegistration registration = _timerRegistrations[key];
+				_timerRegistrations.Remove(key);
+				registration.Handle?.Cancel();
 			}
 		}
 	}
 
-	private void CancelAllPhaseTwoTimers(uint raidId)
+	internal bool TimerCurrent(
+		RaidSnapshot raid,
+		uint type,
+		uint dungeonId,
+		string purpose,
+		Guid version)
 	{
-		uint[] antonSecondPhaseDungeonIds = AntonSecondPhaseDungeonIds;
-		foreach (uint dungeonId in antonSecondPhaseDungeonIds)
-		{
-			for (uint num = 1u; num <= 3; num++)
-			{
-				CancelTimer(raidId, num, dungeonId);
-			}
-		}
-		CancelTimer(raidId, 4u, 219u);
+		return raid != null && TimerCurrent(raid, TimerKey(raid, type, dungeonId, purpose), version);
 	}
 
-	internal void CleanupRaidRuntimeState(uint raidId)
+	private bool TimerCurrent(RaidSnapshot raid, string key, Guid version)
 	{
-		_phaseRewardFlows.TryRemove(raidId, out var _);
-		_infectionDungeonByRaid.TryRemove(raidId, out var value2);
-		_blackVolcanoBarrierBroken.TryRemove(raidId, out var _);
-		_raidRuntimeLocks.TryRemove(raidId, out var _);
+		lock (_timerRegistrationLock)
+		{
+			return _timerRegistrations.TryGetValue(key, out var current)
+				&& current.RaidInstanceId == raid.InstanceId
+				&& current.PhaseIndex == raid.PhaseIndex
+				&& current.Version == version;
+		}
+	}
+
+	private void CancelAllPhaseOneTimers(RaidSnapshot raid)
+	{
+		CancelPhaseTimers(raid);
+	}
+
+	private void CancelAllPhaseTwoTimers(RaidSnapshot raid)
+	{
+		CancelPhaseTimers(raid);
+	}
+
+	private void CancelPhaseTimers(RaidSnapshot raid)
+	{
+		if (raid == null)
+			return;
+		lock (_timerRegistrationLock)
+		{
+			string[] keys = _timerRegistrations
+				.Where(entry => entry.Value.RaidInstanceId == raid.InstanceId
+					&& entry.Value.PhaseIndex == raid.PhaseIndex)
+				.Select(entry => entry.Key)
+				.ToArray();
+			foreach (string key in keys)
+			{
+				RaidTimerRegistration registration = _timerRegistrations[key];
+				_timerRegistrations.Remove(key);
+				registration.Handle?.Cancel();
+			}
+		}
+	}
+
+	internal void CleanupRaidRuntimeState(RaidSnapshot raid)
+	{
+		if (raid == null)
+			return;
+		_clock.CancelOneShotsByPrefix($"raid:{raid.InstanceId:N}:");
+		lock (_timerRegistrationLock)
+		{
+			foreach (string key in _timerRegistrations
+				.Where(entry => entry.Value.RaidInstanceId == raid.InstanceId)
+				.Select(entry => entry.Key)
+				.ToArray())
+			{
+				_timerRegistrations.Remove(key);
+			}
+		}
+		_phaseRewardFlows.TryRemove(raid.InstanceId, out var _);
+		_infectionDungeonByRaid.TryRemove(raid.InstanceId, out var _);
+		_blackVolcanoBarrierBroken.TryRemove(raid.InstanceId, out var _);
+		_raidRuntimeLocks.TryRemove(raid.InstanceId, out var _);
 		foreach (var key in _raidBuffActivations.Keys)
 		{
-			if (key.RaidId == raidId)
+			if (key.RaidInstanceId == raid.InstanceId)
 			{
 				_raidBuffActivations.TryRemove(key, out var _);
 			}
 		}
 		foreach (var key2 in _raidMonsterRuntimeValues.Keys)
 		{
-			if (key2.RaidId == raidId)
+			if (key2.RaidInstanceId == raid.InstanceId)
 			{
 				_raidMonsterRuntimeValues.TryRemove(key2, out var _);
 			}
 		}
 		foreach (var key3 in _symbolValues.Keys)
 		{
-			if (key3.RaidId == raidId)
+			if (key3.RaidInstanceId == raid.InstanceId)
 			{
-				_symbolValues.TryRemove(key3, out value2);
-			}
-		}
-		string value7 = raidId + ":";
-		foreach (string key4 in _timerVersions.Keys)
-		{
-			if (key4.StartsWith(value7, StringComparison.Ordinal))
-			{
-				_timerVersions.TryRemove(key4, out var _);
+				_symbolValues.TryRemove(key3, out var _);
 			}
 		}
 	}
 
-	private static string TimerKey(uint raidId, uint type, uint dungeonId)
+	private static string TimerKey(RaidSnapshot raid, uint type, uint dungeonId, string purpose)
 	{
-		return raidId + ":" + type + ":" + dungeonId;
+		return $"raid:{raid.InstanceId:N}:timer:{type}:{dungeonId}:{purpose}";
+	}
+
+	private async Task SendRaidTimerSnapshotAsync(
+		EnhancedClientSession session,
+		RaidSnapshot raid,
+		DateTime utcNow)
+	{
+		foreach (byte[] packet in BuildRaidTimerSnapshotPackets(raid, utcNow))
+			await session.SendPacketAsync(packet);
+	}
+
+	internal IReadOnlyList<byte[]> BuildRaidTimerSnapshotPackets(RaidSnapshot raid, DateTime utcNow)
+	{
+		RaidTimerRegistration[] registrations;
+		lock (_timerRegistrationLock)
+		{
+			registrations = _timerRegistrations.Values
+				.Where(entry => entry.RaidInstanceId == raid.InstanceId && entry.PhaseIndex == raid.PhaseIndex)
+				.OrderBy(entry => entry.DeadlineUtc)
+				.ThenBy(entry => entry.TimerType)
+				.ThenBy(entry => entry.DungeonId)
+				.ToArray();
+		}
+
+		if (utcNow.Kind == DateTimeKind.Local)
+			utcNow = utcNow.ToUniversalTime();
+		else if (utcNow.Kind == DateTimeKind.Unspecified)
+			utcNow = DateTime.SpecifyKind(utcNow, DateTimeKind.Utc);
+		var packets = new List<byte[]>();
+		foreach (RaidTimerRegistration registration in registrations)
+		{
+			double remaining = (registration.DeadlineUtc - utcNow).TotalSeconds;
+			uint remainingSeconds = remaining <= 0
+				? 0u
+				: checked((uint)Math.Ceiling(remaining));
+			if (registration.ProjectSetTimer)
+			{
+				packets.Add(GamePacketEnvelopeBuilder.Build(
+					0,
+					(ushort)NotiPacketTypeA21.RAID_SET_TIMER,
+					RaidPacketBuilder.BuildSetTimer(
+						registration.TimerType,
+						registration.DungeonId,
+						remainingSeconds)));
+			}
+			if (registration.RemainTimeState.HasValue)
+			{
+				packets.Add(GamePacketEnvelopeBuilder.Build(
+					0,
+					(ushort)NotiPacketTypeA21.RAID_REMAIN_TIME,
+					RaidPacketBuilder.BuildRemainTime(
+						registration.RemainTimeState.Value,
+						remainingSeconds)));
+			}
+		}
+		return packets;
 	}
 
 	internal static bool IsAntonRaidDungeon(int dungeonId)

@@ -53,7 +53,9 @@ namespace DfoServer.SelfTests
             var transitions = new CharacterTransitionCoordinator(sessions);
             using var chat = new ChatHandler(sessions, new PartyManager(), transitions);
             var registry = new GameCommandRegistry(); registry.RegisterGroup("chat", chat.RegisterHandlers);
-            check("composition registers A21 create, leave, send and legacy state independently", registry.Count == 4
+            check("composition registers A21 create, leave, send, hyperlink and legacy state independently", registry.Count == 5
+                && registry.TryGetValue((ushort)CmdPacketTypeA21.ITEM_HYPERLINK_MESSAGE, out var registeredHyperlink)
+                && registeredHyperlink.Method.Name == nameof(ChatHandler.Handle_ITEM_HYPERLINK_MESSAGE)
                 && registry.TryGetValue((ushort)CmdPacketTypeA21.LEAVE_FROM_GROUP, out var registeredLeave)
                 && registeredLeave.Method.Name == nameof(ChatHandler.Handle_LEAVE_FROM_GROUP));
             Task Dispatch(Peer peer, CmdPacketTypeA21 command, byte[] body)

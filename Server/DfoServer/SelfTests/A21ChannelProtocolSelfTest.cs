@@ -132,10 +132,11 @@ namespace DfoServer.SelfTests
                 selectorCatalog);
             Check(
                 "A21 selector catalog comes from channel_info.etc group 1",
-                selectorCatalog.Count == 17
+                selectorCatalog.Count == 16
                 && selectorCatalog.Any(channel => channel.ChannelId == 1)
                 && selectorCatalog.Any(channel => channel.ChannelId == 11)
                 && selectorCatalog.Any(channel => channel.ChannelId == 200)
+                && !selectorCatalog.Any(channel => channel.ChannelId == 201)
                 && !selectorCatalog.Any(channel =>
                     channel.ChannelId == GameNetworkConfig.FreeDuelChannelIndex)
                 && !selectorCatalog.Any(channel => channel.ChannelId == 50
@@ -146,10 +147,11 @@ namespace DfoServer.SelfTests
                     channel.ChannelName == $"#ch.{channel.ChannelId}"),
                 ref failures);
             Check(
-                "A21 disabled PvP catalog keeps 17 valid 48B entries",
-                selectorCatalogPlaintext.Length == 822
-                && BitConverter.ToInt32(selectorCatalogPlaintext, 2) == 17,
+                "A21 disabled PvP catalog keeps 16 valid 48B entries",
+                selectorCatalogPlaintext.Length == 774
+                && BitConverter.ToInt32(selectorCatalogPlaintext, 2) == 16,
                 ref failures);
+            CheckRaidChannelRowValidation(ref failures);
 
             var definitions = ChannelProtocolHandler.ParseScriptChannels(
                 File.ReadAllText(ServerPaths.ChannelInfoFilePath));
@@ -160,9 +162,9 @@ namespace DfoServer.SelfTests
                 var enabledListeners = GameNetworkConfig.BuildGameChannels(includeFreeDuel: true);
                 Check(
                     "A21 PvP catalog exposes every configured listener exactly once",
-                    pvpCatalog.Count == 29
-                    && enabledListeners.Count == 29
-                    && enabledListeners.Select(channel => channel.ListenerGamePort).Distinct().Count() == 29
+                    pvpCatalog.Count == 28
+                    && enabledListeners.Count == 28
+                    && enabledListeners.Select(channel => channel.ListenerGamePort).Distinct().Count() == 28
                     && pvpCatalog.All(channel => enabledListeners.Any(
                         endpoint => endpoint.ChannelId == channel.ChannelId)),
                     ref failures);
@@ -183,7 +185,7 @@ namespace DfoServer.SelfTests
                 }
                 Check(
                     "A21 disabled PvP removes its listeners without changing normal login",
-                    GameNetworkConfig.BuildGameChannels(includeFreeDuel: false).Count == 17
+                    GameNetworkConfig.BuildGameChannels(includeFreeDuel: false).Count == 16
                     && LoginPacketBuilder.BuildLoginSuccess(10011)[3] == GameNetworkConfig.GeneralChannelEnvironment
                     && GameChannelSpawnPolicy.ShouldPersistPosition(10011),
                     ref failures);
@@ -306,6 +308,62 @@ namespace DfoServer.SelfTests
                     ? "A21_CHANNEL_PROTOCOL selftest passed."
                     : $"A21_CHANNEL_PROTOCOL selftest failed: {failures}");
             return failures == 0 ? 0 : 1;
+        }
+
+        // A21 客户端解析 channel_info.etc 时对 `201 [raid] 32` 打印
+        // "CHANNEL>> error [CHANNEL LIST] 201 [raid] 32" 并丢弃该行, 客户端因此没有
+        // 该频道的名称与类型。服务端必须一致地丢弃类型不符的攻坚行, 否则会为它建监听
+        // 并下发条目; 同时攻坚身份必须按目录类型判定, 而不是写死频道 200。
+        private static void CheckRaidChannelRowValidation(ref int failures)
+        {
+            const string script =
+                "[server]\n"
+                + "1\n"
+                + "   11 \t`<4::chn_channel_info_004>` 1 `[sky_catle]` 5 0 0 0 0 0 0 0 0 0 0 0 ``\n"
+                + "   200\t`<4::chn_channel_info_016>` 23 `[raid]` 5 0 0 0 0 0 0 0 0 0 0 0 ``\n"
+                + "   201\t`<4::chn_channel_info_037>` 32 `[raid]` 5 0 0 0 0 0 0 0 0 0 0 0 ``\n"
+                + "   202\t`<4::chn_channel_info_038>` 23 `[raid]` 5 0 0 0 0 0 0 0 0 0 0 0 ``\n"
+                + "[/server]\n";
+            var definitions = ChannelProtocolHandler.ParseScriptChannels(script);
+            Check(
+                "A21 drops raid rows whose type is not the raid environment",
+                definitions.Count == 3
+                && !definitions.Any(channel => channel.ChannelId == 201)
+                && definitions.Any(channel => channel.ChannelId == 11)
+                && definitions.Single(channel => channel.ChannelId == 200).ChannelType
+                    == GameNetworkConfig.RaidChannelEnvironment,
+                ref failures);
+
+            GameNetworkConfig.ConfigureChannelCatalog(definitions);
+            try
+            {
+                Check(
+                    "A21 raid identity follows the catalog type instead of channel 200",
+                    GameNetworkConfig.IsRaidChannel(200)
+                    && GameNetworkConfig.IsRaidChannel(202)
+                    && !GameNetworkConfig.IsRaidChannel(11)
+                    && GameNetworkConfig.IsRaidListener(
+                        GameNetworkConfig.PortForChannel(200))
+                    && GameNetworkConfig.IsRaidListener(
+                        GameNetworkConfig.PortForChannel(202))
+                    && !GameNetworkConfig.IsRaidListener(
+                        GameNetworkConfig.PortForChannel(201))
+                    && !GameNetworkConfig.IsRaidListener(
+                        GameNetworkConfig.PortForChannel(11))
+                    && !GameNetworkConfig.IsRaidListener(
+                        GameNetworkConfig.NormalGamePort)
+                    && GameNetworkConfig.ResolveLoginEnvironment(
+                        GameNetworkConfig.PortForChannel(202))
+                        == GameNetworkConfig.RaidChannelEnvironment
+                    && GameNetworkConfig.ResolveLoginEnvironment(
+                        GameNetworkConfig.PortForChannel(11))
+                        == GameNetworkConfig.GeneralChannelEnvironment,
+                    ref failures);
+            }
+            finally
+            {
+                GameNetworkConfig.ConfigureChannelCatalog(null);
+            }
         }
 
         private static void CheckPvpLobbyInitialization(ref int failures)

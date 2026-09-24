@@ -124,9 +124,7 @@ namespace DfoServer.GameWorld
                     continue;
                 }
 
-                var repeatable = grade == "[daily]"
-                    || grade == "[normaly repeat]"
-                    || grade == "[special daily]";
+                var repeatable = grade == "[normaly repeat]";
                 if (!repeatable && clearedQuestIds.Contains(questId))
                     continue;
                 var prerequisiteDefinition = QuestPrerequisiteCatalog.Get(questId);

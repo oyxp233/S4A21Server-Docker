@@ -42,8 +42,18 @@ namespace DfoServer.Game.Raid
 
         private static readonly Lazy<RaidEtcFile> Configuration =
             new Lazy<RaidEtcFile>(LoadConfiguration);
+        private static readonly Lazy<AntonRaidTimerConfiguration> TimerConfiguration =
+            new Lazy<AntonRaidTimerConfiguration>(() =>
+                AntonRaidTimerConfiguration.Create(
+                    Configuration.Value,
+                    message => FileLogger.Log($"[AntonRaidTimerConfiguration] {message}")));
         private static readonly Lazy<RaidBuffFile> SituationConfiguration =
             new Lazy<RaidBuffFile>(LoadSituationConfiguration);
+
+        internal static AntonRaidTimerConfiguration GetTimerConfiguration()
+        {
+            return TimerConfiguration.Value;
+        }
 
         internal static IReadOnlyList<RaidBuffDefinition> GetRaidBuffDefinitions()
         {
@@ -350,7 +360,10 @@ namespace DfoServer.Game.Raid
                 var config = RaidEtcFile.Parse(PvfArchiveAccessor.ReadText(ConfigPath));
                 FileLogger.Log(
                     $"[AntonRaidRewardProvider] loaded ranks={config.RankConditions.Count} " +
-                    $"phases={config.Phases.Count} rewards={config.Phases.Sum(phase => phase.StateRewards.Count)}");
+                    $"phases={config.Phases.Count} rewards={config.Phases.Sum(phase => phase.StateRewards.Count)} " +
+                    $"timers={config.Phases.Sum(phase => phase.TimerDirectives.Count)} " +
+                    $"reserves={config.Phases.Sum(phase => phase.ReservedDungeonStates.Count)} " +
+                    $"timerWarnings={config.ParseWarnings.Count}");
                 return config;
             }
             catch (Exception ex)

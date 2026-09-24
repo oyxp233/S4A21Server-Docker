@@ -9,9 +9,14 @@ namespace DfoServer.Network
 {
     public static class PacketFileLogger
     {
-        private static readonly object _lock = new object();
+        private const int QueueCapacity = 4096;
+        private const long MaxLogBytes = 64L * 1024L * 1024L;
         private static string _logPath;
         private static bool _enabled = false;
+        private static BoundedAsyncLogQueue _queue;
+        private static Task _consumerTask;
+        private static int _shutdownStarted;
+        private static long _lastDropNotice;
         private static int _bestEffortBatchActive;
 
         public static void Initialize()
@@ -23,8 +28,11 @@ namespace DfoServer.Network
             if (!Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
             _logPath = Path.Combine(dir, "packet_log.txt");
-            File.WriteAllText(_logPath, $"=== DfoServer packet capture started {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\r\n");
-            File.AppendAllText(_logPath, $"=== A21 SEND=15B header, RECV=14B header. Body offset differs by direction. ===\r\n\r\n");
+            File.WriteAllText(_logPath, BuildHeader(), new UTF8Encoding(false));
+            _queue = new BoundedAsyncLogQueue(QueueCapacity);
+            _consumerTask = Task.Run(ProcessQueueAsync);
+            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+                Shutdown(TimeSpan.FromSeconds(2));
         }
 
         public static void Log(string direction, byte[] data)
@@ -61,9 +69,44 @@ namespace DfoServer.Network
             sb.AppendFormat("  raw: {0}\r\n",
                 BitConverter.ToString(data).Replace("-", " "));
 
-            lock (_lock)
+            if (_queue.TryEnqueue(sb.ToString()))
+                return;
+
+            var dropped = _queue.DroppedCount;
+            if (dropped == 1 || dropped % 1000 == 0)
             {
-                File.AppendAllText(_logPath, sb.ToString(), Encoding.UTF8);
+                var previous = Interlocked.Exchange(
+                    ref _lastDropNotice,
+                    dropped);
+                if (previous != dropped)
+                {
+                    Console.Error.WriteLine(
+                        $"[PacketCapture] bounded queue full; dropped={dropped}.");
+                }
+            }
+        }
+
+        public static void Shutdown(TimeSpan timeout)
+        {
+            if (!_enabled
+                || Interlocked.Exchange(ref _shutdownStarted, 1) != 0)
+            {
+                return;
+            }
+
+            _queue?.TryComplete();
+            try
+            {
+                if (_consumerTask != null && !_consumerTask.Wait(timeout))
+                {
+                    Console.Error.WriteLine(
+                        "[PacketCapture] shutdown timed out before pending packets were written.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"[PacketCapture] shutdown wait failed: {ex.Message}");
             }
         }
 
@@ -121,5 +164,77 @@ namespace DfoServer.Network
                 Interlocked.Exchange(ref _bestEffortBatchActive, 0);
             }
         }
+
+        private static async Task ProcessQueueAsync()
+        {
+            FileStream stream = null;
+            StreamWriter writer = null;
+            try
+            {
+                OpenWriter(out stream, out writer);
+                await foreach (var entry in _queue.Reader.ReadAllAsync()
+                    .ConfigureAwait(false))
+                {
+                    var entryBytes = Encoding.UTF8.GetByteCount(entry);
+                    if (stream.Length + entryBytes > MaxLogBytes)
+                    {
+                        writer.Dispose();
+                        stream = null;
+                        writer = null;
+                        RotateLog();
+                        OpenWriter(out stream, out writer);
+                        await writer.WriteAsync(BuildHeader())
+                            .ConfigureAwait(false);
+                    }
+
+                    await writer.WriteAsync(entry).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"[PacketCapture] background writer failed: {ex.Message}");
+            }
+            finally
+            {
+                writer?.Dispose();
+                stream?.Dispose();
+            }
+        }
+
+        private static void OpenWriter(
+            out FileStream stream,
+            out StreamWriter writer)
+        {
+            stream = new FileStream(
+                _logPath,
+                FileMode.Append,
+                FileAccess.Write,
+                FileShare.Read,
+                64 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            writer = new StreamWriter(
+                stream,
+                new UTF8Encoding(false),
+                64 * 1024)
+            {
+                AutoFlush = true,
+            };
+        }
+
+        private static void RotateLog()
+        {
+            var rotatedPath = _logPath + ".1";
+            if (File.Exists(rotatedPath))
+                File.Delete(rotatedPath);
+            if (File.Exists(_logPath))
+                File.Move(_logPath, rotatedPath);
+        }
+
+        private static string BuildHeader()
+            => $"=== DfoServer packet capture started "
+                + $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\r\n"
+                + "=== A21 SEND=15B header, RECV=14B header. "
+                + "Body offset differs by direction. ===\r\n\r\n";
     }
 }

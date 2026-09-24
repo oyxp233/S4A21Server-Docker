@@ -79,6 +79,23 @@ namespace DfoServer.Game.Quests
         }
     }
 
+    internal sealed class QuestProgressBatchApplicationResult
+    {
+        private readonly List<QuestProgressApplicationResult> _results =
+            new List<QuestProgressApplicationResult>();
+
+        internal bool Success { get; set; }
+        internal string Error { get; set; } = string.Empty;
+        internal IReadOnlyList<QuestProgressApplicationResult> Results =>
+            _results;
+
+        internal void Add(QuestProgressApplicationResult result)
+        {
+            if (result != null)
+                _results.Add(result);
+        }
+    }
+
     internal sealed class QuestProgressEvaluation
     {
         private readonly List<QuestSetTriggerResult> _changes =

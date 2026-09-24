@@ -1032,6 +1032,7 @@ namespace DfoServer.Game.Raid
         public bool TryExtendPhaseTime(
             uint raidId,
             uint baseDurationSeconds,
+            uint maximumRemainingSeconds,
             uint additionalSeconds,
             out RaidSnapshot raid,
             out uint remainingSeconds)
@@ -1050,17 +1051,13 @@ namespace DfoServer.Game.Raid
                 var elapsedSeconds = (ulong)(Math.Max(
                     0L,
                     _clockMilliseconds() - aggregate.PhaseStartedAtMilliseconds) / 1000L);
-				// The timer may be restored up to 40 minutes remaining. Cap the
-				// resulting remaining time rather than the total scheduled duration;
-				// otherwise a phase that starts at 40 minutes can never use this buff.
-                const uint maxPhaseDurationSeconds = 2400u;
 				var totalSeconds = (ulong)baseDurationSeconds + aggregate.PhaseTimeExtensionSeconds;
 				var currentRemaining = totalSeconds > elapsedSeconds
 					? totalSeconds - elapsedSeconds
 					: 0UL;
-				var availableRoom = currentRemaining >= maxPhaseDurationSeconds
+				var availableRoom = currentRemaining >= maximumRemainingSeconds
 					? 0UL
-					: maxPhaseDurationSeconds - currentRemaining;
+					: maximumRemainingSeconds - currentRemaining;
 				var appliedExtension = Math.Min((ulong)additionalSeconds, availableRoom);
 				if (appliedExtension == 0)
 				{
@@ -1172,6 +1169,28 @@ namespace DfoServer.Game.Raid
             lock (_lock)
             {
                 if (!_raids.TryGetValue(raidId, out var aggregate) || aggregate.State != 3)
+                {
+                    raid = null;
+                    return false;
+                }
+
+                // State 5 is the between-phase standby UI. The final phase stays
+                // in reward state 4 after its rewards have completed.
+                aggregate.State = aggregate.PhaseIndex == 0 ? 5u : 4u;
+                aggregate.StateArgument = 0;
+                raid = aggregate.Snapshot();
+                return true;
+            }
+        }
+
+        public bool TryCompletePhase(RaidSnapshot expected, out RaidSnapshot raid)
+        {
+            lock (_lock)
+            {
+                if (expected == null
+                    || !_raids.TryGetValue(expected.RaidId, out var aggregate)
+                    || aggregate.InstanceId != expected.InstanceId
+                    || aggregate.State != 3)
                 {
                     raid = null;
                     return false;

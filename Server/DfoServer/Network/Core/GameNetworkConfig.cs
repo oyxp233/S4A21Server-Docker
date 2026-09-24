@@ -39,7 +39,7 @@ namespace DfoServer.Network
                 StringComparison.OrdinalIgnoreCase)
                 ? "127.0.0.2"
                 : ServerIp;
-        public static bool PacketCaptureEnabled { get; private set; } = true;
+        public static bool PacketCaptureEnabled { get; private set; }
         public static string PacketCaptureDir { get; private set; }
         public static bool ProxyMode { get; private set; }
         public static bool FreeDuelListenerEnabled { get; private set; }
@@ -183,11 +183,14 @@ namespace DfoServer.Network
             => listenerGamePort == Channel100GamePort
                || listenerGamePort == Channel100ProxyGamePort;
 
+        // 攻坚身份按频道目录那一行的类型判定, 与 PvP/自由决斗一致:
+        // 未来在 channel_info.etc 里新增攻坚频道时不需要改代码。
         public static bool IsRaidChannel(int channelId)
-            => channelId == RaidChannelIndex;
+            => FindGameChannel(channelId)?.ChannelType == RaidChannelEnvironment;
 
         public static bool IsRaidListener(int listenerGamePort)
-            => listenerGamePort == RaidGamePort;
+            => TryResolveGameChannel(listenerGamePort, out var channel)
+               && channel.ChannelType == RaidChannelEnvironment;
 
         public static byte ResolveLoginEnvironment(int listenerGamePort)
         {
@@ -205,10 +208,14 @@ namespace DfoServer.Network
             string serverIp = null;
             string udpRelayPublicIp = null;
             var freeDuelListenerRequested = false;
+            bool? packetCaptureRequested = null;
 
             UdpRelayPublicIp = null;
             UdpRelayPublicIpConfigured = false;
             FreeDuelListenerEnabled = false;
+            PacketCaptureEnabled = false;
+            PacketCaptureDir = null;
+            ProxyMode = false;
 
             if (args != null)
             {
@@ -232,12 +239,18 @@ namespace DfoServer.Network
                                  args[i], "--packet-capture",
                                  StringComparison.OrdinalIgnoreCase))
                     {
-                        PacketCaptureEnabled = true;
+                        packetCaptureRequested = true;
                         if (i + 1 < args.Length
                             && !args[i + 1].StartsWith("-"))
                         {
                             PacketCaptureDir = args[++i];
                         }
+                    }
+                    else if (string.Equals(
+                                 args[i], "--no-packet-capture",
+                                 StringComparison.OrdinalIgnoreCase))
+                    {
+                        packetCaptureRequested = false;
                     }
                     else if (string.Equals(
                                  args[i], "--proxy",
@@ -263,6 +276,9 @@ namespace DfoServer.Network
             }
             if (!string.IsNullOrWhiteSpace(serverIp))
                 ServerIp = serverIp.Trim();
+
+            PacketCaptureEnabled = packetCaptureRequested
+                ?? ReadBoolEnvironmentVariable("DFO_PACKET_CAPTURE", false);
 
             FreeDuelListenerEnabled =
                 freeDuelListenerRequested

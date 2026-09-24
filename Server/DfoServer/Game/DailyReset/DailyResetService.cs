@@ -35,6 +35,12 @@ namespace DfoServer.Game.DailyReset
                 .ConnectionString;
         }
 
+        internal DailyResetService(string connectionString)
+        {
+            _connectionString = connectionString
+                ?? throw new ArgumentNullException(nameof(connectionString));
+        }
+
         // 当前日ID(yyyyMMdd)。UTC+8 再回拨6小时 → 06:00 切日。
         public static int TodayId()
         {

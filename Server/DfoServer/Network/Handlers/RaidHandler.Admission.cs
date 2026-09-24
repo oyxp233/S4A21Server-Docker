@@ -65,7 +65,7 @@ public sealed partial class RaidHandler
 		await SendAckAsync(session, header.type, success: true);
 		if (stage == 0)
 		{
-			await SendRaidBuffStatusAsync(session, raid.RaidId);
+			await SendRaidBuffStatusAsync(session, raid);
 			await SendRaidMonsterStatusAsync(session, raid);
 		}
 		await RefreshEntryCostsAsync(session);

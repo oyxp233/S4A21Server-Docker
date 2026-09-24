@@ -55,6 +55,79 @@ namespace DfoServer.Game.Quests
             return Failed("quest progress CAS retry exhausted");
         }
 
+        internal QuestProgressBatchApplicationResult ApplyBatch(
+            IReadOnlyList<QuestProgressApplicationRequest> requests)
+        {
+            if (requests == null || requests.Count == 0)
+            {
+                return new QuestProgressBatchApplicationResult
+                {
+                    Success = true,
+                };
+            }
+
+            var characterId = requests[0]?.CharacterId ?? 0;
+            if (characterId <= 0)
+                return FailedBatch("invalid quest progress batch owner");
+            for (var index = 0; index < requests.Count; index++)
+            {
+                var request = requests[index];
+                var validation = Validate(request);
+                if (validation != null)
+                    return FailedBatch(validation.Error);
+                if (request.CharacterId != characterId)
+                {
+                    return FailedBatch(
+                        "quest progress batch contains mixed character owners");
+                }
+            }
+
+            for (var attempt = 0; attempt < MaxCasAttempts; attempt++)
+            {
+                using (var connection = new SqliteConnection(_connectionString))
+                {
+                    connection.Open();
+                    using (var transaction = connection.BeginTransaction(
+                        deferred: false))
+                    {
+                        var batch = new QuestProgressBatchApplicationResult();
+                        var retry = false;
+                        for (var index = 0; index < requests.Count; index++)
+                        {
+                            var result = ApplyInTransactionCore(
+                                connection,
+                                transaction,
+                                requests[index],
+                                clearMapMatcher: null);
+                            if (result.RetryRequired)
+                            {
+                                retry = true;
+                                break;
+                            }
+                            if (!result.Success)
+                            {
+                                transaction.Rollback();
+                                return FailedBatch(result.Error);
+                            }
+                            batch.Add(result);
+                        }
+
+                        if (retry)
+                        {
+                            transaction.Rollback();
+                            continue;
+                        }
+
+                        transaction.Commit();
+                        batch.Success = true;
+                        return batch;
+                    }
+                }
+            }
+
+            return FailedBatch("quest progress batch CAS retry exhausted");
+        }
+
         internal QuestProgressApplicationResult ApplyInTransaction(
             SqliteConnection connection,
             SqliteTransaction transaction,
@@ -225,6 +298,14 @@ namespace DfoServer.Game.Quests
 
         private static QuestProgressApplicationResult Failed(string error)
             => new QuestProgressApplicationResult
+            {
+                Success = false,
+                Error = error ?? string.Empty,
+            };
+
+        private static QuestProgressBatchApplicationResult FailedBatch(
+            string error)
+            => new QuestProgressBatchApplicationResult
             {
                 Success = false,
                 Error = error ?? string.Empty,

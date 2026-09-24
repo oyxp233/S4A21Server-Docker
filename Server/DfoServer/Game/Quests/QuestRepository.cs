@@ -314,6 +314,7 @@ namespace DfoServer.Game.Quests
 
         public static int ReadClearedFlagValue(SqliteConnection conn, SqliteTransaction tx, int characterId, int questId)
         {
+            int flagValue;
             using (var cmd = new SqliteCommand(
                 "SELECT completion_value FROM character_quest_completions WHERE character_id=@cid AND quest_id=@idx",
                 conn,
@@ -322,8 +323,16 @@ namespace DfoServer.Game.Quests
                 cmd.Parameters.AddWithValue("@cid", characterId);
                 cmd.Parameters.AddWithValue("@idx", questId);
                 var result = cmd.ExecuteScalar();
-                return result != null ? Convert.ToInt32(result) : 0;
+                flagValue = result != null ? Convert.ToInt32(result) : 0;
             }
+            if (flagValue != 0
+                && GameWorld.QuestData.IsDailyQuest(questId)
+                && !DailyQuestCompletionCycle.IsClaimedToday(
+                    conn, tx, characterId, questId, DateTime.UtcNow))
+            {
+                return 0;
+            }
+            return flagValue;
         }
 
         // 全部非零完成标记(任务号 → 完成值), 供可接任务计算与选角初始化使用。
@@ -339,6 +348,8 @@ namespace DfoServer.Game.Quests
         public static Dictionary<int, int> LoadClearedFlags(SqliteConnection conn, SqliteTransaction tx, int characterId)
         {
             var flags = new Dictionary<int, int>();
+            var currentDailyClaims = DailyQuestCompletionCycle.LoadClaimedQuestIds(
+                conn, tx, characterId, DateTime.UtcNow);
             using (var cmd = new SqliteCommand(
                 "SELECT quest_id, completion_value FROM character_quest_completions WHERE character_id=@cid ORDER BY quest_id", conn, tx))
             {
@@ -348,7 +359,9 @@ namespace DfoServer.Game.Quests
                     while (r.Read())
                     {
                         int slotIndex = r.GetInt32(0), flagValue = r.GetInt32(1);
-                        if (flagValue != 0)
+                        if (flagValue != 0
+                            && (!GameWorld.QuestData.IsDailyQuest(slotIndex)
+                                || currentDailyClaims.Contains(slotIndex)))
                             flags[slotIndex] = flagValue;
                     }
                 }
@@ -356,11 +369,12 @@ namespace DfoServer.Game.Quests
             return flags;
         }
 
-        // 按存储原样(含零值)全量读, 供选角初始化快照使用 -- 快照要求逐字节回放,
-        // 与 LoadClearedFlags 的"只看非零"语义不同。
+        // 含零值全量读, 供选角初始化快照使用。过期每日完成投影不再下发。
         public static List<KeyValuePair<int, int>> LoadAllFlagEntries(SqliteConnection conn, SqliteTransaction tx, int characterId)
         {
             var entries = new List<KeyValuePair<int, int>>();
+            var currentDailyClaims = DailyQuestCompletionCycle.LoadClaimedQuestIds(
+                conn, tx, characterId, DateTime.UtcNow);
             using (var cmd = new SqliteCommand(
                 "SELECT quest_id, completion_value FROM character_quest_completions WHERE character_id=@cid ORDER BY quest_id", conn, tx))
             {
@@ -368,7 +382,14 @@ namespace DfoServer.Game.Quests
                 using (var r = cmd.ExecuteReader())
                 {
                     while (r.Read())
-                        entries.Add(new KeyValuePair<int, int>(r.GetInt32(0), r.GetInt32(1)));
+                    {
+                        var questId = r.GetInt32(0);
+                        if (!GameWorld.QuestData.IsDailyQuest(questId)
+                            || currentDailyClaims.Contains(questId))
+                        {
+                            entries.Add(new KeyValuePair<int, int>(questId, r.GetInt32(1)));
+                        }
+                    }
                 }
             }
             return entries;

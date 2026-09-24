@@ -250,6 +250,7 @@ namespace DfoServer.Game.Quests
                         connection.Open();
                         using (var transaction = connection.BeginTransaction(deferred: false))
                         {
+                            var utcNow = DateTime.UtcNow;
                             if (!owner.IsCurrentInventoryOwner())
                                 return QuestFinishResult.Fail(22);
 
@@ -336,6 +337,17 @@ namespace DfoServer.Game.Quests
                                     transactionQuest.ActivationId,
                                     transactionQuest.Version,
                                     transactionQuest.TriggerValue))
+                                {
+                                    return QuestFinishResult.Fail(22);
+                                }
+
+                                if (GameWorld.QuestData.IsDailyQuest(questId)
+                                    && !DailyQuestCompletionCycle.TryClaim(
+                                        connection,
+                                        transaction,
+                                        characterId,
+                                        questId,
+                                        utcNow))
                                 {
                                     return QuestFinishResult.Fail(22);
                                 }

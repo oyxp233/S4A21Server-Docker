@@ -63,6 +63,18 @@ namespace DfoServer.Network.Handlers.Dungeon
                         envelope.RunIdentity,
                         eligibleQuestActivations);
 
+                case DungeonQuestProgressKind.ActorDeath:
+                    return questManager.SyncActorDeathQuestProgressAsync(
+                        progressEvent.DungeonId,
+                        progressEvent.Difficulty,
+                        progressEvent.ActorCode,
+                        progressEvent.MonsterType,
+                        progressEvent.EnemyType,
+                        progressEvent.SourceEventId,
+                        eligibleQuestIds,
+                        envelope.RunIdentity,
+                        eligibleQuestActivations);
+
                 case DungeonQuestProgressKind.ClearMap:
                 case DungeonQuestProgressKind.ClearDungeon:
                     return questManager.SyncClearMapQuestProgressAsync(

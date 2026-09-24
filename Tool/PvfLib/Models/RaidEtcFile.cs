@@ -4,6 +4,46 @@ using System.Linq;
 
 namespace PvfLib
 {
+    public enum RaidEtcTriggerKind
+    {
+        Unknown,
+        PhaseInitialization,
+        DungeonOpened,
+        DungeonCleared,
+        TimerEnded,
+    }
+
+    public sealed class RaidEtcTriggerContext
+    {
+        public RaidEtcTriggerKind Kind { get; init; }
+        public int? DungeonId { get; init; }
+        public int? TimerType { get; init; }
+        public string State { get; init; } = string.Empty;
+        public IReadOnlyList<string> NormalizedClauses { get; init; } = Array.Empty<string>();
+    }
+
+    public sealed class RaidTimerDirective
+    {
+        public int PhaseIndex { get; init; }
+        public int TimerType { get; init; }
+        public int DungeonId { get; init; }
+        public int Seconds { get; init; }
+        public int SourceOrder { get; init; }
+        public int SourceLineIndex { get; init; }
+        public RaidEtcTriggerContext Trigger { get; init; } = new RaidEtcTriggerContext();
+    }
+
+    public sealed class RaidReservedDungeonStateDirective
+    {
+        public int PhaseIndex { get; init; }
+        public int DungeonId { get; init; }
+        public string State { get; init; } = string.Empty;
+        public int Seconds { get; init; }
+        public int SourceOrder { get; init; }
+        public int SourceLineIndex { get; init; }
+        public RaidEtcTriggerContext Trigger { get; init; } = new RaidEtcTriggerContext();
+    }
+
     public sealed class RaidRankCondition
     {
         public int MinimumDeathCount { get; init; }
@@ -24,6 +64,8 @@ namespace PvfLib
     {
         public List<RaidRankCondition> RankConditions { get; } = new List<RaidRankCondition>();
         public List<RaidStateReward> StateRewards { get; } = new List<RaidStateReward>();
+        public List<RaidTimerDirective> TimerDirectives { get; } = new List<RaidTimerDirective>();
+        public List<RaidReservedDungeonStateDirective> ReservedDungeonStates { get; } = new List<RaidReservedDungeonStateDirective>();
 
         public int ResolveRank(int deathCount)
         {
@@ -93,6 +135,8 @@ namespace PvfLib
         public int HatcheryOpenCount { get; private set; }
         public List<int> HatcheryDungeonIds { get; } = new List<int>();
         public List<int> ExceptCheatDungeonIds { get; } = new List<int>();
+        public List<int> PhaseTimeOverSeconds { get; } = new List<int>();
+        public List<string> ParseWarnings { get; } = new List<string>();
         public List<RaidEtcPhase> Phases { get; } = new List<RaidEtcPhase>();
         public List<RaidRankCondition> RankConditions { get; } = new List<RaidRankCondition>();
         public List<RaidStateReward> StateRewards { get; } = new List<RaidStateReward>();
@@ -116,6 +160,9 @@ namespace PvfLib
             if (phaseBreakTime.Length > 0)
                 file.PhaseBreakSeconds = phaseBreakTime[0];
 
+            file.PhaseTimeOverSeconds.AddRange(
+                ParsePhaseTimeOverValues(root, file.Content, file.ParseWarnings));
+
             file.ShieldChargeRates.AddRange(
                 ParseRootValues(root, "shield charge rate", file.Content));
 
@@ -133,12 +180,16 @@ namespace PvfLib
             var phaseNodes = root.GetChildren("phase");
             if (phaseNodes.Count == 0)
             {
-                file.Phases.Add(ParsePhase(root, file.Content));
+                file.Phases.Add(ParsePhase(root, file.Content, 0, file.ParseWarnings));
             }
             else
             {
-                foreach (var phaseNode in phaseNodes)
-                    file.Phases.Add(ParsePhase(phaseNode, file.Content));
+                for (var phaseIndex = 0; phaseIndex < phaseNodes.Count; phaseIndex++)
+                    file.Phases.Add(ParsePhase(
+                        phaseNodes[phaseIndex],
+                        file.Content,
+                        phaseIndex,
+                        file.ParseWarnings));
             }
 
             if (file.Phases.Count > 0)
@@ -174,7 +225,11 @@ namespace PvfLib
             return false;
         }
 
-        private static RaidEtcPhase ParsePhase(ScriptNode phaseNode, string content)
+        private static RaidEtcPhase ParsePhase(
+            ScriptNode phaseNode,
+            string content,
+            int phaseIndex,
+            List<string> warnings)
         {
             var phase = new RaidEtcPhase();
             var rankNodes = new List<ScriptNode>();
@@ -221,7 +276,182 @@ namespace PvfLib
                 });
             }
 
+            RaidEtcTriggerContext currentTrigger = null;
+            var sourceOrder = 0;
+            foreach (var child in phaseNode.Children.OrderBy(entry => entry.StartIndex))
+            {
+                if (string.Equals(child.Tag, "trigger", StringComparison.OrdinalIgnoreCase))
+                {
+                    currentTrigger = ParseTrigger(child, content, phaseIndex, warnings);
+                    continue;
+                }
+
+                if (!string.Equals(child.Tag, "behavior", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var trigger = currentTrigger ?? new RaidEtcTriggerContext();
+                foreach (var directive in EnumerateDescendants(child)
+                    .Where(entry => IsTag(entry, "set timer") || IsTag(entry, "reserve dungeon state"))
+                    .OrderBy(entry => entry.StartIndex))
+                {
+                    var order = sourceOrder++;
+                    if (IsTag(directive, "set timer"))
+                    {
+                        var tokens = SplitTokens(directive.GetFirstDataContent(content));
+                        if (tokens.Length != 3
+                            || !int.TryParse(tokens[0], out var timerType)
+                            || !int.TryParse(tokens[1], out var dungeonId)
+                            || !int.TryParse(tokens[2], out var seconds))
+                        {
+                            AddParseWarning(warnings, phaseIndex, directive, "SET TIMER", "expected three integer values");
+                            continue;
+                        }
+
+                        phase.TimerDirectives.Add(new RaidTimerDirective
+                        {
+                            PhaseIndex = phaseIndex,
+                            TimerType = timerType,
+                            DungeonId = dungeonId,
+                            Seconds = seconds,
+                            SourceOrder = order,
+                            SourceLineIndex = directive.StartLineIndex,
+                            Trigger = trigger,
+                        });
+                        continue;
+                    }
+
+                    var reserveTokens = SplitTokens(directive.GetFirstDataContent(content));
+                    if (reserveTokens.Length != 3
+                        || !int.TryParse(reserveTokens[0], out var reserveDungeonId)
+                        || !int.TryParse(reserveTokens[2], out var reserveSeconds))
+                    {
+                        AddParseWarning(warnings, phaseIndex, directive, "RESERVE DUNGEON STATE", "expected dungeon, state and integer seconds");
+                        continue;
+                    }
+
+                    var state = (StripBacktick(reserveTokens[1]) ?? string.Empty).Trim().ToLowerInvariant();
+                    if (!string.Equals(state, "open", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(state, "clear", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddParseWarning(warnings, phaseIndex, directive, "RESERVE DUNGEON STATE", $"unsupported state '{state}'");
+                        continue;
+                    }
+
+                    phase.ReservedDungeonStates.Add(new RaidReservedDungeonStateDirective
+                    {
+                        PhaseIndex = phaseIndex,
+                        DungeonId = reserveDungeonId,
+                        State = state,
+                        Seconds = reserveSeconds,
+                        SourceOrder = order,
+                        SourceLineIndex = directive.StartLineIndex,
+                        Trigger = trigger,
+                    });
+                }
+            }
+
             return phase;
+        }
+
+        private static RaidEtcTriggerContext ParseTrigger(
+            ScriptNode triggerNode,
+            string content,
+            int phaseIndex,
+            List<string> warnings)
+        {
+            var clauses = EnumerateDescendants(triggerNode)
+                .OrderBy(entry => entry.StartIndex)
+                .ToArray();
+            var normalizedClauses = clauses
+                .Select(entry => $"[{(entry.Tag ?? string.Empty).Trim().ToUpperInvariant()}] {entry.GetFirstDataContent(content).Trim()}".TrimEnd())
+                .ToArray();
+
+            foreach (var clause in clauses.Where(entry => IsTag(entry, "check timer end")))
+            {
+                var tokens = SplitTokens(clause.GetFirstDataContent(content));
+                if (tokens.Length == 2
+                    && int.TryParse(tokens[0], out var timerType)
+                    && int.TryParse(tokens[1], out var dungeonId))
+                {
+                    return new RaidEtcTriggerContext
+                    {
+                        Kind = RaidEtcTriggerKind.TimerEnded,
+                        DungeonId = dungeonId,
+                        TimerType = timerType,
+                        NormalizedClauses = normalizedClauses,
+                    };
+                }
+
+                AddParseWarning(warnings, phaseIndex, clause, "CHECK TIMER END", "expected timer type and dungeon id");
+            }
+
+            foreach (var clause in clauses.Where(entry => IsTag(entry, "check dungeon state")))
+            {
+                var tokens = SplitTokens(clause.GetFirstDataContent(content));
+                if (tokens.Length != 2 || !int.TryParse(tokens[0], out var dungeonId))
+                {
+                    AddParseWarning(warnings, phaseIndex, clause, "CHECK DUNGEON STATE", "expected dungeon id and state");
+                    continue;
+                }
+
+                var state = (StripBacktick(tokens[1]) ?? string.Empty).Trim().ToLowerInvariant();
+                var kind = string.Equals(state, "open", StringComparison.OrdinalIgnoreCase)
+                    ? RaidEtcTriggerKind.DungeonOpened
+                    : string.Equals(state, "clear", StringComparison.OrdinalIgnoreCase)
+                        ? RaidEtcTriggerKind.DungeonCleared
+                        : RaidEtcTriggerKind.Unknown;
+                if (kind == RaidEtcTriggerKind.Unknown
+                    && !string.Equals(state, "hide", StringComparison.OrdinalIgnoreCase))
+                    AddParseWarning(warnings, phaseIndex, clause, "CHECK DUNGEON STATE", $"unsupported state '{state}'");
+
+                return new RaidEtcTriggerContext
+                {
+                    Kind = kind,
+                    DungeonId = dungeonId,
+                    State = state,
+                    NormalizedClauses = normalizedClauses,
+                };
+            }
+
+            if (clauses.Any(entry => IsTag(entry, "1phase init") || IsTag(entry, "2phase init")))
+            {
+                return new RaidEtcTriggerContext
+                {
+                    Kind = RaidEtcTriggerKind.PhaseInitialization,
+                    NormalizedClauses = normalizedClauses,
+                };
+            }
+
+            return new RaidEtcTriggerContext
+            {
+                Kind = RaidEtcTriggerKind.Unknown,
+                NormalizedClauses = normalizedClauses,
+            };
+        }
+
+        private static IEnumerable<ScriptNode> EnumerateDescendants(ScriptNode node)
+        {
+            foreach (var child in node.Children.OrderBy(entry => entry.StartIndex))
+            {
+                yield return child;
+                foreach (var descendant in EnumerateDescendants(child))
+                    yield return descendant;
+            }
+        }
+
+        private static bool IsTag(ScriptNode node, string tag)
+        {
+            return string.Equals(node?.Tag, tag, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void AddParseWarning(
+            List<string> warnings,
+            int phaseIndex,
+            ScriptNode node,
+            string tag,
+            string detail)
+        {
+            warnings.Add($"Anton phase {phaseIndex + 1} [{tag}] line {node.StartLineIndex + 1}: {detail}.");
         }
 
         private static string[] SplitTokens(string data)
@@ -237,6 +467,24 @@ namespace PvfLib
             return node == null
                 ? Array.Empty<int>()
                 : ParseIntArray(node.GetFirstDataContent(content)) ?? Array.Empty<int>();
+        }
+
+        private static int[] ParsePhaseTimeOverValues(ScriptNode root, string content, List<string> warnings)
+        {
+            var node = root?.GetChild("phase time over");
+            if (node == null)
+                return Array.Empty<int>();
+
+            var tokens = SplitTokens(node.GetFirstDataContent(content));
+            var values = new int[tokens.Length];
+            for (var index = 0; index < tokens.Length; index++)
+            {
+                if (!int.TryParse(tokens[index], out values[index]))
+                {
+                    warnings.Add($"Anton [PHASE TIME OVER] line {node.StartLineIndex + 1}: invalid phase {index + 1} limit '{tokens[index]}'.");
+                }
+            }
+            return values;
         }
     }
 }

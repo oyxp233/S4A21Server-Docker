@@ -36,14 +36,14 @@ public sealed partial class RaidHandler
 		{
 			FileLogger.Log($"[GameProtocol] RAID_BUFF_REQUEST_INVALID raid={raid.RaidId} user={userId} body={BitConverter.ToString(body ?? Array.Empty<byte>())}");
 			await SendAckAsync(session, header.type, success: false);
-			await SendRaidBuffStatusAsync(session, raid.RaidId);
+			await SendRaidBuffStatusAsync(session, raid);
 			return;
 		}
 		FileLogger.Log($"[GameProtocol] RAID_BUFF_REQUEST raid={raid.RaidId} user={userId} type={buffType} party={partyIndex} members={string.Join(",", targetMemberIds ?? Array.Empty<ushort>())} body={BitConverter.ToString(body ?? Array.Empty<byte>())}");
 		if (raid.State != 2 || !TryResolveAntonBuffDefinitionIndex(buffType, out var definitionIndex))
 		{
 			await SendAckAsync(session, header.type, success: false);
-			await SendRaidBuffStatusAsync(session, raid.RaidId);
+			await SendRaidBuffStatusAsync(session, raid);
 			return;
 		}
 		RaidMember raidMember = raid.Members.FirstOrDefault((RaidMember entry) => entry.UserId == userId);
@@ -52,7 +52,7 @@ public sealed partial class RaidHandler
 		if (raidMember == null || config == null || config.CooldownSeconds <= 0 || config.DurationSeconds < 0)
 		{
 			await SendAckAsync(session, header.type, success: false);
-			await SendRaidBuffStatusAsync(session, raid.RaidId);
+			await SendRaidBuffStatusAsync(session, raid);
 			return;
 		}
 		ushort targetPartyIndex = ushort.MaxValue;
@@ -61,24 +61,33 @@ public sealed partial class RaidHandler
 		if (!string.Equals(config.Target, "RAID", StringComparison.OrdinalIgnoreCase) && (!_raids.TryGetSituationGroups(raid.RaidId, out situationGroups) || !TryResolveRequestedBuffTarget(raid, situationGroups, partyIndex, targetMemberIds, raidMember, out targetPartyIndex, out targetUserId)))
 		{
 			await SendAckAsync(session, header.type, success: false);
-			await SendRaidBuffStatusAsync(session, raid.RaidId);
+			await SendRaidBuffStatusAsync(session, raid);
 			return;
 		}
 		uint currentUnixTimestamp = GetCurrentUnixTimestamp();
-		(uint, byte) key = (raid.RaidId, buffType);
+		(Guid, byte) key = (raid.InstanceId, buffType);
 		bool activated = false;
 		RaidSnapshot extendedTimeRaid = null;
 		RaidSnapshot extendedCoinRaid = null;
 		uint extendedRemainingSeconds = 0u;
 		bool flag = string.Equals(definition.TypeName, "INCREASE TIME", StringComparison.OrdinalIgnoreCase) && config.EffectValue > 0;
 		bool flag2 = string.Equals(definition.TypeName, "INCREASE COIN", StringComparison.OrdinalIgnoreCase) && config.EffectValue > 0;
+		uint phaseLimitSeconds = flag
+			? _timerConfiguration.GetPhaseLimitSeconds(raid.PhaseIndex)
+			: 0u;
 		checked
 		{
-			lock (_raidRuntimeLocks.GetOrAdd(raid.RaidId, (uint _) => new object()))
+			lock (_raidRuntimeLocks.GetOrAdd(raid.InstanceId, (Guid _) => new object()))
 			{
 				if (!_raidBuffActivations.TryGetValue(key, out var value) || value.CooldownUntilTimestamp <= currentUnixTimestamp)
 				{
-					bool flag3 = !flag || _raids.TryExtendPhaseTime(raid.RaidId, 2400u, (uint)config.EffectValue, out extendedTimeRaid, out extendedRemainingSeconds);
+					bool flag3 = !flag || _raids.TryExtendPhaseTime(
+						raid.RaidId,
+						phaseLimitSeconds,
+						phaseLimitSeconds,
+						(uint)config.EffectValue,
+						out extendedTimeRaid,
+						out extendedRemainingSeconds);
 					if (flag3 & flag2)
 					{
 						flag3 = _raids.TryGrantAdditionalCoinUses(targetUserId, (uint)config.EffectValue, out extendedCoinRaid);
@@ -145,7 +154,7 @@ public sealed partial class RaidHandler
 			}
 			_objectSent[session.SessionId] = 0;
 			await SendRaidParticipationStatusAsync(session, raid, userId);
-			await SendRaidBuffStatusAsync(session, raid.RaidId);
+			await SendRaidBuffStatusAsync(session, raid);
 			await SendRaidMonsterStatusAsync(session, raid);
 		}
 		else if (_raids.TryGetSituationGroups(raid.RaidId, out situationGroups))
@@ -153,7 +162,7 @@ public sealed partial class RaidHandler
 			RaidSituationGroup raidSituationGroup = situationGroups.FirstOrDefault((RaidSituationGroup candidate) => candidate.MemberKeys.Contains(userId));
 			if (raidSituationGroup != null && raidSituationGroup.DungeonId != 0)
 			{
-				_raidMonsterRuntimeValues[GetRaidMonsterRuntimeKey(raid.RaidId, raidSituationGroup)] = values;
+				_raidMonsterRuntimeValues[GetRaidMonsterRuntimeKey(raid.InstanceId, raidSituationGroup)] = values;
 				await BroadcastRaidMonsterStatusAsync(raid);
 			}
 		}
@@ -204,13 +213,13 @@ public sealed partial class RaidHandler
 		}).ToArray();
 	}
 
-	private IReadOnlyList<RaidBuffStatusGroup> BuildAntonRaidBuffStatus(uint raidId)
+	private IReadOnlyList<RaidBuffStatusGroup> BuildAntonRaidBuffStatus(RaidSnapshot raid)
 	{
 		uint currentUnixTimestamp = GetCurrentUnixTimestamp();
 		Dictionary<byte, AntonRaidBuffActivation> activeByType = new Dictionary<byte, AntonRaidBuffActivation>();
-		foreach (KeyValuePair<(uint, byte), AntonRaidBuffActivation> raidBuffActivation in _raidBuffActivations)
+		foreach (KeyValuePair<(Guid, byte), AntonRaidBuffActivation> raidBuffActivation in _raidBuffActivations)
 		{
-			if (raidBuffActivation.Key.Item1 == raidId)
+			if (raid != null && raidBuffActivation.Key.Item1 == raid.InstanceId)
 			{
 				if (raidBuffActivation.Value.CooldownUntilTimestamp <= currentUnixTimestamp)
 				{
@@ -222,7 +231,6 @@ public sealed partial class RaidHandler
 				}
 			}
 		}
-		_raids.TryGetByRaidId(raidId, out var _);
 		return AntonClientBuffTypes.Select(delegate(byte clientBuffType, int index)
 		{
 			byte b = clientBuffType;
@@ -308,14 +316,14 @@ public sealed partial class RaidHandler
 		return checked((uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 	}
 
-	private Task SendRaidBuffStatusAsync(EnhancedClientSession session, uint raidId)
+	private Task SendRaidBuffStatusAsync(EnhancedClientSession session, RaidSnapshot raid)
 	{
-		return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.RAID_BUFF_SYSTEM, RaidPacketBuilder.BuildRaidBuffSystem(BuildAntonRaidBuffStatus(raidId))));
+		return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.RAID_BUFF_SYSTEM, RaidPacketBuilder.BuildRaidBuffSystem(BuildAntonRaidBuffStatus(raid))));
 	}
 
 	private Task BroadcastRaidBuffStatusAsync(RaidSnapshot raid)
 	{
-		return BroadcastRaidNotificationAsync(raid, NotiPacketTypeA21.RAID_BUFF_SYSTEM, RaidPacketBuilder.BuildRaidBuffSystem(BuildAntonRaidBuffStatus(raid.RaidId)));
+		return BroadcastRaidNotificationAsync(raid, NotiPacketTypeA21.RAID_BUFF_SYSTEM, RaidPacketBuilder.BuildRaidBuffSystem(BuildAntonRaidBuffStatus(raid)));
 	}
 
 	private IReadOnlyList<RaidMonsterStatusEntry> BuildAntonRaidMonsterStatus(RaidSnapshot raid)
@@ -327,7 +335,7 @@ public sealed partial class RaidHandler
 		List<RaidMonsterStatusEntry> list = new List<RaidMonsterStatusEntry>(situationGroups.Count);
 		foreach (RaidSituationGroup item in situationGroups)
 		{
-			_raidMonsterRuntimeValues.TryGetValue(GetRaidMonsterRuntimeKey(raid.RaidId, item, item.DungeonId), out var value);
+			_raidMonsterRuntimeValues.TryGetValue(GetRaidMonsterRuntimeKey(raid.InstanceId, item, item.DungeonId), out var value);
 			RaidMonsterStatusEntry raidMonsterStatusEntry = new RaidMonsterStatusEntry
 			{
 				SituationIndex = item.PartyIndex,
@@ -368,21 +376,21 @@ public sealed partial class RaidHandler
 			RaidSituationGroup raidSituationGroup = situationGroups.FirstOrDefault((RaidSituationGroup candidate) => candidate.MemberKeys.Contains(userId));
 			if (raidSituationGroup != null)
 			{
-				_raidMonsterRuntimeValues.TryRemove(GetRaidMonsterRuntimeKey(raid.RaidId, raidSituationGroup, dungeonId), out var _);
+				_raidMonsterRuntimeValues.TryRemove(GetRaidMonsterRuntimeKey(raid.InstanceId, raidSituationGroup, dungeonId), out var _);
 			}
 		}
 	}
 
-	private static (uint RaidId, ushort SituationIndex, uint SoloMemberKey, uint DungeonId)
-		GetRaidMonsterRuntimeKey(uint raidId, RaidSituationGroup group)
+	private static (Guid RaidInstanceId, ushort SituationIndex, uint SoloMemberKey, uint DungeonId)
+		GetRaidMonsterRuntimeKey(Guid raidInstanceId, RaidSituationGroup group)
 	{
-		return GetRaidMonsterRuntimeKey(raidId, group, group.DungeonId);
+		return GetRaidMonsterRuntimeKey(raidInstanceId, group, group.DungeonId);
 	}
 
-	private static (uint RaidId, ushort SituationIndex, uint SoloMemberKey, uint DungeonId) GetRaidMonsterRuntimeKey(uint raidId, RaidSituationGroup group, uint dungeonId)
+	private static (Guid RaidInstanceId, ushort SituationIndex, uint SoloMemberKey, uint DungeonId) GetRaidMonsterRuntimeKey(Guid raidInstanceId, RaidSituationGroup group, uint dungeonId)
 	{
 		uint item = ((group.IsSolo && group.MemberKeys.Count > 0) ? group.MemberKeys[0] : 0u);
-		return (RaidId: raidId, SituationIndex: group.SituationIndex, SoloMemberKey: item, DungeonId: dungeonId);
+		return (RaidInstanceId: raidInstanceId, SituationIndex: group.SituationIndex, SoloMemberKey: item, DungeonId: dungeonId);
 	}
 	private Task SendRaidMonsterStatusAsync(EnhancedClientSession session, RaidSnapshot raid)
 	{

@@ -4,7 +4,6 @@ namespace DfoServer.Network.Handlers;
 
 public sealed partial class RaidHandler
 {
-	private const uint AttackSeconds = 2400u;
 	private const uint AttackTimerType = 0u;
 	private const uint AttackTimerDungeonId = 0u;
 

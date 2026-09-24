@@ -59,7 +59,7 @@
 
 | 类型 | 是否使用 `ClockService` | 依据和要求 |
 | --- | --- | --- |
-| 团本 ready 3 秒、攻坚 2400 秒、阶段切换 | 是 | 属于在线短时控制。回调必须校验团本对象、阶段、版本号。 |
+| 安图恩团本 ready、攻坚、地下城机制与阶段切换 | 是 | 秒数优先由 `etc/raid/anton.etc` 的对应语义提供，缺失或冲突时使用经核对的兜底值；`RaidHandler` 以 raid instance 持有绝对截止时间，回调校验实例、阶段和版本号，重连只重投剩余时间。 |
 | 副本翻牌 2 秒/4 秒、EPLP 返村、死亡等待回城 | 可以 | 旧服有翻牌、失败、返村 timer key 模型。当前项目接入前先保存当前 run/death sequence, 到期后重查。 |
 | 心跳包、连接检查、服务间 heartbeat | 是 | 旧服 `TimerCheckConn` / `Timer_HadesHeartBeat` 有依据。必须校验 session/version, 断线要清理。 |
 | 在线挂机、在线停留、在线奖励提醒 | 可以 | timer 只做在线巡检、提醒或投递已有待处理任务。发奖必须走领取校验或落库记账。 |

@@ -231,6 +231,491 @@ public static class A21RaidProtocolSelfTest
 			ref failures);
 	}
 
+	private static void CheckAntonTimerParsing(ref int failures)
+	{
+		const string source = """
+[PHASE TIME OVER]
+100 200
+[PHASE]
+[TRIGGER]
+[ON CHANGE DUNGEON STATE]
+221
+[CHECK DUNGEON STATE]
+221 `open`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 221 120
+[RESERVE DUNGEON STATE]
+221 `open` 240
+[/BEHAVIOR]
+[/PHASE]
+[PHASE]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+221 `open`
+[CHECK TIMER END]
+1 221
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 221 45
+[SET TIMER]
+1 221 invalid
+[/BEHAVIOR]
+[/PHASE]
+""";
+
+		RaidEtcFile parsed = RaidEtcFile.Parse(source);
+		Check("synthetic Anton phase limits preserve order",
+			parsed.PhaseTimeOverSeconds.SequenceEqual(new[] { 100, 200 }), ref failures);
+		Check("synthetic Anton timers preserve phase, trigger and source order",
+			parsed.Phases[0].TimerDirectives.Count == 1
+			&& parsed.Phases[1].TimerDirectives.Count == 1
+			&& parsed.Phases[0].TimerDirectives[0].Seconds == 120
+			&& parsed.Phases[0].TimerDirectives[0].Trigger.Kind == RaidEtcTriggerKind.DungeonOpened
+			&& parsed.Phases[1].TimerDirectives[0].Seconds == 45
+			&& parsed.Phases[1].TimerDirectives[0].Trigger.Kind == RaidEtcTriggerKind.TimerEnded,
+			ref failures);
+		Check("synthetic Anton reserve-open preserves trigger context",
+			parsed.Phases[0].ReservedDungeonStates.Count == 1
+			&& parsed.Phases[0].ReservedDungeonStates[0].DungeonId == 221
+			&& parsed.Phases[0].ReservedDungeonStates[0].State == "open"
+			&& parsed.Phases[0].ReservedDungeonStates[0].Seconds == 240
+			&& parsed.Phases[0].ReservedDungeonStates[0].Trigger.Kind == RaidEtcTriggerKind.DungeonOpened,
+			ref failures);
+		Check("synthetic Anton malformed timer is diagnosable",
+			parsed.ParseWarnings.Any(message => message.Contains("SET TIMER", StringComparison.Ordinal)),
+			ref failures);
+		RaidEtcFile malformedPhaseLimit = RaidEtcFile.Parse("[PHASE TIME OVER]\noops 200");
+		Check("malformed first phase limit cannot shift the second phase slot",
+			malformedPhaseLimit.PhaseTimeOverSeconds.SequenceEqual(new[] { 0, 200 })
+			&& malformedPhaseLimit.ParseWarnings.Any(message => message.Contains("PHASE TIME OVER", StringComparison.Ordinal)),
+			ref failures);
+
+		RaidEtcFile live = RaidEtcFile.Parse(PvfArchiveAccessor.ReadText("etc/raid/anton.etc"));
+		RaidTimerDirective[] liveTimers = live.Phases
+			.SelectMany(phase => phase.TimerDirectives)
+			.OrderBy(entry => entry.PhaseIndex)
+			.ThenBy(entry => entry.SourceOrder)
+			.ToArray();
+		RaidReservedDungeonStateDirective[] liveReserves = live.Phases
+			.SelectMany(phase => phase.ReservedDungeonStates)
+			.OrderBy(entry => entry.PhaseIndex)
+			.ThenBy(entry => entry.SourceOrder)
+			.ToArray();
+		Check("live Anton phase limits come from PVF",
+			live.PhaseTimeOverSeconds.SequenceEqual(new[] { 2400, 2400 }), ref failures);
+		Check("live Anton preserves every timer directive",
+			liveTimers.Length == 33
+			&& liveTimers.Select(entry => (entry.TimerType, entry.DungeonId, entry.Seconds)).Distinct().Count() == 31
+			&& liveTimers.Select(entry => (entry.TimerType, entry.DungeonId)).Distinct().Count() == 23,
+			ref failures);
+		Check("live Anton preserves repeated equal timer directives",
+			liveTimers.Count(entry => entry.TimerType == 2 && entry.DungeonId == 211 && entry.Seconds == 300) == 2
+			&& liveTimers.Count(entry => entry.TimerType == 1 && entry.DungeonId == 216 && entry.Seconds == 360) == 2,
+			ref failures);
+		foreach (int dungeonId in Enumerable.Range(221, 4))
+		{
+			RaidTimerDirective[] dungeonTimers = liveTimers.Where(entry => entry.DungeonId == dungeonId).ToArray();
+			Check($"live Anton hatchery {dungeonId} retains initial and repeat effects",
+				dungeonTimers.Where(entry => entry.TimerType == 1).Select(entry => entry.Seconds).SequenceEqual(new[] { 120, 45 })
+				&& dungeonTimers.Where(entry => entry.TimerType == 3).Select(entry => entry.Seconds).SequenceEqual(new[] { 120, 50 })
+				&& dungeonTimers.Count(entry => entry.Seconds == 120 && entry.Trigger.Kind == RaidEtcTriggerKind.DungeonOpened) == 2
+				&& dungeonTimers.Count(entry => (entry.Seconds == 45 || entry.Seconds == 50) && entry.Trigger.Kind == RaidEtcTriggerKind.TimerEnded) == 2,
+				ref failures);
+		}
+
+		var expectedReserves = new (int DungeonId, int Seconds)[]
+		{
+			(216, 20),
+			(212, 150),
+			(214, 150),
+			(221, 240),
+			(222, 240),
+			(223, 240),
+			(224, 240),
+		};
+		Check("live Anton reserve-open directives come from PVF",
+			liveReserves.Length == expectedReserves.Length
+			&& liveReserves.All(entry => entry.State == "open")
+			&& liveReserves.Select(entry => (entry.DungeonId, entry.Seconds)).SequenceEqual(expectedReserves),
+			ref failures);
+		foreach (string warning in live.ParseWarnings)
+			Console.WriteLine($"[Anton timer parser warning] {warning}");
+		Check("live Anton timer parser has no warnings", live.ParseWarnings.Count == 0, ref failures);
+	}
+
+	private static void CheckAntonTimerProjection(ref int failures)
+	{
+		const string validSource = """
+[PHASE TIME OVER]
+111 222
+[PHASE]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+211 `open`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 211 481
+[SET TIMER]
+2 211 301
+[SET TIMER]
+3 211 241
+[/BEHAVIOR]
+[/PHASE]
+[PHASE]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+221 `open`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 221 121
+[SET TIMER]
+3 221 122
+[/BEHAVIOR]
+[TRIGGER]
+[CHECK TIMER END]
+1 221
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 221 46
+[/BEHAVIOR]
+[TRIGGER]
+[CHECK TIMER END]
+3 221
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+3 221 51
+[/BEHAVIOR]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+221 `clear`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+2 221 241
+[RESERVE DUNGEON STATE]
+221 `open` 241
+[/BEHAVIOR]
+[/PHASE]
+""";
+		var validWarnings = new List<string>();
+		AntonRaidTimerConfiguration valid = AntonRaidTimerConfiguration.Create(
+			RaidEtcFile.Parse(validSource), validWarnings.Add);
+		Check("Anton timer projection freezes configured phase values",
+			valid.GetPhaseLimitSeconds(0) == 111
+			&& valid.GetPhaseLimitSeconds(1) == 222
+			&& valid.GetDungeonActiveSeconds(0, 211) == 481
+			&& valid.GetDungeonRecoverySeconds(0, 211) == 301
+			&& valid.GetDungeonPassiveSeconds(0, 211) == 241,
+			ref failures);
+		Check("Anton timer projection separates hatchery trigger semantics",
+			valid.GetHatcheryEffectInitialSeconds(1, 221) == 121
+			&& valid.GetHatcheryEffectRepeatSeconds(1, 221) == 46
+			&& valid.GetHatcheryEffectInitialSeconds(3, 221) == 122
+			&& valid.GetHatcheryEffectRepeatSeconds(3, 221) == 51
+			&& valid.GetDungeonRecoverySeconds(1, 221) == 241
+			&& valid.GetReservedOpenSeconds(1, 221) == 241,
+			ref failures);
+
+		const string invalidSource = """
+[PHASE TIME OVER]
+0 -1
+[PHASE]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+211 `open`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 211 0
+[SET TIMER]
+3 211 2147484
+[SET TIMER]
+1 212 301
+[SET TIMER]
+1 212 302
+[/BEHAVIOR]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+214 `clear`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+2 214 151
+[RESERVE DUNGEON STATE]
+214 `open` 152
+[/BEHAVIOR]
+[/PHASE]
+[PHASE]
+[/PHASE]
+""";
+		var invalidWarnings = new List<string>();
+		AntonRaidTimerConfiguration invalid = AntonRaidTimerConfiguration.Create(
+			RaidEtcFile.Parse(invalidSource), invalidWarnings.Add);
+		Check("Anton timer projection rejects invalid and conflicting durations",
+			invalid.GetPhaseLimitSeconds(0) == 2400
+			&& invalid.GetPhaseLimitSeconds(1) == 2400
+			&& invalid.GetDungeonActiveSeconds(0, 211) == 480
+			&& invalid.GetDungeonPassiveSeconds(0, 211) == 240
+			&& invalid.GetDungeonActiveSeconds(0, 212) == 300,
+			ref failures);
+		int warningCountBeforeGetters = invalidWarnings.Count;
+		Check("Anton recovery and reserve mismatch share fallbacks and one warning",
+			invalid.GetDungeonRecoverySeconds(0, 214) == 150
+			&& invalid.GetReservedOpenSeconds(0, 214) == 150
+			&& invalidWarnings.Count(message => message.Contains("phase=0 dungeon=214 recovery/reserve", StringComparison.Ordinal)) == 1,
+			ref failures);
+		_ = invalid.GetDungeonRecoverySeconds(0, 214);
+		_ = invalid.GetReservedOpenSeconds(0, 214);
+		Check("Anton timer getters never emit repeated warnings",
+			invalidWarnings.Count == warningCountBeforeGetters, ref failures);
+
+		var liveWarnings = new List<string>();
+		AntonRaidTimerConfiguration live = AntonRaidTimerConfiguration.Create(
+			RaidEtcFile.Parse(PvfArchiveAccessor.ReadText("etc/raid/anton.etc")), liveWarnings.Add);
+		Check("live Anton timer projection resolves PVF semantics",
+			live.GetPhaseLimitSeconds(0) == 2400
+			&& live.GetPhaseLimitSeconds(1) == 2400
+			&& live.GetDungeonActiveSeconds(0, 211) == 480
+			&& live.GetDungeonRecoverySeconds(0, 211) == 300
+			&& live.GetDungeonPassiveSeconds(0, 211) == 240
+			&& live.GetDungeonActiveSeconds(0, 216) == 360
+			&& live.GetDungeonRecoverySeconds(0, 216) == 150
+			&& live.GetDungeonPassiveSeconds(0, 216) == 120
+			&& live.GetHatcheryOpenSeconds() == 180
+			&& liveWarnings.Count == 0,
+			ref failures);
+	}
+
+	private static void CheckAntonPhaseLimitBehavior(ref int failures)
+	{
+		const string source = """
+[PHASE TIME OVER]
+1000 2000
+[PHASE]
+[/PHASE]
+[PHASE]
+[/PHASE]
+""";
+		AntonRaidTimerConfiguration configuration = AntonRaidTimerConfiguration.Create(
+			RaidEtcFile.Parse(source), _ => { });
+		Check("distinct Anton phase limits remain independent",
+			configuration.GetPhaseLimitSeconds(0) == 1000
+			&& configuration.GetPhaseLimitSeconds(1) == 2000,
+			ref failures);
+
+		long clockMilliseconds = 0;
+		var manager = new RaidManager(() => clockMilliseconds);
+		RaidSnapshot created = manager.Create(
+			new byte[] { 65 },
+			new RaidMember
+			{
+				UserId = 81,
+				CharacterId = 81,
+				SessionId = Guid.NewGuid(),
+				PartyIndex = 1,
+			},
+			0);
+		manager.TryBeginStart(created.LeaderUserId, out RaidSnapshot prepared);
+		manager.TryCompletePreparation(prepared, out RaidSnapshot started);
+		clockMilliseconds = 100_000;
+		bool extended = manager.TryExtendPhaseTime(
+			started.RaidId,
+			1000,
+			1000,
+			300,
+			out RaidSnapshot extendedRaid,
+			out uint remainingSeconds);
+		Check("phase extension caps configured remaining time",
+			extended
+			&& remainingSeconds == 1000
+			&& extendedRaid.PhaseTimeExtensionSeconds == 100
+			&& !manager.TryExtendPhaseTime(started.RaidId, 1000, 1000, 1, out _, out _),
+			ref failures);
+	}
+
+	private static void CheckAntonConfiguredTimerBehavior(ref int failures)
+	{
+		const string source = """
+[PHASE TIME OVER]
+1000 2000
+[PHASE]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+211 `open`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 211 481
+[SET TIMER]
+2 211 301
+[SET TIMER]
+3 211 241
+[SET TIMER]
+1 212 312
+[SET TIMER]
+2 212 151
+[RESERVE DUNGEON STATE]
+212 `open` 151
+[SET TIMER]
+1 214 314
+[SET TIMER]
+2 214 152
+[RESERVE DUNGEON STATE]
+214 `open` 152
+[SET TIMER]
+1 216 361
+[SET TIMER]
+2 216 153
+[SET TIMER]
+3 216 121
+[RESERVE DUNGEON STATE]
+216 `open` 21
+[/BEHAVIOR]
+[/PHASE]
+[PHASE]
+[TRIGGER]
+[2PHASE INIT]
+0
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+3 219 181
+[/BEHAVIOR]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+221 `open`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 221 121
+[SET TIMER]
+3 221 122
+[/BEHAVIOR]
+[TRIGGER]
+[CHECK TIMER END]
+1 221
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+1 221 46
+[/BEHAVIOR]
+[TRIGGER]
+[CHECK TIMER END]
+3 221
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+3 221 51
+[/BEHAVIOR]
+[TRIGGER]
+[CHECK DUNGEON STATE]
+221 `clear`
+[/TRIGGER]
+[BEHAVIOR]
+[SET TIMER]
+2 221 241
+[RESERVE DUNGEON STATE]
+221 `open` 241
+[/BEHAVIOR]
+[/PHASE]
+""";
+		AntonRaidTimerConfiguration configuration = AntonRaidTimerConfiguration.Create(
+			RaidEtcFile.Parse(source), _ => { });
+		var clock = new ClockService();
+		var raids = new RaidManager();
+		var handler = new RaidHandler(
+			DispatchProxy.Create<ICharacterRepository, UnusedDependency>(),
+			new SessionDirectory(),
+			raids,
+			clock,
+			configuration);
+		RaidSnapshot created = raids.Create(
+			new byte[] { 65 },
+			new RaidMember
+			{
+				UserId = 82,
+				CharacterId = 82,
+				SessionId = Guid.NewGuid(),
+				PartyIndex = 1,
+			},
+			0);
+		raids.TryBeginStart(created.LeaderUserId, out RaidSnapshot prepared);
+		raids.TryCompletePreparation(prepared, out RaidSnapshot phaseOne);
+
+		InvokeTimerMethod("ClearBlackFogSourceAsync", phaseOne, 4u);
+		Dictionary<(byte TimerType, uint DungeonId), uint> phaseOneTimers = ReadProjectedTimers(
+			handler.BuildRaidTimerSnapshotPackets(phaseOne, DateTime.UtcNow));
+		Check("phase-one runtime registers injected PVF durations",
+			phaseOneTimers[(1, 212)] == 312
+			&& phaseOneTimers[(1, 214)] == 314
+			&& phaseOneTimers[(2, 211)] == 301
+			&& clock.GetDebugSnapshot().OneShotTimers == 4,
+			ref failures);
+		handler.CleanupRaidRuntimeState(phaseOne);
+
+		raids.TryEnterPhaseBreak(phaseOne, out RaidSnapshot rewardState);
+		raids.TryCompletePhase(rewardState.RaidId, out RaidSnapshot standby);
+		raids.TryPrepareNextPhase(standby.LeaderUserId, out RaidSnapshot phaseTwoPrepared);
+		raids.TryCompletePreparedNextPhase(phaseTwoPrepared, _ => true, out RaidSnapshot phaseTwo);
+		InvokeTimerMethod("StartHatcheryOpenTimerAsync", phaseTwo);
+		InvokeTimerMethod("StartHatcheryEffectTimersAsync", phaseTwo, 221u);
+		InvokeTimerMethod("StartHatcheryRecoveryTimerAsync", phaseTwo, 221u);
+		Dictionary<(byte TimerType, uint DungeonId), uint> phaseTwoTimers = ReadProjectedTimers(
+			handler.BuildRaidTimerSnapshotPackets(phaseTwo, DateTime.UtcNow));
+		Check("phase-two runtime registers injected initial and recovery durations",
+			phaseTwoTimers[(3, 219)] == 181
+			&& phaseTwoTimers[(1, 221)] == 121
+			&& phaseTwoTimers[(3, 221)] == 122
+			&& phaseTwoTimers[(2, 221)] == 241,
+			ref failures);
+
+		clock.CheckOnce(DateTime.UtcNow.AddSeconds(123));
+		Dictionary<(byte TimerType, uint DungeonId), uint> repeatedTimers = null;
+		bool repeated = SpinWait.SpinUntil(() =>
+		{
+			repeatedTimers = ReadProjectedTimers(handler.BuildRaidTimerSnapshotPackets(phaseTwo, DateTime.UtcNow));
+			return repeatedTimers.TryGetValue((1, 221), out uint typeOne)
+				&& typeOne is >= 45 and <= 46
+				&& repeatedTimers.TryGetValue((3, 221), out uint typeThree)
+				&& typeThree is >= 50 and <= 51;
+		}, TimeSpan.FromSeconds(1));
+		Check("hatchery callbacks continue with injected repeat durations",
+			repeated, ref failures);
+
+		InvokeTimerMethod("ClearHatcheryAsync", phaseTwo, 221u);
+		Dictionary<(byte TimerType, uint DungeonId), uint> clearedTimers = ReadProjectedTimers(
+			handler.BuildRaidTimerSnapshotPackets(phaseTwo, DateTime.UtcNow));
+		Check("hatchery clear cancels its effects and retains only recovery",
+			!clearedTimers.ContainsKey((1, 221))
+			&& !clearedTimers.ContainsKey((3, 221))
+			&& clearedTimers[(2, 221)] == 241,
+			ref failures);
+		handler.CleanupRaidRuntimeState(phaseTwo);
+
+		void InvokeTimerMethod(string name, params object[] arguments)
+		{
+			MethodInfo method = typeof(RaidHandler).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
+			((Task)method.Invoke(handler, arguments)).GetAwaiter().GetResult();
+		}
+
+		static Dictionary<(byte TimerType, uint DungeonId), uint> ReadProjectedTimers(
+			IReadOnlyList<byte[]> packets)
+		{
+			return packets
+				.Where(packet => BitConverter.ToUInt16(packet, 1) == (ushort)NotiPacketTypeA21.RAID_SET_TIMER)
+				.ToDictionary(
+					packet => (packet[15], BitConverter.ToUInt32(packet, 16)),
+					packet => BitConverter.ToUInt32(packet, 24));
+		}
+	}
+
 	private static void CheckGoldRateBoost(ref int failures)
 	{
 		int[] array = new int[5] { 10157782, 10157783, 10157784, 10157785, 10157786 };
@@ -545,6 +1030,10 @@ public static class A21RaidProtocolSelfTest
 	{
 		Console.WriteLine("=== A21_RAID_PROTOCOL selftest ===");
 		int failures = 0;
+		CheckAntonTimerParsing(ref failures);
+		CheckAntonTimerProjection(ref failures);
+		CheckAntonPhaseLimitBehavior(ref failures);
+		CheckAntonConfiguredTimerBehavior(ref failures);
 		CheckRaidChannelEvent(ref failures);
 		foreach (int item in Enumerable.Range(210, 6).Concat(Enumerable.Range(218, 7)))
 		{
@@ -621,6 +1110,7 @@ public static class A21RaidProtocolSelfTest
 		CheckRaidPartyCreationMode(ref failures);
 		CheckLiveRaidInviteMode(ref failures);
 		CheckPhaseIsolation(ref failures);
+		CheckRaidTimerRejoinAndTermination(ref failures);
 		CheckLivePartyAssignment(ref failures);
 		byte[] array5 = RaidPacketBuilder.BuildEntryCostInfo(new RaidEntryCostStatus[3]
 		{
@@ -1247,17 +1737,217 @@ public static class A21RaidProtocolSelfTest
 		}
 	}
 
+	private static void CheckRaidTimerRejoinAndTermination(ref int failures)
+	{
+		using var original = new RaidWireClient(96);
+		using var rejoined = new RaidWireClient(96);
+		using var rebound = new RaidWireClient(96);
+		var raids = new RaidManager();
+		var clock = new ClockService();
+		var handler = new RaidHandler(
+			DispatchProxy.Create<ICharacterRepository, UnusedDependency>(),
+			new SessionDirectory(),
+			raids,
+			clock,
+			AntonRaidTimerConfiguration.Create(RaidEtcFile.Parse(string.Empty), _ => { }));
+		RaidSnapshot raid = raids.Create(new byte[] { 65 }, original.Member, 200);
+		Guid version = handler.ScheduleRaidTimer(
+			raid, 0u, 0u, "rejoin-test", 40u, true, 0,
+			(_, _) => Task.CompletedTask);
+
+		handler.HandleRejoinRaid(rejoined.Session, default, Array.Empty<byte>()).GetAwaiter().GetResult();
+		byte[][] rejoinPackets = ReadPackets(rejoined, 6);
+		uint firstRemaining = TimerRemaining(rejoinPackets);
+		Thread.Sleep(1100);
+		handler.HandleRebindResyncAsync(rebound.Session).GetAwaiter().GetResult();
+		byte[][] rebindPackets = ReadPackets(rebound, 6);
+		uint secondRemaining = TimerRemaining(rebindPackets);
+		Check("rejoin and rebind replay one shared timer's decreasing deadline",
+			firstRemaining is >= 39 and <= 40
+			&& secondRemaining > 0
+			&& secondRemaining < firstRemaining
+			&& rejoinPackets.Count(packet => BitConverter.ToUInt16(packet, 1) == (ushort)NotiPacketTypeA21.RAID_REMAIN_TIME) == 1
+			&& rebindPackets.Count(packet => BitConverter.ToUInt16(packet, 1) == (ushort)NotiPacketTypeA21.RAID_REMAIN_TIME) == 1
+			&& handler.TimerCurrent(raid, 0u, 0u, "rejoin-test", version)
+			&& clock.GetDebugSnapshot().OneShotTimers == 1,
+			ref failures);
+		Check("rebind does not project timer packets to the old sessions",
+			original.Reader.Available == 0 && rejoined.Reader.Available == 0,
+			ref failures);
+		handler.CleanupRaidRuntimeState(raid);
+		Check("rejoined raid timer is cancelled at instance cleanup",
+			clock.GetDebugSnapshot().OneShotTimers == 0,
+			ref failures);
+
+		static uint TimerRemaining(byte[][] packets)
+		{
+			return BitConverter.ToUInt32(
+				packets.Single(packet => BitConverter.ToUInt16(packet, 1) == (ushort)NotiPacketTypeA21.RAID_SET_TIMER),
+				24);
+		}
+
+		static byte[][] ReadPackets(RaidWireClient client, int count)
+		{
+			using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+			var packets = new byte[count][];
+			for (int index = 0; index < count; index++)
+			{
+				byte[] header = new byte[15];
+				client.Reader.GetStream().ReadExactlyAsync(header, timeout.Token).AsTask().GetAwaiter().GetResult();
+				int length = checked((int)BitConverter.ToUInt32(header, 3));
+				if (length < header.Length || length > 1048576)
+					throw new InvalidOperationException("Invalid raid rejoin packet length");
+				byte[] packet = new byte[length];
+				header.CopyTo(packet, 0);
+				client.Reader.GetStream().ReadExactlyAsync(packet.AsMemory(15), timeout.Token).AsTask().GetAwaiter().GetResult();
+				packets[index] = packet;
+			}
+			return packets;
+		}
+	}
+
 	private static void CheckPhaseIsolation(ref int failures)
 	{
 		RaidManager manager = new RaidManager();
-		RaidHandler raidHandler = new RaidHandler(DispatchProxy.Create<ICharacterRepository, UnusedDependency>(), DispatchProxy.Create<ISessionDirectory, UnusedDependency>(), manager);
-		Guid guid = raidHandler.AdvanceTimer(42u, 0u, 0u);
-		Check("current timer token is accepted", raidHandler.TimerCurrent(42u, 0u, 0u, guid), ref failures);
-		raidHandler.CleanupRaidRuntimeState(42u);
-		Guid guid2 = raidHandler.AdvanceTimer(42u, 0u, 0u);
-		Check("recreated timer key cannot revive old callback", guid != guid2 && !raidHandler.TimerCurrent(42u, 0u, 0u, guid) && raidHandler.TimerCurrent(42u, 0u, 0u, guid2), ref failures);
-		raidHandler.AdvanceTimer(42u, 0u, 0u);
-		Check("timer replacement invalidates its previous callback", !raidHandler.TimerCurrent(42u, 0u, 0u, guid2), ref failures);
+		var timerClock = new ClockService();
+		var timerManager = new RaidManager();
+		var timerConfiguration = AntonRaidTimerConfiguration.Create(RaidEtcFile.Parse(string.Empty), _ => { });
+		var raidHandler = new RaidHandler(
+			DispatchProxy.Create<ICharacterRepository, UnusedDependency>(),
+			DispatchProxy.Create<ISessionDirectory, UnusedDependency>(),
+			timerManager,
+			timerClock,
+			timerConfiguration);
+		RaidSnapshot timerRaid = timerManager.Create(
+			new byte[] { 65 },
+			new RaidMember
+			{
+				UserId = 90,
+				CharacterId = 90,
+				SessionId = Guid.NewGuid(),
+				PartyIndex = 1,
+			},
+			0);
+		int timerCallbacks = 0;
+		Guid guid = raidHandler.ScheduleRaidTimer(
+			timerRaid, 9u, 9u, "selftest", 1u, false, null,
+			(_, _) =>
+			{
+				Interlocked.Increment(ref timerCallbacks);
+				return Task.CompletedTask;
+			});
+		Guid guid2 = raidHandler.ScheduleRaidTimer(
+			timerRaid, 9u, 9u, "selftest", 1u, false, null,
+			(_, _) =>
+			{
+				Interlocked.Increment(ref timerCallbacks);
+				return Task.CompletedTask;
+			});
+		Check("timer replacement invalidates its previous callback",
+			guid != guid2
+			&& !raidHandler.TimerCurrent(timerRaid, 9u, 9u, "selftest", guid)
+			&& raidHandler.TimerCurrent(timerRaid, 9u, 9u, "selftest", guid2),
+			ref failures);
+		timerClock.CheckOnce(DateTime.UtcNow.AddSeconds(2));
+		Check("isolated clock runs only the current timer callback",
+			SpinWait.SpinUntil(() => Volatile.Read(ref timerCallbacks) == 1, TimeSpan.FromSeconds(1)),
+			ref failures);
+		Guid cancelled = raidHandler.ScheduleRaidTimer(
+			timerRaid, 8u, 8u, "cancel", 1u, false, null,
+			(_, _) =>
+			{
+				Interlocked.Increment(ref timerCallbacks);
+				return Task.CompletedTask;
+			});
+		raidHandler.CancelTimer(timerRaid, 8u, 8u);
+		timerClock.CheckOnce(DateTime.UtcNow.AddSeconds(4));
+		Check("cancel invalidates and exact-cancels the current registration",
+			!raidHandler.TimerCurrent(timerRaid, 8u, 8u, "cancel", cancelled)
+			&& Volatile.Read(ref timerCallbacks) == 1,
+			ref failures);
+		raidHandler.ScheduleRaidTimer(
+			timerRaid, 6u, 6u, "projection", 30u, true, 0, (_, _) => Task.CompletedTask);
+		DateTime snapshotStart = DateTime.UtcNow;
+		IReadOnlyList<byte[]> initialTimerPackets = raidHandler.BuildRaidTimerSnapshotPackets(timerRaid, snapshotStart);
+		IReadOnlyList<byte[]> laterTimerPackets = raidHandler.BuildRaidTimerSnapshotPackets(timerRaid, snapshotStart.AddSeconds(10));
+		uint initialRemaining = BitConverter.ToUInt32(initialTimerPackets.Single(packet => BitConverter.ToUInt16(packet, 1) == (ushort)NotiPacketTypeA21.RAID_SET_TIMER), 24);
+		uint laterRemaining = BitConverter.ToUInt32(laterTimerPackets.Single(packet => BitConverter.ToUInt16(packet, 1) == (ushort)NotiPacketTypeA21.RAID_SET_TIMER), 24);
+		Check("rejoin timer projection keeps one absolute deadline",
+			initialTimerPackets.Count == 2
+			&& initialRemaining == 30
+			&& laterRemaining == 20
+			&& BitConverter.ToUInt32(laterTimerPackets.Single(packet => BitConverter.ToUInt16(packet, 1) == (ushort)NotiPacketTypeA21.RAID_REMAIN_TIME), 16) == laterRemaining,
+			ref failures);
+		IReadOnlyList<byte[]> expiredTimerPackets = raidHandler.BuildRaidTimerSnapshotPackets(timerRaid, snapshotStart.AddSeconds(31));
+		Check("expired registration is never re-advertised at full duration",
+			BitConverter.ToUInt32(expiredTimerPackets.Single(packet => BitConverter.ToUInt16(packet, 1) == (ushort)NotiPacketTypeA21.RAID_SET_TIMER), 24) == 0,
+			ref failures);
+		var wrongPhase = new RaidSnapshot
+		{
+			RaidId = timerRaid.RaidId,
+			InstanceId = timerRaid.InstanceId,
+			State = timerRaid.State,
+			PhaseIndex = timerRaid.PhaseIndex + 1,
+		};
+		Guid wrongPhaseVersion = raidHandler.ScheduleRaidTimer(
+			wrongPhase, 5u, 5u, "wrong-phase", 1u, false, null,
+			(_, _) =>
+			{
+				Interlocked.Increment(ref timerCallbacks);
+				return Task.CompletedTask;
+			});
+		var wrongInstance = new RaidSnapshot
+		{
+			RaidId = timerRaid.RaidId,
+			InstanceId = Guid.NewGuid(),
+			State = timerRaid.State,
+			PhaseIndex = timerRaid.PhaseIndex,
+		};
+		Guid wrongInstanceVersion = raidHandler.ScheduleRaidTimer(
+			wrongInstance, 5u, 6u, "wrong-instance", 1u, false, null,
+			(_, _) =>
+			{
+				Interlocked.Increment(ref timerCallbacks);
+				return Task.CompletedTask;
+			});
+		timerClock.CheckOnce(DateTime.UtcNow.AddSeconds(6));
+		Check("old phase and old instance callbacks are no-ops",
+			SpinWait.SpinUntil(
+				() => !raidHandler.TimerCurrent(wrongPhase, 5u, 5u, "wrong-phase", wrongPhaseVersion)
+					&& !raidHandler.TimerCurrent(wrongInstance, 5u, 6u, "wrong-instance", wrongInstanceVersion),
+				TimeSpan.FromSeconds(1))
+			&& Volatile.Read(ref timerCallbacks) == 1,
+			ref failures);
+		raidHandler.ScheduleRaidTimer(timerRaid, 7u, 7u, "cleanup-a", 30u, false, null, (_, _) => Task.CompletedTask);
+		raidHandler.ScheduleRaidTimer(timerRaid, 7u, 8u, "cleanup-b", 30u, false, null, (_, _) => Task.CompletedTask);
+		raidHandler.CleanupRaidRuntimeState(timerRaid);
+		Check("raid instance cleanup cancels every prefixed timer",
+			timerClock.GetDebugSnapshot().OneShotTimers == 0,
+			ref failures);
+		timerManager.Leave(timerRaid.LeaderUserId);
+		RaidSnapshot replacementRaid = timerManager.Create(
+			new byte[] { 66 },
+			new RaidMember
+			{
+				UserId = 90,
+				CharacterId = 90,
+				SessionId = Guid.NewGuid(),
+				PartyIndex = 1,
+			},
+			0);
+		raidHandler.ScheduleRaidTimer(timerRaid, 7u, 9u, "old-instance", 30u, false, null,
+			(_, _) => Task.CompletedTask);
+		Guid replacementVersion = raidHandler.ScheduleRaidTimer(
+			replacementRaid, 7u, 9u, "new-instance", 30u, false, null,
+			(_, _) => Task.CompletedTask);
+		raidHandler.CleanupRaidRuntimeState(timerRaid);
+		Check("old instance cleanup leaves same-id replacement timer alive",
+			replacementRaid.RaidId == timerRaid.RaidId
+			&& replacementRaid.InstanceId != timerRaid.InstanceId
+			&& raidHandler.TimerCurrent(replacementRaid, 7u, 9u, "new-instance", replacementVersion)
+			&& timerClock.GetDebugSnapshot().OneShotTimers == 1,
+			ref failures);
+		raidHandler.CleanupRaidRuntimeState(replacementRaid);
 		RaidMember leader = new RaidMember
 		{
 			UserId = 42,
@@ -2201,7 +2891,16 @@ public static class A21RaidProtocolSelfTest
 				{
 					raidManager.TryAddMember(raid.RaidId, raidWireClient2.Member, out raid);
 				}
-				RaidHandler raidHandler = new RaidHandler(DispatchProxy.Create<ICharacterRepository, UnusedDependency>(), sessionDirectory, raidManager);
+				var timerClock = new ClockService();
+				RaidHandler raidHandler = new RaidHandler(
+					DispatchProxy.Create<ICharacterRepository, UnusedDependency>(),
+					sessionDirectory,
+					raidManager,
+					timerClock,
+					AntonRaidTimerConfiguration.Create(RaidEtcFile.Parse(string.Empty), _ => { }));
+				Guid sharedTimerVersion = raidHandler.ScheduleRaidTimer(
+					raid, 12u, 12u, "departure-test", 3600u, false, null,
+					(_, _) => Task.CompletedTask);
 				bool flag = text.StartsWith("member-", StringComparison.Ordinal);
 				bool flag2 = text.Contains("timeout", StringComparison.Ordinal);
 				bool flag3 = text.StartsWith("broken-", StringComparison.Ordinal);
@@ -2221,7 +2920,15 @@ public static class A21RaidProtocolSelfTest
 						raidManager.TryPrepareNextPhase(41, out raid2);
 						raidManager.TryCompletePreparedNextPhase(raid2, (IReadOnlyList<RaidMember> _) => true, out raid);
 					}
-					Guid guid = raidHandler.AdvanceTimer(raid.RaidId, 0u, 0u);
+					Guid guid = raidHandler.ScheduleRaidTimer(
+						raid,
+						0u,
+						0u,
+						"attack",
+						3600u,
+						false,
+						null,
+						(_, _) => Task.CompletedTask);
 					((Task)typeof(RaidHandler).GetMethod("RunAttackTimeoutAsync", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(raidHandler, new object[2] { raid, guid })).GetAwaiter().GetResult();
 				}
 				else if (text.EndsWith("disconnect", StringComparison.Ordinal))
@@ -2246,6 +2953,13 @@ public static class A21RaidProtocolSelfTest
 				Check(text + " observer receives authoritative directory", BitConverter.ToUInt32(array3, 15) == (flag ? 1u : 0u) && (!flag || array3.Last() == 1), ref failures);
 				Check(text + " observer receives detail before directory", list.Count == 2 && BitConverter.ToUInt16(list[0], 1) == 592 && BitConverter.ToUInt32(list[0], 15) == raid.RaidId && BitConverter.ToUInt32(list[0], 19) == (uint)((!flag) ? 1 : 3), ref failures);
 				Check(text + " server membership agrees with list", raidManager.TryGetByRaidId(raid.RaidId, out var raid3) == flag && (!flag || raid3.Members.Count == 1), ref failures);
+				Check(text + " shared timer obeys raid-instance lifetime",
+					flag
+						? raidHandler.TimerCurrent(raid, 12u, 12u, "departure-test", sharedTimerVersion)
+							&& timerClock.GetDebugSnapshot().OneShotTimers == 1
+						: !raidHandler.TimerCurrent(raid, 12u, 12u, "departure-test", sharedTimerVersion)
+							&& timerClock.GetDebugSnapshot().OneShotTimers == 0,
+					ref failures);
 				List<byte[]> list2 = (flag ? raidWireClient : raidWireClient2).ReadThroughDirectory();
 				Check(text + " remaining or former member receives same directory", list2.Last().SequenceEqual(array3), ref failures);
 				if (flag2)
@@ -2983,7 +3697,7 @@ public static class A21RaidProtocolSelfTest
 					nestedType.GetMethod(name).Invoke(obj, null);
 				}
 				object value = typeof(RaidHandler).GetField("_phaseRewardFlows", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(handler);
-				value.GetType().GetMethod("TryAdd").Invoke(value, new object[2] { raid.RaidId, obj });
+				value.GetType().GetMethod("TryAdd").Invoke(value, new object[2] { raid.InstanceId, obj });
 				foreach (RaidWireClient item2 in list.Take(3))
 				{
 					MovieFinished(item2);
@@ -3046,7 +3760,7 @@ public static class A21RaidProtocolSelfTest
 				{
 					continue;
 				}
-				((Task)typeof(RaidHandler).GetMethod("ShowPhaseOneSquadRewardsAsync", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(handler, new object[2] { raid.RaidId, "selftest" })).GetAwaiter().GetResult();
+				((Task)typeof(RaidHandler).GetMethod("ShowPhaseOneSquadRewardsAsync", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(handler, new object[2] { raid, "selftest" })).GetAwaiter().GetResult();
 				byte[][] array8 = (from p in list.SelectMany(Drain)
 					where IsReward(p) && p[15] == 3
 					select p).ToArray();
