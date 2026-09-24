@@ -74,17 +74,41 @@ namespace DfoServer.Network.Handlers.Dungeon
                 {
                     return;
                 }
-                if (!_application.TryRestore(
+                if (_application.TryRestore(
                         session.Player.CharacterId,
                         gate.WorldMapAreaId,
                         out var state))
+                {
+                    await _sender.SendAsync(
+                        session,
+                        state,
+                        "enter-select-dungeon",
+                        expectedRun: null,
+                        expectedTownGeneration);
+                }
+
+                // 暴走安徒恩(序列 41)和普通安徒恩(序列 28)共用同一个入口
+                // 城镇, 所以 gate.WorldMapAreaId 恒为 28, 序列 41 永远收不到
+                // 主动推送——队长在暴走模式里点 243 之前, 客户端手上没有暴走
+                // 进度, 组队时就会被本地判成「与组队模式不符」。这里在入口
+                // 区域本身属于安徒恩序列时补推一次暴走序列。
+                if (!TryResolveAwakeningCompanionKey(
+                        gate.WorldMapAreaId,
+                        out var awakeningKey))
+                {
+                    return;
+                }
+                if (!_application.TryRestore(
+                        session.Player.CharacterId,
+                        awakeningKey,
+                        out var awakeningState))
                 {
                     return;
                 }
                 await _sender.SendAsync(
                     session,
-                    state,
-                    "enter-select-dungeon",
+                    awakeningState,
+                    "enter-select-dungeon-awakening",
                     expectedRun: null,
                     expectedTownGeneration);
             }
@@ -94,6 +118,37 @@ namespace DfoServer.Network.Handlers.Dungeon
                     $"[AntonNormal] restore skipped: " +
                     $"cid={session.Player.CharacterId} error={ex.Message}");
             }
+        }
+
+        // 玩家站在安徒恩系列副本入口(普通安徒恩区域 28)时, 返回需要一并
+        // 恢复的暴走序列 key。入口区域本身不是安徒恩序列时返回 false,
+        // 免得镇魂(区域 26)之类的客户端又收到错区域数据。
+        private static bool TryResolveAwakeningCompanionKey(
+            int gateWorldMapAreaId,
+            out int awakeningKey)
+        {
+            awakeningKey = 0;
+            if (gateWorldMapAreaId <= 0)
+                return false;
+
+            var catalog = SequentialDungeonDefinitionCatalog.Current;
+            if (!catalog.TryGetByGroupKey(
+                    gateWorldMapAreaId,
+                    out var entranceDefinition)
+                || entranceDefinition == null
+                || !entranceDefinition.IsAntonDungeonSequence)
+            {
+                return false;
+            }
+            if (!catalog.TryResolveAntonAwakeningDefinition(
+                    out var awakeningDefinition)
+                || awakeningDefinition.GroupKey == gateWorldMapAreaId)
+            {
+                return false;
+            }
+
+            awakeningKey = awakeningDefinition.GroupKey;
+            return true;
         }
 
         internal async Task ApplyClearAsync(

@@ -381,11 +381,26 @@ namespace DfoServer.GameWorld
             if (definition == null)
                 return false;
 
+            return TryResolveAntonAwakeningDefinition(out var candidate)
+                && candidate.GroupKey == definition.GroupKey;
+        }
+
+        // 暴走安徒恩序列(etc/sequential_dungeon_info.etc 里唯一同时带
+        // [show individual process] 和 [entrance except dungeon] /
+        // [rewardable dungeon index] / [clear reward item] 的安徒恩序列)。
+        // 调用方据此拿到序列 key, 不再硬编码 41。
+        internal bool TryResolveAntonAwakeningDefinition(
+            out SequentialDungeonDefinition definition)
+        {
+            definition = null;
             var candidates = Definitions
                 .Where(IsAntonAwakeningCandidate)
                 .ToList();
-            return candidates.Count == 1
-                && candidates[0].GroupKey == definition.GroupKey;
+            if (candidates.Count != 1)
+                return false;
+
+            definition = candidates[0];
+            return true;
         }
 
         internal bool ContainsConfiguredMonster(

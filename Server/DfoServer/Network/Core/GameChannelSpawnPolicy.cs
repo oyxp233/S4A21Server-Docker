@@ -55,7 +55,6 @@ namespace DfoServer.Network
     public static class GameChannelSpawnPolicy
     {
         public const byte Channel100TownId = 17;
-        public const byte Channel100SpawnAreaId = 4;
         public const byte RaidTownId = 19;
         public const byte PvpTownId = 10;
         public const byte NormalTownFallbackId = 20;
@@ -131,21 +130,16 @@ namespace DfoServer.Network
             if (!GameNetworkConfig.IsChannel100Listener(listenerGamePort))
                 return false;
 
-            if (!Town.TryGetDungeonGateReturnInfo(
-                    Channel100TownId,
-                    Channel100SpawnAreaId,
-                    out var gate))
-            {
+            var channel100Gate = Town.GetCeraRoomInfo(Channel100TownId);
+            if (channel100Gate.Town <= 0)
                 throw new InvalidOperationException(
-                    $"Town {Channel100TownId} area " +
-                    $"{Channel100SpawnAreaId} has no dungeon-gate anchor.");
-            }
+                    $"Town {Channel100TownId} has no Seria-room gate.");
 
             spawn = new GameChannelSpawn(
-                gate.Town,
-                gate.Area,
-                gate.X,
-                gate.Y,
+                channel100Gate.Town,
+                channel100Gate.Area,
+                channel100Gate.X,
+                channel100Gate.Y,
                 direction: 5,
                 areaState: 3,
                 isTransient: true);

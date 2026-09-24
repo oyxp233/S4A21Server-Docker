@@ -101,9 +101,19 @@ namespace DfoServer.Game.SecretShop
         }
     }
 
+    internal sealed class SecretShopRoll
+    {
+        internal SecretShopRoll(int npcId)
+        {
+            NpcId = npcId;
+        }
+
+        internal int NpcId { get; }
+    }
+
     internal static class SecretShopOfferFactory
     {
-        internal static SecretShopOffer Create(
+        internal static SecretShopRoll RollNpc(
             SecretShopCatalog catalog,
             int dungeonId,
             int dungeonBasisLevel,
@@ -115,18 +125,66 @@ namespace DfoServer.Game.SecretShop
 
             var npcId = SecretShopSelector.SelectNpc(
                 catalog.ResolveNpcWeights(dungeonId, dungeonBasisLevel, partySize), next);
-            if (npcId == 1000)
-                return new SecretShopOffer(1000, Array.Empty<SecretShopItemCandidate>());
-
             if (npcId is not (1002 or 1003 or 1004))
-                return new SecretShopOffer(1000, Array.Empty<SecretShopItemCandidate>());
+                return new SecretShopRoll(1000);
+
+            return new SecretShopRoll(npcId);
+        }
+
+        internal static IReadOnlyList<SecretShopItemCandidate> RollItems(
+            SecretShopCatalog catalog,
+            int npcId,
+            int dungeonId,
+            int dungeonBasisLevel,
+            Func<int, int> next)
+        {
+            if (catalog == null)
+                throw new ArgumentNullException(nameof(catalog));
+            if (npcId is not (1002 or 1003 or 1004))
+                return Array.Empty<SecretShopItemCandidate>();
 
             var pool = catalog.ResolvePool(npcId, dungeonId, dungeonBasisLevel, useCashItems: false);
-            var selected = SecretShopSelector.SelectItems(pool, next);
+            return SecretShopSelector.SelectItems(pool, next);
+        }
+
+        internal static SecretShopOffer CreateForNpc(
+            SecretShopCatalog catalog,
+            int dungeonId,
+            int dungeonBasisLevel,
+            int npcId,
+            Func<int, int> next)
+        {
+            var selected = RollItems(
+                catalog,
+                npcId,
+                dungeonId,
+                dungeonBasisLevel,
+                next);
             if (selected.Count == 0)
                 return new SecretShopOffer(1000, Array.Empty<SecretShopItemCandidate>());
 
             return new SecretShopOffer(npcId, selected);
+        }
+
+        internal static SecretShopOffer Create(
+            SecretShopCatalog catalog,
+            int dungeonId,
+            int dungeonBasisLevel,
+            int partySize,
+            Func<int, int> next)
+        {
+            var roll = RollNpc(
+                catalog,
+                dungeonId,
+                dungeonBasisLevel,
+                partySize,
+                next);
+            return CreateForNpc(
+                catalog,
+                dungeonId,
+                dungeonBasisLevel,
+                roll.NpcId,
+                next);
         }
     }
 

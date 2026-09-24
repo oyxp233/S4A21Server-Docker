@@ -3374,12 +3374,12 @@ namespace DfoServer.Network.Handlers.Dungeon
         {
             try
             {
-                var dungeonBasisLevel = DungeonData.GetDungeonBasicLv(run.DungeonId);
-                return SecretShopOfferFactory.Create(
+                var roll = RollSecretShop(run);
+                return SecretShopOfferFactory.CreateForNpc(
                     SecretShopCatalogProvider.Current,
                     run.DungeonId,
-                    dungeonBasisLevel,
-                    partySize: 1,
+                    DungeonData.GetDungeonBasicLv(run.DungeonId),
+                    roll.NpcId,
                     ServerRandom.Next);
             }
             catch (Exception ex)
@@ -3387,6 +3387,19 @@ namespace DfoServer.Network.Handlers.Dungeon
                 FileLogger.Log($"[SecretShop] offer creation failed closed: dungeon={run.DungeonId} error={ex.Message}");
                 return new SecretShopOffer(1000, Array.Empty<SecretShopItemCandidate>());
             }
+        }
+
+        private static SecretShopRoll RollSecretShop(DungeonRun run)
+        {
+            var dungeonBasisLevel = DungeonData.GetDungeonBasicLv(run.DungeonId);
+            var catalog = SecretShopCatalogProvider.Current;
+            return run.Instance.GetOrCreateSecretShopRoll(
+                () => SecretShopOfferFactory.RollNpc(
+                    catalog,
+                    run.DungeonId,
+                    dungeonBasisLevel,
+                    run.EntryPartyMemberCount,
+                    ServerRandom.Next));
         }
 
         private static int ResolveCurrentMapId(DungeonRun run)

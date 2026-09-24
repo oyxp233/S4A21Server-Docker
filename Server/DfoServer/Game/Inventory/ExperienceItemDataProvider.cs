@@ -60,6 +60,8 @@ namespace DfoServer.Game.Inventory
                 return 0;
             if (GrantKind == ExperienceItemGrantKind.Fixed)
                 return Value;
+            if (GrantKind == ExperienceItemGrantKind.CrackOfDimension)
+                return CrackOfDimensionExp(level);
             if (GrantKind != ExperienceItemGrantKind.Percent)
                 return 0;
 
@@ -69,6 +71,25 @@ namespace DfoServer.Game.Inventory
                 : Math.Max(0, ExpTableProvider.GetLevelThreshold(level - 1));
             var levelSegment = Math.Max(0L, currentThreshold - previousThreshold);
             return (uint)Math.Min(uint.MaxValue, levelSegment * Value / 100L);
+        }
+
+        // 客户端的「经验值增加 %s」按角色等级计算, 规则为
+        //   floor(questParameter.etc [exp reward table][等级] * 56 / 100)。
+        // 该标签在任何出厂 PVF 中都不带数值 (10100300=0, 10099821/10146833/10146849 无值),
+        // 故不能从 stk 取固定值。实测等级 60/61/62/65/70/75/80/84 与
+        // floor(q[等级] * 56 / 100) 逐位吻合(见 ExperienceItemDefinitionSelfTest)。
+        private const long CrackOfDimensionRatePercent = 56L;
+
+        private static uint CrackOfDimensionExp(byte level)
+        {
+            // GetQuestRewardBase(n) 取 [exp reward table] 的第 n 项, 对应这里的下标 n-1,
+            // 客户端规则的下标等于角色等级, 因此取 level + 1。
+            var baseExp = (long)ExpTableProvider.GetQuestRewardBase(level + 1);
+            if (baseExp <= 0)
+                return 0;
+
+            var value = baseExp * CrackOfDimensionRatePercent / 100L;
+            return value > uint.MaxValue ? uint.MaxValue : (uint)value;
         }
 
         internal bool IsUsableByJob(byte job)
@@ -181,19 +202,39 @@ namespace DfoServer.Game.Inventory
             ExperienceItemDefinition result)
         {
             var normalizedEffect = NormalizeEffect(effect?.EffectType);
-            // 异次元裂缝经验与普通固定经验共用同一套角色经验数学核:
-            // 道具文案“经验值增加 %s”即固定经验, 数值来自 stk 文件该标签的值。
-            if (normalizedEffect == "expup"
-                || normalizedEffect == "expupbycrackofdimension")
+            var hasPositiveStkValue = effect?.Values != null
+                && effect.Values.Count == 1
+                && effect.Values[0] > 0;
+
+            // 普通固定经验必须由 stk 给出正数值, 缺值/0 仍是数据错误。
+            if (normalizedEffect == "expup")
             {
-                if (effect?.Values == null
-                    || effect.Values.Count != 1
-                    || effect.Values[0] <= 0)
-                {
+                if (!hasPositiveStkValue)
                     return Reject(result, "invalid fixed experience value");
-                }
+
                 result.GrantKind = ExperienceItemGrantKind.Fixed;
                 result.Value = (uint)effect.Values[0];
+                result.IsSupported = true;
+                return result;
+            }
+
+            // 异次元裂缝经验: 出厂 PVF 中该标签一律不带数值(10100300=0,
+            // 10099821/10146833/10146849 无值), 数值由客户端按角色等级计算。
+            // PVF 若显式给出正值仍以 PVF 为准, 否则按客户端规则从等级推导,
+            // 不再把无值当作"不支持"而回未知错误。
+            if (normalizedEffect == "expupbycrackofdimension")
+            {
+                if (hasPositiveStkValue)
+                {
+                    result.GrantKind = ExperienceItemGrantKind.Fixed;
+                    result.Value = (uint)effect.Values[0];
+                }
+                else
+                {
+                    result.GrantKind = ExperienceItemGrantKind.CrackOfDimension;
+                    result.Value = 0;
+                }
+
                 result.IsSupported = true;
                 return result;
             }

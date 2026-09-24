@@ -433,6 +433,18 @@ namespace DfoServer.Network.Handlers.Dungeon
                 out var state);
             var progress = state?.ProgressIndex ?? (byte)0;
             var routeMask = state?.RouteMask ?? 0;
+            // 主动推送路径 (AntonNormalConquestNotificationSender.SendAsync)
+            // 是 DUNGEON_PERMISSION + SEQUENTIAL_DUNGEON_INFO 两包一起发;
+            // 这里只回序列包, 客户端拿不到暴走安徒恩(序列 41)的逐本通关状态,
+            // 组队时就会判「与组队模式不符」。补齐成和推送路径一致。
+            if (state != null && state.PermissionEntries.Count > 0)
+            {
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.DUNGEON_PERMISSION,
+                    DungeonPermissionBodyBuilder.BuildEntries(
+                        state.PermissionEntries)));
+            }
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
                 (ushort)NotiPacketTypeA21.SEQUENTIAL_DUNGEON_INFO,
@@ -444,7 +456,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                 $"[{DungeonSharedServices.ProtocolLogName}] " +
                 $"SEQUENTIAL_DUNGEON_INFO answered: " +
                 $"cid={player.CharacterId} key={configKey} " +
-                $"progress={progress} routeMask=0x{routeMask:X2}");
+                $"progress={progress} routeMask=0x{routeMask:X2} " +
+                $"permissions={state?.PermissionEntries.Count ?? 0}");
         }
 
         internal async Task HandleEnterSelectDungeon(EnhancedClientSession session, GamePacketHeader header, byte[] body)

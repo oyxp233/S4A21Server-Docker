@@ -622,6 +622,27 @@ namespace DfoServer.SelfTests
                         out var normalPlan)
                     && normalPlan.Sequence.ConfigKey == 28,
                     ref failures);
+
+                // 暴走序列由 PVF 语义唯一确定(不硬编码 41): 只有它同时带
+                // [show individual process] / [entrance except dungeon] /
+                // [rewardable dungeon index] / [clear reward item]。
+                var sequenceCatalog = SequentialDungeonDefinitionCatalog.Current;
+                Check(
+                    "catalog resolves exactly one Anton awakening definition",
+                    sequenceCatalog.TryResolveAntonAwakeningDefinition(
+                        out var resolvedAwakening)
+                    && resolvedAwakening.GroupKey == 41
+                    && sequenceCatalog.IsUniqueAntonAwakeningDefinition(
+                        resolvedAwakening),
+                    ref failures);
+                Check(
+                    "Anton normal entrance is an Anton sequence but not the "
+                    + "awakening one",
+                    sequenceCatalog.TryGetByGroupKey(28, out var normalEntrance)
+                    && normalEntrance.IsAntonDungeonSequence
+                    && !sequenceCatalog.IsUniqueAntonAwakeningDefinition(
+                        normalEntrance),
+                    ref failures);
             }
             catch (Exception ex)
             {

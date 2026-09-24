@@ -908,6 +908,7 @@ namespace DfoServer.Game.Dungeon
                 new HashSet<(long, RoomKey, ushort)>();
         private DungeonSelectionSnapshot _selection;
         private DungeonClearedFact _clearedFact;
+        private SecretShop.SecretShopRoll _secretShopRoll;
         private DungeonInstanceState _state = DungeonInstanceState.Created;
         private int _normalKillCount;
         private int _championKillCount;
@@ -1412,6 +1413,25 @@ namespace DfoServer.Game.Dungeon
                 _state = DungeonInstanceState.Cleared;
                 created = true;
                 return _clearedFact;
+            }
+        }
+
+        internal SecretShop.SecretShopRoll GetOrCreateSecretShopRoll(
+            Func<SecretShop.SecretShopRoll> roller)
+        {
+            if (roller == null)
+                throw new ArgumentNullException(nameof(roller));
+
+            lock (_syncRoot)
+            {
+                if (_secretShopRoll != null)
+                    return _secretShopRoll;
+
+                var roll = roller()
+                    ?? throw new InvalidOperationException(
+                        "Secret shop roller returned an invalid roll.");
+                _secretShopRoll = roll;
+                return roll;
             }
         }
 
