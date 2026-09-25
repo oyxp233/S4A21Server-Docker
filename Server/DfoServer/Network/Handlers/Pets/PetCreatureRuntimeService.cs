@@ -283,11 +283,16 @@ namespace DfoServer.Network.Handlers.Pets
             ScheduleDungeonDeathCheck(session, source, now);
         }
 
-        internal static void HandlePetSatietyChangedAfterFeed(EnhancedClientSession session, int creatureKey, int satietyAfter, string source)
+        // 返回值: 本次喂食是否救活了"刚饿死"的出战宠物(喂食前 LastDeathCreatureKey 登记的就是它)。
+        // 调用方据此补发 REVIVAL_CREATURE(0x006B), 否则客户端收到 DIED 后不会重新显示宠物。
+        internal static bool HandlePetSatietyChangedAfterFeed(EnhancedClientSession session, int creatureKey, int satietyAfter, string source)
         {
             if (!HasCharacter(session))
-                return;
+                return false;
 
+            var reviveDeadPet = creatureKey > 0
+                && satietyAfter > 0
+                && session.Player.PetCreatureLastDeathCreatureKey == creatureKey;
             SetSessionCreatureAliveState(session, creatureKey > 0 && satietyAfter > 0 ? (byte)1 : (byte)0);
             if (session.Player.CurrentRun != null && creatureKey > 0 && satietyAfter > 0)
             {
@@ -296,8 +301,13 @@ namespace DfoServer.Network.Handlers.Pets
                 session.Player.PetCreatureLastDeathCreatureKey = 0;
                 ScheduleDungeonDeathCheck(session, source, session.Player.PetCreatureSatietyDungeonStartUtc);
             }
+            else if (reviveDeadPet)
+            {
+                session.Player.PetCreatureLastDeathCreatureKey = 0;
+            }
 
-            FileLogger.Log($"[{ProtocolName}] PetCreatureSatiety: feed applied source={source} cid={session.Player.CharacterId} key={creatureKey} satiety={satietyAfter}");
+            FileLogger.Log($"[{ProtocolName}] PetCreatureSatiety: feed applied source={source} cid={session.Player.CharacterId} key={creatureKey} satiety={satietyAfter} reviveDeadPet={reviveDeadPet}");
+            return reviveDeadPet;
         }
 
         internal static async Task GrantRoomClearExperienceOnceAsync(
@@ -958,9 +968,7 @@ namespace DfoServer.Network.Handlers.Pets
 
             try
             {
-                var revival = new GamePacketWriter();
-                revival.WriteUInt16(session.Player.UserId);
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x006B, revival.ToArray()));
+                await SendPetCreatureRevivalAsync(session);
             }
             catch (Exception ex)
             {
@@ -1049,6 +1057,15 @@ namespace DfoServer.Network.Handlers.Pets
             state.WriteInt32(creatureKey);
             state.WriteInt32(stateValue);
             return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0067, state.ToArray()));
+        }
+
+        // REVIVAL_CREATURE(0x006B) body = uint16 userId, 与 DIED_CREATURE(0x0064) 同构;
+        // 真实回城复活与副本内喂食救活刚饿死的出战宠物共用此发包。
+        internal static Task SendPetCreatureRevivalAsync(EnhancedClientSession session)
+        {
+            var revival = new GamePacketWriter();
+            revival.WriteUInt16(session.Player.UserId);
+            return session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x006B, revival.ToArray()));
         }
 
         private static void SetSessionCreatureAliveState(EnhancedClientSession session, byte value)

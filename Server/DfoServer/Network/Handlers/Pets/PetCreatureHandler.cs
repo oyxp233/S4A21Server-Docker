@@ -68,11 +68,17 @@ namespace DfoServer.Network.Handlers.Pets
 
             if (result.PetSatietyChanged)
             {
-                PetCreatureRuntimeService.HandlePetSatietyChangedAfterFeed(
+                var revivedDeadPet = PetCreatureRuntimeService.HandlePetSatietyChangedAfterFeed(
                     session,
                     result.PetCreatureKey,
                     result.PetSatietyAfter,
                     "pet_feed_after");
+
+                if (revivedDeadPet)
+                {
+                    await PetCreatureRuntimeService.SendPetCreatureRevivalAsync(session);
+                    FileLogger.Log($"[{ProtocolName}] PetCreatureRevival: REVIVAL_CREATURE source=pet_feed_after cid={session.Player.CharacterId} key={result.PetCreatureKey} satiety={result.PetSatietyAfter}");
+                }
 
                 await PetCreatureRuntimeService.SendPetCreatureStateAsync(
                     session,
