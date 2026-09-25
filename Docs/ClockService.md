@@ -92,6 +92,7 @@
 - 分钟巡检直接算出饱食度耗尽时，在 Clock 线程内同步登记死亡状态（取消死亡 timer、清锚点、alive 置 0、登记已通知 key），DIED 通知经 `ScheduleOneShotAsync` 一次性 timer 异步派发，不得静默写 0。
 - 宠物复活只在真正进入城镇的生命周期入口执行，分钟巡检不重复发起复活事务。
 - 饱食度已为 0 的宠物不再调度即时死亡检查（死亡通知在判死时已发过）；死亡检查提交失败时按固定正延迟重试，并继续校验 session、run identity 和 timer version；禁止失败后立即形成无退避重试环。
+- 分钟巡检结算后可见值变化时，服务端经 ClockService 同名 one-shot 异步下发 0x0067 state 包（int32 creatureKey + int32 stomach；喂食、复活、巡检、进图锚定统一使用该格式，不可用 CreatureListBodyBuilder 富格式 entry——客户端按 int32 读 stomach，富格式的 modeFlag/exp 高位字节会混入导致显示钳到 100，2026-09-25 实机验证）锚定客户端饱食度显示，进图进入时同样锚定一次；同名调度替换旧调度，天然节流。
 
 ## 重启和时间回拨
 

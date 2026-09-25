@@ -39,7 +39,6 @@ namespace DfoServer.Network.Handlers.Pets
             var instanceValue = BitConverter.ToInt32(body, 3);
             var itemCode = body.Length >= 11 ? BitConverter.ToInt32(body, 7) : 0;
             InventoryMutationResult result = null;
-            byte[] creatureStateBody = null;
             var consumed = TryGetInventoryLease(session, out var lease)
                 && PetCreatureRuntimeService.TryCommitDungeonElapsedBeforeMutation(
                     session,
@@ -52,15 +51,6 @@ namespace DfoServer.Network.Handlers.Pets
                     slotIndex,
                     itemCode,
                     out result);
-            if (consumed && result.PetSatietyChanged)
-            {
-                lock (lease.SyncRoot)
-                {
-                    creatureStateBody = BuildCreatureStateRefreshBody(
-                        lease.Inventory,
-                        result.PetCreatureKey);
-                }
-            }
 
             var ackBody = consumed
                 ? UseStackableAckBuilder.BuildSuccess(slotIndex, (byte)listType, instanceValue, itemCode)
@@ -84,8 +74,10 @@ namespace DfoServer.Network.Handlers.Pets
                     result.PetSatietyAfter,
                     "pet_feed_after");
 
-                if (creatureStateBody != null)
-                    await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x0067, creatureStateBody));
+                await PetCreatureRuntimeService.SendPetCreatureStateAsync(
+                    session,
+                    result.PetCreatureKey,
+                    result.PetSatietyAfter);
 
                 await _refresh.SendCreatureItemListRefresh(session);
             }
@@ -215,17 +207,6 @@ namespace DfoServer.Network.Handlers.Pets
                 header.type,
                 BuildCreatureRenameAckBody(result)));
             await _refresh.SendUpdateItemList(session, InventoryListType.Pet, result.SourceSlotIndex);
-        }
-
-        private byte[] BuildCreatureStateRefreshBody(InventoryService inventory, int creatureKey)
-        {
-            if (creatureKey <= 0)
-                return null;
-
-            if (!PetInventoryAccessor.TryBuildCreatureItemEntry(inventory, creatureKey, out var entry))
-                return null;
-
-            return entry != null ? CreatureListBodyBuilder.BuildCreatureStateBody(entry) : null;
         }
 
         private static bool IsPetConsumableSlot(InventoryListType listType, short slotIndex)
