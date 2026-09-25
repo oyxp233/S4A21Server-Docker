@@ -2,6 +2,7 @@ using DfoServer.Game.Dungeon;
 using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DfoServer.Network.Handlers.Dungeon
@@ -59,11 +60,21 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (!IsCurrent(session, run))
                 return;
 
-            await Effects.RouteAsync(
-                session,
-                run,
-                Application.BuildStartMapState(run),
-                trySendPacketAsync: trySendPacketAsync);
+            var elevator = GetCurrentElevator(run);
+            if (elevator != null)
+                await elevator.ProjectionGate.WaitAsync();
+            try
+            {
+                await Effects.RouteAsync(
+                    session,
+                    run,
+                    Application.BuildStartMapState(run),
+                    trySendPacketAsync: trySendPacketAsync);
+            }
+            finally
+            {
+                elevator?.ProjectionGate.Release();
+            }
         }
 
         internal static async Task SendBossEntranceMinimapIconInfoAsync(
@@ -79,6 +90,47 @@ namespace DfoServer.Network.Handlers.Dungeon
                 run,
                 Application.BuildBossEntranceMinimap(run, reason));
         }
+
+        internal static async Task ObserveRoomClearedAsync(
+            EnhancedClientSession session,
+            DungeonRun run,
+            DungeonEventEnvelope sourceEvent,
+            RoomState room)
+        {
+            if (!IsCurrent(session, run) || !IsCurrentEvent(session, sourceEvent))
+                return;
+
+            var elevator = room?.InstanceRoom?.Elevator;
+            if (elevator == null)
+                return;
+            await elevator.ProjectionGate.WaitAsync();
+            try
+            {
+                await Effects.RouteAsync(session, run, Application.BuildRoomClearState(room),
+                    trySendPacketAsync: packet => session.TrySendPacketAsync(
+                        packet, CancellationToken.None,
+                        () => IsCurrentEvent(session, sourceEvent)));
+            }
+            finally
+            {
+                elevator.ProjectionGate.Release();
+            }
+        }
+
+        internal static Task SendElevatorStateAsync(
+            EnhancedClientSession session, DungeonRun run,
+            DungeonInstanceRoom room, ElevatorRoomSnapshot state)
+            => Effects.RouteAsync(session, run,
+                SpecialDungeonMechanismApplicationService.BuildElevatorState(room, state),
+                trySendPacketAsync: packet => session.TrySendPacketAsync(
+                    packet, CancellationToken.None,
+                    () => session.Player.IsCurrentDungeonParticipantRoom(
+                        new DungeonParticipantRoomIdentity(run.CaptureIdentity(), room.Identity))
+                        && room.Elevator.Capture(DateTime.UtcNow)?.Stop == state.Stop));
+
+        private static ElevatorRoomRuntime GetCurrentElevator(DungeonRun run)
+            => run.Instance.TryGetRoom(run.CurrentRoomInstanceId, out var room)
+                ? room.Elevator : null;
 
         internal static async Task ObserveMonsterKilledAsync(
             EnhancedClientSession session,

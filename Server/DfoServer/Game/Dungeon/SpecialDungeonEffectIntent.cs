@@ -10,6 +10,7 @@ namespace DfoServer.Game.Dungeon
         BuffsCleared,
         BossEntranceMinimap,
         PassGate,
+        ElevatorState,
         StrongWarlordSelected,
         SummonMonsterResponse,
         CommandSuccessAck,
@@ -36,6 +37,7 @@ namespace DfoServer.Game.Dungeon
         internal ushort MonsterLevel { get; init; }
         internal int MapId { get; init; }
         internal int LocalIndex { get; init; }
+        internal ElevatorRoomSnapshot Elevator { get; init; }
 
         internal SpecialDungeonEffectIntent Freeze()
             => new SpecialDungeonEffectIntent
@@ -52,6 +54,7 @@ namespace DfoServer.Game.Dungeon
                 MonsterLevel = MonsterLevel,
                 MapId = MapId,
                 LocalIndex = LocalIndex,
+                Elevator = Elevator,
             };
 
         private static IReadOnlyList<T> Copy<T>(IReadOnlyList<T> values)

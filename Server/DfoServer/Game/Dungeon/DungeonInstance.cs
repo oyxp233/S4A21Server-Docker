@@ -290,6 +290,7 @@ namespace DfoServer.Game.Dungeon
             Maze = maze;
             Seed = seed;
             FirstActorSequenceId = firstActorSequenceId;
+            Elevator = maze.HasElevatorControl ? new ElevatorRoomRuntime() : null;
         }
 
         public long RoomInstanceId { get; }
@@ -318,6 +319,7 @@ namespace DfoServer.Game.Dungeon
         public uint Seed { get; }
         public ushort FirstActorSequenceId { get; }
         public DungeonEffectLedger Effects { get; } = new DungeonEffectLedger();
+        internal ElevatorRoomRuntime Elevator { get; }
         public DungeonRoomState State { get { lock (_syncRoot) return _state; } }
         public DungeonEncounterState EncounterState
         {
@@ -725,6 +727,7 @@ namespace DfoServer.Game.Dungeon
                         out var completingDeath)
                             ? completingDeath.Source
                             : fallbackSource;
+                    Elevator?.Complete(_clearSource.OccurredTick);
                 }
 
                 return new DungeonRoomClearCommit(
@@ -829,6 +832,7 @@ namespace DfoServer.Game.Dungeon
                 if (_state == DungeonRoomState.Closed)
                     return false;
                 _state = DungeonRoomState.Closed;
+                Elevator?.Close();
                 _loadingReleased = true;
                 _loadingProjectionId = 0;
                 _loadingProjectedParticipants.Clear();
@@ -1448,6 +1452,8 @@ namespace DfoServer.Game.Dungeon
                 _state = DungeonInstanceState.Ending;
                 _partyWipePending = false;
                 _partyWipeDeadlineUtc = DateTime.MinValue;
+                foreach (var room in _rooms.Values)
+                    room.Elevator?.Close();
             }
 
             Mechanisms.OnInstanceEnding();

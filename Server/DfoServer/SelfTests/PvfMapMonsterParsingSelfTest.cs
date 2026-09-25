@@ -19,6 +19,7 @@ namespace DfoServer.SelfTests
             Console.WriteLine("=== PVF_MAP_MONSTER_PARSING selftest ===");
             var failures = 0;
 
+            VerifyDeclaredDungeonMapResources(ref failures);
             VerifyDummyBossAlignment(ref failures);
             VerifyNpcBossAlignment(ref failures);
             VerifyNpcDummyBossAlignment(ref failures);
@@ -162,6 +163,50 @@ namespace DfoServer.SelfTests
                 && map.Monsters[0].Type == MonsterType.Boss
                 && map.Monsters[1].MonsterId == 62001,
                 ref failures);
+        }
+
+        private static void VerifyDeclaredDungeonMapResources(ref int failures)
+        {
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PVF_ARCHIVE_PATH")))
+                return;
+
+            var maze = Dungeon.GetDungeonMaze(41, 0);
+            var start = Dungeon.GetDungeonMapMonsterSummaryInformation(
+                41, 1, 0, 0, -1, maze.BossMap);
+            var boss = Dungeon.GetDungeonMapMonsterSummaryInformation(
+                41, 0, 0, 0, -1, maze.BossMap);
+            Check("Cold Boy resolves its start MAP from the differently named resource directory",
+                start.Index == 5801 && start.Monsters.Count == 4
+                && start.Monsters.All(m => m.Code == 600 && m.Type == 0), ref failures);
+            Check("Cold Boy resolves an authored Boss MAP with its blocking Boss",
+                (boss.Index == 5802 || boss.Index == 5803)
+                && boss.Monsters.Any(m => m.Code == 1030 && m.Type == 3 && m.IsBlocking),
+                ref failures);
+            foreach (var room in new[] { start, boss })
+            {
+                Check($"Cold Boy room=({room.X},{room.Y}) matches its maze door layout",
+                    DungeonMapResolver.TryGetMazeCellGreed(maze, room.X, room.Y, out var greed)
+                    && DungeonMapResolver.TryDecodeGreedSymbol(greed, out var expectedMask)
+                    && DungeonMapResolver.TryGetMapEntranceMask(room.Index, out var actualMask)
+                    && actualMask == expectedMask, ref failures);
+            }
+            var questId = AnotherAradConfigCatalog.ConfiguredQuestIds.First(
+                id => AnotherAradConfigCatalog.MatchesQuestDungeon(id, 41));
+            var resolved = AnotherAradSelectionResolver.TryResolve(41, questId, out var selection, out _);
+            Check("Cold Boy mirror selection has a PVF dungeon and quest pairing",
+                resolved && selection.HistoricalDungeonId == 41
+                && AnotherAradConfigCatalog.MatchesQuestDungeon(selection.CrackQuestId, 41),
+                ref failures);
+
+            foreach (var (dungeonId, expectedMapId) in new[] { (120, 17100), (121, 17101), (122, 17102) })
+            {
+                var tournamentMaze = Dungeon.GetDungeonMaze(dungeonId, 0);
+                var room = Dungeon.GetDungeonMapMonsterSummaryInformation(
+                    dungeonId, tournamentMaze.StartMap[0], tournamentMaze.StartMap[1],
+                    0, -1, tournamentMaze.BossMap);
+                Check($"shared Tournament directory selects dungeon={dungeonId}'s own MAP",
+                    room.Index == expectedMapId, ref failures);
+            }
         }
 
         private static void VerifyRealArdenBossMap(ref int failures)

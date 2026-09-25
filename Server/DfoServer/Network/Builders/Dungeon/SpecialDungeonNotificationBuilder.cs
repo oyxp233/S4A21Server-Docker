@@ -5,6 +5,11 @@ namespace DfoServer.Network.Builders
 {
     internal static class SpecialDungeonNotificationBuilder
     {
+        // A21 0x01147600 reads two u8 values into ElevatorControl +0x1138/+0x1134.
+        // 0x01BCCFF0 consumes warning stages and terminal 1=normal / 2=crash.
+        internal static byte[] BuildElevatorState(Game.Dungeon.ElevatorRoomSnapshot state)
+            => new byte[] { state.Stage, (byte)state.Stop };
+
         // NOTI 0x022D / GAUGE_OBJECT_BAR_DATA.
         // Client handler 0x00D0E340 reads one int32 and stores it as the special dungeon gauge value.
         internal static byte[] BuildGaugeObjectBarData(int value)
@@ -80,9 +85,9 @@ namespace DfoServer.Network.Builders
         }
 
         // NOTI 0x0138 / COMPLETE_CONDITION_PASS_GATE.
-        // Client handler 0x00D3A090 consumes i32 + u8. In the current A14
-        // function boundary they are not directly used as gate/map ids; the
-        // visible effect comes from client-local condition and scene containers.
+        // A21 0x01193290 consumes i32 + u8, then sets the dungeon's condition
+        // completion flag through 0x0171C5A0. GateKeeper update 0x01BC6E30
+        // reads that flag through 0x0171C590 and advances its gate state.
         internal static byte[] BuildCompleteConditionPassGateTrigger()
         {
             var writer = new GamePacketWriter();

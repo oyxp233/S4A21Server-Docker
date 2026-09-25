@@ -237,6 +237,7 @@ namespace DfoServer.GameWorld
             private readonly EventMonsterPositionInfo[] _eventMonsterPositions;
             private readonly SpecialPassiveObjectInfo[] _specialPassiveObjects;
             private readonly int[] _passiveObjectCodes;
+            private readonly bool _hasElevatorControl;
 
             internal FrozenRoomTemplate(
                 int mapId,
@@ -268,6 +269,8 @@ namespace DfoServer.GameWorld
                 _passiveObjectCodes = new int[passiveObjects.Count];
                 for (var index = 0; index < passiveObjects.Count; index++)
                     _passiveObjectCodes[index] = passiveObjects[index]?.ObjectCode ?? 0;
+                _hasElevatorControl = PassiveObjectScriptCatalog.HasElevatorControl(
+                    _passiveObjectCodes);
             }
 
             private int MapId { get; }
@@ -308,6 +311,7 @@ namespace DfoServer.GameWorld
                             specialObjects),
                     PassiveObjectCodes =
                         new ReadOnlyCollection<int>(_passiveObjectCodes),
+                    HasElevatorControl = _hasElevatorControl,
                 };
             }
         }

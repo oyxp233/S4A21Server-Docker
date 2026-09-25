@@ -36,6 +36,20 @@ namespace DfoServer.Network.Handlers.Dungeon
 
             switch (effect.Kind)
             {
+                case SpecialDungeonEffectKind.ElevatorState:
+                    await SendPacketAsync(
+                        session,
+                        GamePacketEnvelopeBuilder.Build(
+                            0x00,
+                            (ushort)NotiPacketTypeA21.ELEVATOR_CLEAR_TIME_CHECK,
+                            SpecialDungeonNotificationBuilder.BuildElevatorState(effect.Elevator)),
+                        trySendPacketAsync);
+                    FileLogger.Log(
+                        $"[SpecialDungeonModule] ELEVATOR_STATE " +
+                        $"cid={session.Player.CharacterId} map={effect.MapId} " +
+                        $"stage={effect.Elevator.Stage} stop={effect.Elevator.Stop}");
+                    return;
+
                 case SpecialDungeonEffectKind.GaugeChanged:
                     await SendGaugeAsync(
                         session,

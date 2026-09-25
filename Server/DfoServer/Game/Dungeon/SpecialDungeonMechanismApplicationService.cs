@@ -90,6 +90,35 @@ namespace DfoServer.Game.Dungeon
                 "run-end-buffs",
                 () => BuildClearRunBuffs(run, reason));
 
+        internal IReadOnlyList<SpecialDungeonEffectIntent> BuildRoomClearState(RoomState room)
+        {
+            if (room?.State != DungeonRoomState.Cleared)
+                return Array.Empty<SpecialDungeonEffectIntent>();
+            return BuildElevatorState(room.InstanceRoom, DateTime.UtcNow);
+        }
+
+        internal static IReadOnlyList<SpecialDungeonEffectIntent> BuildElevatorState(
+            DungeonInstanceRoom room, DateTime utcNow)
+        {
+            var state = room?.Elevator?.Capture(utcNow);
+            return state.HasValue
+                ? BuildElevatorState(room, state.Value)
+                : Array.Empty<SpecialDungeonEffectIntent>();
+        }
+
+        internal static IReadOnlyList<SpecialDungeonEffectIntent> BuildElevatorState(
+            DungeonInstanceRoom room, ElevatorRoomSnapshot state)
+            => new[]
+            {
+                new SpecialDungeonEffectIntent
+                {
+                    Kind = SpecialDungeonEffectKind.ElevatorState,
+                    MapId = room.Maze.Index,
+                    Elevator = state,
+                    Reason = "elevator room state",
+                },
+            };
+
         internal IReadOnlyList<SpecialDungeonEffectIntent> BuildStartMapState(
             DungeonRun run)
         {
@@ -98,6 +127,12 @@ namespace DfoServer.Game.Dungeon
 
             lock (run.SyncRoot)
             {
+                if (run.RoomStates.TryGetValue(run.RoomKey, out var room))
+                {
+                    var roomEffects = BuildElevatorState(room.InstanceRoom, DateTime.UtcNow);
+                    if (roomEffects.Count > 0)
+                        return roomEffects;
+                }
                 var special = run.Mechanisms.SpecialDungeon;
                 if (special?.Kind == SpecialDungeonKind.SeizeMoney)
                 {
@@ -495,7 +530,7 @@ namespace DfoServer.Game.Dungeon
             int monsterCode,
             ICollection<SpecialDungeonEffectIntent> effects)
         {
-            if (!run.Mechanisms.HasBossEntranceConditionalSummon)
+            if (!run.Mechanisms.HasBossEntranceCondition)
                 return;
 
             var matched = false;

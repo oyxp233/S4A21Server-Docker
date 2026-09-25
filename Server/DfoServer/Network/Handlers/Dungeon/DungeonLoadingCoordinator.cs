@@ -213,6 +213,10 @@ namespace DfoServer.Network.Handlers.Dungeon
                     continue;
                 }
 
+                var instance = participant.Run.Instance;
+                if (instance.TryGetRoom(roomIdentity.RoomInstanceId, out var room))
+                    DungeonMechanismTimerCoordinator.StartElevator(
+                        instance, room, _instances, _sessions);
                 releases.Add(TrySendLoadingCompletionAsync(candidate));
             }
 

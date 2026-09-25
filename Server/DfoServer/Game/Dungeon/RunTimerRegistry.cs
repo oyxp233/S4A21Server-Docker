@@ -6,6 +6,9 @@ namespace DfoServer.Game.Dungeon
 {
     public static class DungeonRunTimerKeys
     {
+        public static readonly RunTimerKey ElevatorStage =
+            new RunTimerKey("elevator", "stage");
+
         public static readonly RunTimerKey SettlementCardAutoFlow =
             new RunTimerKey("settlement", "card-auto-flow");
 

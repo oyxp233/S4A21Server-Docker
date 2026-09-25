@@ -105,6 +105,7 @@ namespace DfoServer.GameWorld
             // actor sequences, but can satisfy type-0 destroy-object clear
             // conditions after a story/NPC interaction.
             public IReadOnlyList<int> PassiveObjectCodes { get; set; }
+            internal bool HasElevatorControl { get; set; }
         }
 
         public struct DungeonRoomCoordinate
@@ -912,7 +913,7 @@ namespace DfoServer.GameWorld
                     : dungeonFile.Mazes[0];
 
                 var maplst = DungeonMapCatalog.LoadMapList();
-                var mapDirCandidates = BuildMapDirCandidates(maplst, maze, loaded.FilePath);
+                var mapDirCandidates = BuildMapDirCandidates(dungeonId, maplst, maze, loaded.FilePath);
 
                 foreach (var entry in maplst.Entries)
                 {
@@ -960,7 +961,7 @@ namespace DfoServer.GameWorld
                 }
 
                 var maplst = DungeonMapCatalog.LoadMapList();
-                var mapDirCandidates = BuildMapDirCandidates(maplst, maze, loaded.FilePath);
+                var mapDirCandidates = BuildMapDirCandidates(dungeonId, maplst, maze, loaded.FilePath);
 
                 foreach (var entry in maplst.Entries)
                 {
@@ -1339,7 +1340,7 @@ namespace DfoServer.GameWorld
         private static MapFile LoadMapFile(int mapId)
             => DungeonMapCatalog.GetMapFile(mapId);
 
-        internal static List<string> BuildMapDirCandidates(LstFile maplst, MazeInfo maze, string dungeonFilePath)
+        internal static List<string> BuildMapDirCandidates(int dungeonId, LstFile maplst, MazeInfo maze, string dungeonFilePath)
         {
             var result = new List<string>();
 
@@ -1371,6 +1372,17 @@ namespace DfoServer.GameWorld
                     if (spec.LayeredMapIds != null)
                         foreach (var id in spec.LayeredMapIds)
                             AddMapId(id);
+                }
+            }
+
+            // 显式 MAP 所在目录优先，其次按 MAP 的 [dungeon] 关联资源目录。
+            // DGN 文件名与 MAP 目录名可以不同。
+            if (maplst != null)
+            {
+                foreach (var entry in maplst.Entries)
+                {
+                    if (DungeonMapCatalog.GetDungeonOwner(entry.Id) == dungeonId)
+                        AddMapId(entry.Id);
                 }
             }
 

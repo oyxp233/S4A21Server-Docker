@@ -1144,6 +1144,11 @@ namespace DfoServer.Network.Handlers.Dungeon
                     cause: "tracked room actors cleared"));
             roomState?.TryClear();
 
+            await SpecialDungeonNotifier.ObserveRoomClearedAsync(
+                session, run, clearSource, roomState);
+            if (!IsCurrent(run, context.Envelope))
+                return;
+
             var endPoint = roomState != null
                 && run.BossMapPos != null
                 && run.BossMapPos.Length >= 2

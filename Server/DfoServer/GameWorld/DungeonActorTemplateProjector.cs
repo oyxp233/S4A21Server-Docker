@@ -266,11 +266,11 @@ namespace DfoServer.GameWorld
                         obj.ObjectCode);
                 if (sceneOwnedTimedWave)
                 {
-                    // The object script owns the child wave monsters, while
-                    // its inline monster row is the single aggregate actor
-                    // whose death is reported by the client after the wave.
-                    // Keep that row in START_MAP so the reported sequence can
-                    // participate in the ordinary room death ledger.
+                    // The object script owns the timed child waves. Its inline
+                    // row is the final monster (e.g. the elevator Cyclops), whose
+                    // real death report participates in the room death ledger.
+                    // ElevatorControl separately consumes the terminal-state
+                    // notification projected after that room clears.
                     FileLogger.Log(
                         $"[DungeonActorTemplateProjector] scene-owned timed " +
                         $"wave keeps aggregate template in START_MAP: " +

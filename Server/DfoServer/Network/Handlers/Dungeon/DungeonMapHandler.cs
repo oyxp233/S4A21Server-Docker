@@ -146,6 +146,15 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             }
 
+            if (run.Instance.TryGetRoom(run.CurrentRoomInstanceId, out var currentRoom)
+                && currentRoom.Elevator != null
+                && !currentRoom.Elevator.AllowsExit(run.RoomKey, req.NextX, req.NextY))
+            {
+                FileLogger.Log($"[Elevator] MOVE_MAP blocked by room outcome: " +
+                    $"room={run.RoomKey.X},{run.RoomKey.Y} next={req.NextX},{req.NextY}");
+                return;
+            }
+
             if (!DungeonRoomTopology.TryResolveMoveTarget(
                 run.DungeonId,
                 run.MazeIndex,

@@ -70,6 +70,12 @@
 
 ## 当前已接入
 
+### 疑惑之村电梯
+
+- `DungeonInstanceRoom.Elevator` 保存共享起点和结束结果，其 `RunTimerRegistry` 持有 `ElevatorStage`。加载屏障释放时注册第一个 15 秒 deadline，后续推进至 30、45、60 秒；晚到回调按原起点合并阶段。
+- 警报 timer 只投影过程阶段。共享清房提交使用原死亡事件时间选择正常停梯或故障结束，并取消后续警报；客户端消费两字节通知完成动画、机关效果与出口变化。
+- 队员断线保留房间时钟，重连与重访恢复原状态；房间关闭、实例 Ending 取消共享 timer，旧 ticket 回调失效。
+
 ### 副本通关翻牌自动流程
 
 - 位置: `Server/DfoServer/Game/Dungeon/CardRewardService.cs`、`Server/DfoServer/Game/Dungeon/DungeonRun.cs`、`Server/DfoServer/Network/Handlers/Dungeon/DungeonRunLifecycle.cs`。

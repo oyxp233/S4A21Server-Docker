@@ -1,5 +1,6 @@
 using DfoServer.Game.Dungeon;
 using DfoServer.GameWorld;
+using DfoServer.Game.Session;
 using DfoServer.Infrastructure;
 using System;
 
@@ -10,6 +11,71 @@ namespace DfoServer.Network.Handlers.Dungeon
     internal static class DungeonMechanismTimerCoordinator
     {
         private const int GentInfiltrateClientTimerSyncGraceSeconds = 4;
+
+        internal static void StartElevator(
+            DungeonInstance instance, DungeonInstanceRoom room,
+            DungeonInstanceRegistry instances, ISessionDirectory sessions)
+        {
+            var elevator = room.Elevator;
+            if (elevator == null || instance.State >= DungeonInstanceState.Ending
+                || !elevator.TryStart(DateTime.UtcNow, Environment.TickCount64,
+                    out var ticket, out var deadlineUtc))
+                return;
+
+            ScheduleElevator(instance, room, instances, sessions, ticket, deadlineUtc);
+            FileLogger.Log($"[Elevator] started instance={instance.PartyDungeonInstanceId} " +
+                $"room={room.RoomInstanceId} map={room.Maze.Index} firstDeadline={deadlineUtc:O}");
+        }
+
+        private static void ScheduleElevator(
+            DungeonInstance instance, DungeonInstanceRoom room,
+            DungeonInstanceRegistry instances, ISessionDirectory sessions,
+            RunTimerTicket ticket, DateTime deadlineUtc)
+        {
+            var handle = ClockService.Instance.ScheduleOneShotAsync(
+                $"elevator:{instance.PartyDungeonInstanceId}:{room.RoomInstanceId}:{ticket.Generation}",
+                deadlineUtc, async _ =>
+                {
+                    var elevator = room.Elevator;
+                    await elevator.ProjectionGate.WaitAsync();
+                    try
+                    {
+                        if (instance.State >= DungeonInstanceState.Ending
+                            || !elevator.TryAdvance(ticket, DateTime.UtcNow,
+                                out var state, out var nextTicket, out var nextDeadlineUtc))
+                            return;
+
+                        if (nextTicket.IsValid)
+                            ScheduleElevator(instance, room, instances, sessions,
+                                nextTicket, nextDeadlineUtc);
+
+                        foreach (var participant in instances.CaptureParticipantRoster(room.Identity))
+                        {
+                            if (!sessions.TryGet(participant.CharacterId, out var target)
+                                || target?.Player == null
+                                || !target.Player.IsCurrentDungeonParticipantRoom(
+                                    new DungeonParticipantRoomIdentity(
+                                        participant.RunIdentity, room.Identity)))
+                                continue;
+                            try
+                            {
+                                await SpecialDungeonNotifier.SendElevatorStateAsync(
+                                    target, participant.Run, room, state);
+                            }
+                            catch (Exception ex)
+                            {
+                                FileLogger.Log($"[Elevator] stage projection failed " +
+                                    $"cid={participant.CharacterId} stage={state.Stage}: {ex.Message}");
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        elevator.ProjectionGate.Release();
+                    }
+                });
+            room.Elevator.Timers.Attach(ticket, handle);
+        }
 
         internal static void Start(EnhancedClientSession session, string source)
         {

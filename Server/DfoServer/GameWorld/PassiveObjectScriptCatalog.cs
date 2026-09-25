@@ -16,6 +16,22 @@ namespace DfoServer.GameWorld
             SceneOwnedMonsterWaveByObjectCode =
                 new ConcurrentDictionary<int, bool>();
 
+        internal static bool HasElevatorControl(IReadOnlyList<int> objectCodes)
+        {
+            if (objectCodes == null)
+                return false;
+
+            foreach (var objectCode in objectCodes)
+            {
+                var path = PassiveObjectList.Value.GetById(objectCode)?.FilePath;
+                if (string.Equals(path?.Replace('\\', '/'),
+                    "MapObject/Obstacle/ElevatorControl.obj",
+                    StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
         internal static bool HasSceneOwnedTimedMonsterWave(int objectCode)
         {
             if (objectCode <= 0)

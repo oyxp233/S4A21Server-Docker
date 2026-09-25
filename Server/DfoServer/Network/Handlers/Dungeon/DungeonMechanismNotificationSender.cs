@@ -59,7 +59,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 .BuildCompleteConditionPassGateTrigger();
             var packet = GamePacketEnvelopeBuilder.Build(
                 0x00,
-                (ushort)NotiPacketType.COMPLETE_CONDITION_PASS_GATE,
+                (ushort)NotiPacketTypeA21.COMPLETE_CONDITION_PASS_GATE,
                 body);
             if (trySendPacketAsync != null)
             {

@@ -77,7 +77,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             var summonCodes = DungeonConditionDefinitionParser.ParseMonsterCodes(
                 dungeonFile.BossRoomEntranceCondition,
                 "[summon monster]");
-            if (targetCodes.Count > 0 && summonCodes.Count > 0)
+            if (targetCodes.Count > 0)
             {
                 run.BossEntranceConditionTargets = BuildBossEntranceConditionTargets(
                     run.DungeonId,
@@ -88,9 +88,10 @@ namespace DfoServer.Network.Handlers.Dungeon
                 if (run.BossEntranceConditionTargets.Count > 0)
                 {
                     run.BossEntranceConditionalSummonCodes.AddRange(summonCodes);
-                    run.SpecialMinimapIconGroups =
-                        BuildMinimapIconGroupsFromTargets(
-                            run.BossEntranceConditionTargets);
+                    if (summonCodes.Count > 0)
+                        run.SpecialMinimapIconGroups =
+                            BuildMinimapIconGroupsFromTargets(
+                                run.BossEntranceConditionTargets);
                 }
             }
 
@@ -274,7 +275,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (session?.Player == null
                 || run == null
                 || !session.Player.IsCurrentDungeonRun(run.CaptureIdentity())
-                || !run.HasBossEntranceConditionalSummon
+                || !run.Mechanisms.HasBossEntranceCondition
                 || maze.Monsters == null)
             {
                 return;

@@ -72,10 +72,6 @@ namespace DfoServer.GameWorld
             MapMonsterCodeCache =
                 new ConcurrentDictionary<int, HashSet<int>>();
 
-        private static readonly ConcurrentDictionary<int, int>
-            MapDungeonOwnerCache =
-                new ConcurrentDictionary<int, int>();
-
         private static readonly ConcurrentDictionary<int, bool>
             MapDungeonStartAreaCache =
                 new ConcurrentDictionary<int, bool>();
@@ -105,7 +101,7 @@ namespace DfoServer.GameWorld
                 ? floor
                 : 0;
 
-            var mapDirCandidates = Dungeon.BuildMapDirCandidates(maplst, maze, loaded.FilePath);
+            var mapDirCandidates = Dungeon.BuildMapDirCandidates(dungeonId, maplst, maze, loaded.FilePath);
 
             var effectiveBoss = bossPos ?? (maze.BossMap != null && maze.BossMap.Length >= 2
                 ? new[] { maze.BossMap[0], maze.BossMap[1] } : null);
@@ -2056,21 +2052,7 @@ namespace DfoServer.GameWorld
             if (maplst == null || mapId <= 0)
                 return -1;
 
-            return MapDungeonOwnerCache.GetOrAdd(
-                mapId,
-                id =>
-                {
-                    try
-                    {
-                        return DungeonMapCatalog
-                            .GetMapFile(id)
-                            .DungeonId;
-                    }
-                    catch
-                    {
-                        return -1;
-                    }
-                });
+            return DungeonMapCatalog.GetDungeonOwner(mapId);
         }
 
         private static bool HasDungeonStartArea(LstFile maplst, int mapId)
