@@ -82,12 +82,27 @@ namespace DfoServer.Network.Builders
             return BuildPickupItem(sceneSlot, pickerActorId, 0, 7);
         }
 
-        public static byte[] BuildPickupGold(ushort sceneSlot, ushort pickerActorId, int goldAmount, int extraGold = 0)
+        // A21 GET_ITEM 的金币通知固定为 117B；模板来自当前 A21 教程抓包。
+        // 布局：5B 头（sceneSlot/pickerActorId/0）+ 8 条 14B 槽位条目，
+        // 每条 entry +1 是 gold(u32)，即绝对偏移 6+i*14；与 0x0023 翻牌包一致，
+        // 客户端按自己的队伍槽位读对应 entry（模板抓自单人教程，entry0 自带 gold=8）。
+        public static byte[] BuildPickupGold(
+            ushort sceneSlot,
+            ushort pickerActorId,
+            int goldAmount,
+            int extraGold = 0,
+            int partySlot = 0)
         {
             var body = (byte[])A21PickupGoldTemplate.Clone();
             WriteUInt16(body, 0, sceneSlot);
             WriteUInt16(body, 2, pickerActorId);
-            WriteInt32(body, 6, goldAmount > 0 ? goldAmount : 1);
+            if (partySlot < 0 || partySlot > 7)
+                partySlot = 0;
+            // 投放到非 0 槽位时必须先清掉模板 entry0 自带的 gold=8，
+            // 否则 0 槽客户端会同时收到一份金币跳字。
+            if (partySlot != 0)
+                WriteInt32(body, 6, 0);
+            WriteInt32(body, 6 + 14 * partySlot, goldAmount > 0 ? goldAmount : 1);
             return body;
         }
 

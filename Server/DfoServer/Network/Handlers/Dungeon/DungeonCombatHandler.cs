@@ -1013,7 +1013,12 @@ namespace DfoServer.Network.Handlers.Dungeon
                         req.SrcSlot,
                         session.Player.UserId,
                         pickup.GoldAmount,
-                        pickup.ExtraGold)));
+                        pickup.ExtraGold,
+                        run.EntryPartySlotIndex)));
+                // 金币入账只发 0x0027 时非主机端客户端背包金币不刷新（要等翻牌结算），
+                // 按 DungeonEntryHandler 入场扣金的惯例补主背包 0 号金币虚拟槽的 0x000E 刷新。
+                if (_svc.InventoryRefresh != null)
+                    await _svc.InventoryRefresh.SendGoldUpdate(session);
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] GET_ITEM: gold pickup srcSlot={req.SrcSlot} gold={pickup.GoldAmount} extra={pickup.ExtraGold}");
             }
             else

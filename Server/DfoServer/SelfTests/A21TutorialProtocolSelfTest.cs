@@ -2372,6 +2372,54 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToInt32(pickupGold, 6) == 8,
                 ref failures);
 
+            // 模板抓自单人教程（picker 永远在队伍槽位 0）；slot 0 输出必须与
+            // 模板逐字节一致，保证已验证的单人/主机端行为零变化。
+            var expectedTemplate = FromHex(
+                "660039040001080000000100000000000000000100000000010000000000000000" +
+                "010000000001000000000000000001000000000100000000000000000100000000" +
+                "010000000000000000010000000001000000000000000001000000000100000000" +
+                "000000000100000000010000000000000000");
+            Check(
+                "A21 GET_ITEM gold notification keeps the captured solo wire bytes at party slot 0",
+                pickupGold.SequenceEqual(expectedTemplate),
+                ref failures);
+
+            // 组队拾取：客户端按自己的队伍槽位读对应 entry（与 0x0023 翻牌包同约定），
+            // gold 必须写到 6+14*partySlot，且非 0 槽位时 entry0 的 gold 要清零——
+            // 模板 entry0 自带 8，不清会让 0 槽客户端同时收到跳字。
+            var partyPickupGold = DropItemBuilder.BuildPickupGold(
+                sceneSlot: 0x66,
+                pickerActorId: 1081,
+                goldAmount: 500,
+                partySlot: 1);
+            Check(
+                "A21 GET_ITEM gold notification projects gold into the picker's party-slot entry",
+                partyPickupGold.Length == 117
+                && BitConverter.ToUInt16(partyPickupGold, 0) == 0x66
+                && BitConverter.ToUInt16(partyPickupGold, 2) == 1081
+                && BitConverter.ToInt32(partyPickupGold, 6) == 0
+                && partyPickupGold[5] == 1
+                && partyPickupGold[19] == 1
+                && BitConverter.ToInt32(partyPickupGold, 20) == 500
+                && BitConverter.ToInt32(partyPickupGold, 24) == 1
+                && BitConverter.ToInt32(partyPickupGold, 28) == 0
+                && partyPickupGold[32] == 0,
+                ref failures);
+
+            var clampedPickupGold = DropItemBuilder.BuildPickupGold(
+                sceneSlot: 0x66,
+                pickerActorId: 1081,
+                goldAmount: 500,
+                partySlot: 9);
+            Check(
+                "A21 GET_ITEM gold notification clamps an out-of-range party slot to seat 0",
+                clampedPickupGold.SequenceEqual(
+                    DropItemBuilder.BuildPickupGold(
+                        sceneSlot: 0x66,
+                        pickerActorId: 1081,
+                        goldAmount: 500)),
+                ref failures);
+
             var pickupAck = DropItemBuilder.BuildGetItemSuccessAck();
             Check(
                 "A21 GET_ITEM success ACK is one byte",
@@ -3776,6 +3824,14 @@ namespace DfoServer.SelfTests
             }
 
             return false;
+        }
+
+        private static byte[] FromHex(string hex)
+        {
+            var bytes = new byte[hex.Length / 2];
+            for (var index = 0; index < bytes.Length; index++)
+                bytes[index] = Convert.ToByte(hex.Substring(index * 2, 2), 16);
+            return bytes;
         }
 
         private static bool ContainsInt(

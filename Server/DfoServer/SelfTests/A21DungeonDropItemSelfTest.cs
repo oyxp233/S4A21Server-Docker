@@ -74,6 +74,7 @@ namespace DfoServer.SelfTests
             VerifyRealPvfDimensionDrop(ref failures);
             VerifySoulRechallengeContract(ref failures);
             VerifySkillPointBooks(ref failures);
+            VerifyGoldPickupSendsGoldSlotRefresh(ref failures);
 
             Console.WriteLine(
                 failures == 0
@@ -778,6 +779,208 @@ END;";
             }
             finally
             {
+                if (lease != null && session != null)
+                {
+                    InventoryContext.Unregister(
+                        session.SessionId,
+                        characterId);
+                }
+                capture?.Dispose();
+                runtime?.Dispose();
+                try
+                {
+                    Directory.Delete(tempDirectory, recursive: true);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static void VerifyGoldPickupSendsGoldSlotRefresh(ref int failures)
+        {
+            const int accountId = 198033;
+            const int characterId = 298033;
+            const ushort goldSceneSlot = 9;
+            const int goldAmount = 6543;
+
+            var tempDirectory = Path.Combine(
+                Path.GetTempPath(),
+                $"a21_gold_pickup_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDirectory);
+            var database = new GameDatabase(
+                Path.Combine(tempDirectory, "inventory.db"),
+                ServerPaths.SchemaFilePath);
+            ServerRuntimeBuilder runtime = null;
+            EnhancedClientSession session = null;
+            InventoryLease lease = null;
+            LoopbackPacketCapture capture = null;
+            try
+            {
+                using (var connection = database.OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = @"
+INSERT INTO accounts (account_id, m_id, password_hash)
+VALUES (@aid, 'gold-pickup-handler', '');
+INSERT INTO characters (
+    character_id, account_id, name, job, grow_type, level, exp,
+    bonus_sp, bonus_tp
+) VALUES (
+    @cid, @aid, 'gold-pickup-character', 0, 0, 50, 0, 0, 0
+);
+INSERT INTO character_subtype0_fields(character_id) VALUES (@cid);
+INSERT INTO character_subtype1_fields(character_id) VALUES (@cid);";
+                    command.Parameters.AddWithValue("@aid", accountId);
+                    command.Parameters.AddWithValue("@cid", characterId);
+                    command.ExecuteNonQuery();
+                }
+
+                capture = new LoopbackPacketCapture();
+                session = capture.Session;
+                session.Account = new AccountRecord
+                {
+                    AccountId = accountId,
+                    MId = "gold-pickup-handler",
+                    PasswordHash = string.Empty,
+                };
+                session.Player.CharacterId = characterId;
+                session.Player.UserId = 3033;
+
+                var sessions = new SessionDirectory();
+                sessions.Register(characterId, session);
+                runtime = new ServerRuntimeBuilder(database);
+                var core = runtime.GetOrCreateGameProtocolCoreDependencies();
+                var inventoryDependencies = runtime
+                    .GetOrCreateGameProtocolInventoryDependencies(core);
+                var world = runtime.GetOrCreateGameProtocolWorldDependencies(
+                    sessions,
+                    core);
+                var dungeon = runtime
+                    .GetOrCreateGameProtocolTownDungeonHandlers(
+                        core,
+                        inventoryDependencies,
+                        world)
+                    .Dungeon;
+
+                InventoryService inventory;
+                using (var connection = database.OpenConnection())
+                {
+                    inventory = InventoryService.LoadFromDb(
+                        connection,
+                        characterId,
+                        accountId,
+                        database);
+                }
+                lease = InventoryContext.Register(
+                    session.SessionId,
+                    characterId,
+                    inventory);
+
+                var run = new DungeonRun(11000, 0);
+                session.Player.CurrentRun = run;
+                run.Drops[goldSceneSlot] = DropInfo.CreateGold(
+                    goldSceneSlot,
+                    goldAmount);
+
+                dungeon.Handle_ENUM_CMDPACKET_GET_ITEM(
+                        session,
+                        new GamePacketHeader(),
+                        BitConverter.GetBytes(goldSceneSlot))
+                    .GetAwaiter()
+                    .GetResult();
+
+                var packets = capture.ReadPackets(minimumCount: 2);
+                var pickupAck = packets.LastOrDefault(packet => IsPacket(
+                    packet,
+                    0x01,
+                    (ushort)CmdPacketTypeA21.GET_ITEM));
+                var pickupNotiIndex = packets.FindIndex(packet => IsPacket(
+                    packet,
+                    0x00,
+                    (ushort)NotiPacketTypeA21.GET_ITEM));
+                var goldRefreshIndex = packets.FindIndex(packet => IsPacket(
+                    packet,
+                    0x00,
+                    (ushort)NotiPacketTypeA21.UPDATE_ITEM_LIST));
+                var goldRefresh = goldRefreshIndex >= 0
+                    ? packets[goldRefreshIndex]
+                    : null;
+                Check(
+                    "gold ground pickup credits the picker, broadcasts 0x0027, then refreshes main-bag gold slot 0 with 0x000E",
+                    pickupAck != null
+                    && pickupAck.Length >= 16
+                    && pickupAck[15] == 1
+                    && pickupNotiIndex >= 0
+                    && packets[pickupNotiIndex].Length >= 15 + 10
+                    && ReadUInt16(packets[pickupNotiIndex], 15) == goldSceneSlot
+                    && ReadUInt16(packets[pickupNotiIndex], 17) == 3033
+                    && ReadInt32(packets[pickupNotiIndex], 15 + 6) == goldAmount
+                    && goldRefresh != null
+                    && goldRefreshIndex > pickupNotiIndex
+                    && goldRefresh.Length >= 15 + 3 + 10
+                    && goldRefresh[15] == (byte)InventoryListType.Main
+                    && ReadUInt16(goldRefresh, 16) == 1
+                    && ReadInt16(goldRefresh, 18)
+                        == InventoryService.MainVirtualCurrencySlotStart
+                    && ReadInt32(goldRefresh, 24) == goldAmount
+                    && lease.Inventory.GetMainVirtualCount(
+                        InventoryService.MainVirtualCurrencySlotStart)?.Count
+                        == goldAmount,
+                    ref failures);
+
+                // 同一 handler 链，拾取者在队伍槽位 1：0x0027 的 gold 必须写到
+                // entry1（包内偏移 6+14），且 entry0 的 gold 清零（模板自带 8）。
+                const ushort secondSceneSlot = 10;
+                const int secondGold = 777;
+                run.EntryPartySlotIndex = 1;
+                run.Drops[secondSceneSlot] = DropInfo.CreateGold(
+                    secondSceneSlot,
+                    secondGold);
+
+                dungeon.Handle_ENUM_CMDPACKET_GET_ITEM(
+                        session,
+                        new GamePacketHeader(),
+                        BitConverter.GetBytes(secondSceneSlot))
+                    .GetAwaiter()
+                    .GetResult();
+
+                packets = capture.ReadPackets(minimumCount: 2);
+                var partyNoti = packets.LastOrDefault(packet => IsPacket(
+                    packet,
+                    0x00,
+                    (ushort)NotiPacketTypeA21.GET_ITEM));
+                var partyRefresh = packets.LastOrDefault(packet => IsPacket(
+                    packet,
+                    0x00,
+                    (ushort)NotiPacketTypeA21.UPDATE_ITEM_LIST));
+                Check(
+                    "party-slot gold pickup projects 0x0027 gold into the picker's entry and zeroes seat 0",
+                    partyNoti != null
+                    && partyNoti.Length >= 15 + 24
+                    && ReadUInt16(partyNoti, 15) == secondSceneSlot
+                    && ReadUInt16(partyNoti, 17) == 3033
+                    && ReadInt32(partyNoti, 15 + 6) == 0
+                    && ReadInt32(partyNoti, 15 + 20) == secondGold
+                    && partyRefresh != null
+                    && ReadInt32(partyRefresh, 24) == goldAmount + secondGold
+                    && lease.Inventory.GetMainVirtualCount(
+                        InventoryService.MainVirtualCurrencySlotStart)?.Count
+                        == goldAmount + secondGold,
+                    ref failures);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                Check(
+                    "gold pickup refresh handler/service harness completes",
+                    false,
+                    ref failures);
+            }
+            finally
+            {
+                if (session != null)
+                    session.Player.CurrentRun = null;
                 if (lease != null && session != null)
                 {
                     InventoryContext.Unregister(
