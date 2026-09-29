@@ -64,7 +64,8 @@ namespace DfoServer.SelfTests
             Sql("DROP TRIGGER reject_blacklist_migration;");
             using (var c = db.OpenConnection()) { Sqlite.SqliteMigrations.Apply(c); Sqlite.SqliteMigrations.Apply(c); }
             check("v31 migration preserves characters and advances both versions", Scalar("SELECT COUNT(*) FROM characters") == 3
-                && Scalar("PRAGMA user_version") == 32 && Scalar("SELECT schema_version FROM schema_metadata") == 32);
+                && Scalar("PRAGMA user_version") == Sqlite.SqliteMigrations.CurrentVersion
+                && Scalar("SELECT schema_version FROM schema_metadata") == Sqlite.SqliteMigrations.CurrentVersion);
             check("captured permanent request decodes strict GBK", BlacklistHandler.TryParseName(Convert.FromHexString("06000000BAA3C9AADEB1"), out var captured) && captured.Length == 3);
             foreach (var bytes in new[] { Array.Empty<byte>(), Name(""), Name("甲").Concat(new byte[] { 0 }).ToArray(),
                 new byte[] { 255,255,255,127 }, new byte[] { 1,0,0,0,0x81 }, Name("\0"), Name(new string('中', 15)) })

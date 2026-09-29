@@ -54,6 +54,8 @@ public sealed partial class RaidHandler
 
 		public int EligibleCount => _eligibleUserIds.Count;
 
+		public ushort[] GetEligibleUserIds() => _eligibleUserIds.ToArray();
+
 		public bool ResultStarted => Volatile.Read(in _resultStarted) != 0;
 
 		public bool CardSelectionStarted => Volatile.Read(in _cardSelectionStarted) != 0;
@@ -659,6 +661,7 @@ public sealed partial class RaidHandler
 			&& _raids.TryCompletePhase(raid, out var completed))
 		{
 			PhaseRewardFlow value2;
+			await SyncRaidPhaseQuestProgressAsync(completed, value.GetEligibleUserIds());
 			if (completed.PhaseIndex == 1)
 			{
 				CancelAllPhaseTwoTimers(completed);
@@ -679,6 +682,99 @@ public sealed partial class RaidHandler
 				FileLogger.Log($"[GameProtocol] RAID_PHASE1_BREAK raid={completed.RaidId} state={completed.State} break={remainingBreakSeconds}");
 			}
 		}
+	}
+
+	internal async Task<int> SyncRaidPhaseQuestProgressAsync(
+		RaidSnapshot completed,
+		IReadOnlyCollection<ushort> eligibleUserIds)
+	{
+		if (_questService == null
+			|| !IsSuccessfulRaidPhaseCompletion(completed)
+			|| eligibleUserIds == null
+			|| eligibleUserIds.Count == 0)
+			return 0;
+
+		var eligible = new HashSet<ushort>(eligibleUserIds);
+		var eventId = BuildRaidPhaseQuestEventId(
+			completed.InstanceId,
+			completed.PhaseIndex);
+		var changed = 0;
+		foreach (var member in completed.Members)
+		{
+			if (!eligible.Contains(member.UserId)
+				|| member.CharacterId == 0
+				|| member.CharacterId > int.MaxValue)
+				continue;
+
+			var characterId = (int)member.CharacterId;
+			IReadOnlyList<DfoServer.Game.Quests.QuestSetTriggerResult> changes = null;
+			for (var attempt = 1; attempt <= 3; attempt++)
+			{
+				try
+				{
+					changes = _questService.SyncRaidPhaseClearQuestProgress(
+						characterId,
+						(int)completed.PhaseIndex,
+						eventId);
+					break;
+				}
+				catch (Exception ex)
+				{
+					FileLogger.Log(
+						$"[GameProtocol] RAID_PHASE_QUEST_PROGRESS failed " +
+						$"raid={completed.RaidId} instance={completed.InstanceId:N} " +
+						$"phase={completed.PhaseIndex} cid={characterId} " +
+						$"attempt={attempt} error={ex}");
+					if (attempt < 3)
+						await Task.Delay(100 * attempt);
+				}
+			}
+			if (changes == null || changes.Count == 0)
+				continue;
+
+			changed += changes.Count;
+			FileLogger.Log(
+				$"[GameProtocol] RAID_PHASE_QUEST_PROGRESS " +
+				$"raid={completed.RaidId} instance={completed.InstanceId:N} " +
+				$"phase={completed.PhaseIndex} cid={characterId} " +
+				$"quests={changes.Count}");
+			try
+			{
+				if (_sessions.TryGet(characterId, out var session)
+					&& session.SessionId == member.SessionId
+					&& session.Player?.CharacterId == characterId
+					&& session.GameSession?.QuestManager != null)
+				{
+					await session.GameSession.QuestManager
+						.SendActiveQuestListAsync();
+				}
+			}
+			catch (Exception ex)
+			{
+				FileLogger.Log(
+					$"[GameProtocol] RAID_PHASE_QUEST_PROJECTION failed " +
+					$"cid={characterId} error={ex}");
+			}
+		}
+		return changed;
+	}
+
+	internal static bool IsSuccessfulRaidPhaseCompletion(RaidSnapshot raid)
+		=> raid != null
+			&& raid.InstanceId != Guid.Empty
+			&& raid.StateArgument == 0
+			&& ((raid.PhaseIndex == 0 && raid.State == 5)
+				|| (raid.PhaseIndex == 1 && raid.State == 4));
+
+	internal static Guid BuildRaidPhaseQuestEventId(
+		Guid instanceId,
+		uint phaseIndex)
+	{
+		if (instanceId == Guid.Empty || phaseIndex > 1)
+			throw new ArgumentOutOfRangeException(nameof(phaseIndex));
+		var bytes = instanceId.ToByteArray();
+		bytes[15] ^= (byte)(phaseIndex + 1);
+		return new Guid(bytes);
 	}
 
 	internal static uint GetAntonPhaseBreakRemainingSeconds()

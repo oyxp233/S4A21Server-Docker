@@ -1532,6 +1532,22 @@ CREATE TABLE IF NOT EXISTS character_blacklist (
     PRIMARY KEY(owner_character_id, target_character_id),
     CHECK(owner_character_id <> target_character_id)
 );
+
+-- NPC 好感度。好感点跨日保留；每日赠礼次数和物品数由 gift_day_id 惰性换日。
+-- 单角色跨 NPC 的每日总赠礼物品数通过 (character_id, gift_day_id) 索引求和。
+CREATE TABLE IF NOT EXISTS character_npc_favor (
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    npc_id INTEGER NOT NULL CHECK(npc_id >= 0),
+    favor_point INTEGER NOT NULL DEFAULT 0 CHECK(favor_point >= 0),
+    gift_day_id INTEGER NOT NULL DEFAULT 0,
+    gift_action_count INTEGER NOT NULL DEFAULT 0 CHECK(gift_action_count >= 0),
+    gift_item_count INTEGER NOT NULL DEFAULT 0 CHECK(gift_item_count >= 0),
+    last_gift_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(character_id, npc_id)
+);
+CREATE INDEX IF NOT EXISTS idx_character_npc_favor_daily
+    ON character_npc_favor(character_id, gift_day_id);
 CREATE TRIGGER IF NOT EXISTS guild_member_prevent_soft_delete
 BEFORE UPDATE OF delete_flag ON characters
 WHEN NEW.delete_flag <> 0 AND EXISTS (

@@ -63,7 +63,10 @@ namespace DfoServer
             ("--selftest-fixed-daily-ticket", SelfTests.FixedDailyTicketSelfTest.Run),
             ("--selftest-stacked-orb-conversion", SelfTests.StackedOrbConversionSelfTest.Run),
             ("--selftest-quest-completion-ticket", SelfTests.QuestCompletionTicketSelfTest.Run),
+            ("--selftest-anton-raid-phase-quest", SelfTests.AntonRaidPhaseQuestSelfTest.Run),
             ("--selftest-quest-progress-batch", SelfTests.QuestProgressBatchSelfTest.Run),
+            ("--selftest-quest-chain-availability", SelfTests.QuestChainAvailabilitySelfTest.Run),
+            ("--selftest-quest-question-branch", SelfTests.QuestQuestionBranchSelfTest.Run),
             ("--selftest-level-up-ticket", SelfTests.LevelUpTicketSelfTest.Run),
             ("--selftest-growup-change", SelfTests.GrowupChangeSelfTest.Run),
             ("--selftest-cargo-transport-stone", SelfTests.CargoTransportStoneSelfTest.Run),
@@ -89,6 +92,7 @@ namespace DfoServer
             ("--selftest-experience-item-definition", SelfTests.ExperienceItemDefinitionSelfTest.Run),
             ("--selftest-die-monster-request", SelfTests.DieMonsterRequestSelfTest.Run),
             ("--selftest-secret-shop-offer", SelfTests.SecretShopOfferSelfTest.Run),
+            ("--selftest-npc-favor", SelfTests.NpcFavorSystemSelfTest.Run),
         };
 
         // 顺序跑全部自测, 输出汇总表; 任一失败(或抛异常)退出码为 1。

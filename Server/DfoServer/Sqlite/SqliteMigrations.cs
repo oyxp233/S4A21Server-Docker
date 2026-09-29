@@ -55,6 +55,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(30, "add_guild_application_message", ApplyGuildApplicationMessage),
                 new MigrationStep(31, "add_guild_management", ApplyGuildManagement),
                 new MigrationStep(32, "add_character_blacklist", ApplyCharacterBlacklist),
+                new MigrationStep(33, "add_character_npc_favor", ApplyCharacterNpcFavor),
             };
 
         internal static int CurrentVersion =>
@@ -137,6 +138,26 @@ ON CONFLICT(singleton_id) DO UPDATE SET
         {
             var metadata = ReadMetadata(connection);
             return string.Equals(metadata.BaselineId, BaselineId, StringComparison.Ordinal);
+        }
+
+        private static void ApplyCharacterNpcFavor(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            ExecuteSql(connection, transaction, @"
+CREATE TABLE IF NOT EXISTS character_npc_favor (
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    npc_id INTEGER NOT NULL CHECK(npc_id >= 0),
+    favor_point INTEGER NOT NULL DEFAULT 0 CHECK(favor_point >= 0),
+    gift_day_id INTEGER NOT NULL DEFAULT 0,
+    gift_action_count INTEGER NOT NULL DEFAULT 0 CHECK(gift_action_count >= 0),
+    gift_item_count INTEGER NOT NULL DEFAULT 0 CHECK(gift_item_count >= 0),
+    last_gift_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(character_id, npc_id)
+);
+CREATE INDEX IF NOT EXISTS idx_character_npc_favor_daily
+    ON character_npc_favor(character_id, gift_day_id);");
         }
 
         private static void ApplyCharacterBlacklist(SqliteConnection connection, SqliteTransaction transaction)

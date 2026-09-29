@@ -106,13 +106,15 @@ namespace DfoServer.Game.Quests
                 case "pvp quest":
                 case "pvp match":
                 case "pvp rank":
-                case "raid phase clear":
                 case "level up":
                 case "first grow":
                 case "awakening":
                 case "get item check index":
                 case "quest accept":
                     return QuestClientTriggerDisposition.Mutate;
+
+                case "raid phase clear":
+                    return QuestClientTriggerDisposition.EchoOnly;
 
                 default:
                     return QuestClientTriggerDisposition.EchoOnly;

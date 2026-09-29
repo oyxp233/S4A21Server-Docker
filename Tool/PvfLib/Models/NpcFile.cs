@@ -69,6 +69,11 @@ namespace PvfLib
         public string UnpreferItemGroup { get; set; }
         public int DefaultFavor { get; set; } = -1;
         public int MaxGiftPerDay { get; set; } = -1;
+        public int FavorableRelationshipVersion { get; set; }
+        public List<int> FavorLevelPoints { get; } = new List<int>();
+        public List<int> FavorRatePerMood { get; } = new List<int>();
+        public List<NpcGiftRule> PreferredGiftRules { get; } = new List<NpcGiftRule>();
+        public List<NpcGiftRule> UnpreferredGiftRules { get; } = new List<NpcGiftRule>();
 
         #endregion
 
@@ -131,6 +136,19 @@ namespace PvfLib
                     case "unprefer item group": npc.UnpreferItemGroup = data; break;
                     case "default favor": npc.DefaultFavor = ParseInt(data); break;
                     case "max gift per day": npc.MaxGiftPerDay = ParseInt(data); break;
+                    case "gift item": ParseGiftItem(node, content, npc); break;
+                    case "favorable relationship":
+                        npc.FavorableRelationshipVersion = Math.Max(
+                            npc.FavorableRelationshipVersion,
+                            1);
+                        ParseFavorableRelationship(node, content, npc);
+                        break;
+                    case "favorable relationship 2":
+                        npc.FavorableRelationshipVersion = Math.Max(
+                            npc.FavorableRelationshipVersion,
+                            2);
+                        ParseFavorableRelationship(node, content, npc);
+                        break;
 
                     
                     case "field role": npc.FieldRole = data; break;
@@ -144,6 +162,121 @@ namespace PvfLib
             return npc;
         }
 
+        private static void ParseFavorableRelationship(
+            ScriptNode relationshipNode,
+            string content,
+            NpcFile npc)
+        {
+            foreach (var node in relationshipNode.Children)
+            {
+                var data = node.DataItems.Count > 0
+                    ? node.GetFirstDataContent(content).Trim()
+                    : string.Empty;
+                switch (node.Tag.ToLowerInvariant())
+                {
+                    case "default favor":
+                        npc.DefaultFavor = ParseInt(data);
+                        break;
+                    case "max gift per day":
+                        npc.MaxGiftPerDay = ParseInt(data);
+                        break;
+                    case "gift item":
+                        ParseGiftItem(node, content, npc);
+                        break;
+                    case "favor level point":
+                        npc.FavorLevelPoints.AddRange(
+                            PvfScriptValueReader.ReadIntegers(node, content));
+                        break;
+                }
+            }
+        }
+
+        private static void ParseGiftItem(ScriptNode giftNode, string content, NpcFile npc)
+        {
+            foreach (var node in giftNode.Children)
+            {
+                switch (node.Tag.ToLowerInvariant())
+                {
+                    case "favor rate per mood":
+                        npc.FavorRatePerMood.AddRange(PvfScriptValueReader.ReadIntegers(node, content));
+                        break;
+                    case "prefer item":
+                        ParseGiftRules(node, content, npc.PreferredGiftRules, false, true);
+                        break;
+                    case "prefer item group":
+                        ParseGiftRules(node, content, npc.PreferredGiftRules, true, true);
+                        break;
+                    case "unprefer item":
+                        ParseGiftRules(node, content, npc.UnpreferredGiftRules, false, false);
+                        break;
+                    case "unprefer item group":
+                        ParseGiftRules(node, content, npc.UnpreferredGiftRules, true, false);
+                        break;
+                }
+            }
+        }
+
+        private static void ParseGiftRules(
+            ScriptNode node,
+            string content,
+            ICollection<NpcGiftRule> destination,
+            bool groupRule,
+            bool preferred)
+        {
+            var tokens = new List<string>();
+            foreach (var item in node.DataItems)
+                tokens.AddRange(ScriptValueTokenizer.Tokenize(item.GetContent(content)));
+
+            var width = preferred || tokens.Count % 3 != 0 ? 4 : 3;
+            for (var index = 0; index + width - 1 < tokens.Count; index += width)
+            {
+                if (!int.TryParse(tokens[index], out var favorLevel))
+                    continue;
+
+                var rule = new NpcGiftRule
+                {
+                    FavorLevel = favorLevel,
+                    MinimumCount = width == 4
+                        ? ParseOptionalInteger(tokens, index + 2)
+                        : 0,
+                    FavorPointChange = width == 4
+                        ? ParseOptionalInteger(tokens, index + 3)
+                        : ParseOptionalInteger(tokens, index + 2),
+                };
+
+                if (groupRule)
+                {
+                    rule.ItemGroupName = tokens[index + 1];
+                }
+                else if (!int.TryParse(tokens[index + 1], out var itemId))
+                {
+                    continue;
+                }
+                else
+                {
+                    rule.ItemId = itemId;
+                }
+
+                destination.Add(rule);
+            }
+        }
+
+        private static int ParseOptionalInteger(IReadOnlyList<string> tokens, int index)
+            => index >= 0
+                && index < tokens.Count
+                && int.TryParse(tokens[index], out var value)
+                    ? value
+                    : 0;
+
         #endregion
+    }
+
+    public sealed class NpcGiftRule
+    {
+        public int FavorLevel { get; set; }
+        public int ItemId { get; set; }
+        public string ItemGroupName { get; set; }
+        public int MinimumCount { get; set; }
+        public int FavorPointChange { get; set; }
     }
 }

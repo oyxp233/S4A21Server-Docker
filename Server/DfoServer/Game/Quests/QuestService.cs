@@ -149,7 +149,18 @@ namespace DfoServer.Game.Quests
             var characterId = owner.CharacterId;
             var questId = BitConverter.ToUInt16(body, 0);
             var triggerType = body[2];
-            var increment = body.Length >= 4 && body[3] != 0;
+            byte? questionAnswerIndex = null;
+            if (GameWorld.QuestData.IsQuestionQuest(questId))
+            {
+                // A21 question selection sends an answer index in this byte,
+                // not the increment flag used by ordinary trigger mutations.
+                if (body.Length < 4 || triggerType != 0
+                    || body[3] >= GameWorld.QuestData.GetQuestionAnswerCount(questId))
+                    return QuestSetTriggerResult.Fail(22);
+                questionAnswerIndex = body[3];
+            }
+            var increment = !questionAnswerIndex.HasValue
+                && body.Length >= 4 && body[3] != 0;
             if (GameWorld.QuestData.IsWorldMapHuntMonsterQuest(questId))
             {
                 try
@@ -203,6 +214,7 @@ namespace DfoServer.Game.Quests
                 QuestId = questId,
                 TriggerType = triggerType,
                 Increment = increment,
+                QuestionAnswerIndex = questionAnswerIndex,
                 EligibleQuestActivations =
                     new Dictionary<ushort, QuestActivationId>
                     {
@@ -400,6 +412,36 @@ namespace DfoServer.Game.Quests
                     $"dungeon={dungeonId} map={mapId} changed={changed}");
             }
             return changed > 0;
+        }
+
+        internal IReadOnlyList<QuestSetTriggerResult>
+            SyncRaidPhaseClearQuestProgress(
+                int characterId,
+                int phaseIndex,
+                Guid sourceEventId)
+        {
+            if (characterId <= 0
+                || (phaseIndex != 0 && phaseIndex != 1)
+                || sourceEventId == Guid.Empty)
+            {
+                return Array.Empty<QuestSetTriggerResult>();
+            }
+
+            var applied = _progress.Apply(new QuestProgressApplicationRequest
+            {
+                CharacterId = characterId,
+                Operation = QuestProgressOperation.RaidPhaseClear,
+                RaidPhaseIndex = phaseIndex,
+                SourceEventId = sourceEventId,
+            });
+            if (!applied.Success)
+            {
+                throw new InvalidOperationException(
+                    $"raid phase quest progress failed: cid={characterId} " +
+                    $"phase={phaseIndex} event={sourceEventId:N} " +
+                    $"error={applied.Error}");
+            }
+            return applied.Changes;
         }
 
         internal IReadOnlyList<QuestSetTriggerResult>

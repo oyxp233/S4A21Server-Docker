@@ -207,6 +207,19 @@ namespace DfoServer.Game.Quests
                 QuestProgressEvaluation evaluation;
                 try
                 {
+                    request.RepairLegacyRaidPhaseTrigger =
+                        request.Operation == QuestProgressOperation.RaidPhaseClear
+                        && quest.TriggerValue == 1
+                        && GameWorld.QuestData.TryGetRaidPhaseClearTargets(
+                            quest.QuestId,
+                            out var raidTargets)
+                        && raidTargets.Count == 2
+                        && !QuestRepository.HasProgressEventKind(
+                            connection,
+                            transaction,
+                            request.CharacterId,
+                            quest.ActivationId,
+                            request.EventKind);
                     evaluation = QuestObjectiveEvaluator.Evaluate(
                         quest,
                         request,

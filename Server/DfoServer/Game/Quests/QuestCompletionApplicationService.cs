@@ -1498,14 +1498,10 @@ namespace DfoServer.Game.Quests
             int answerCount,
             out int flagValue)
         {
-            if (trigger == 0)
+            if (trigger < (uint)answerCount)
             {
-                flagValue = GameWorld.QuestData.GetRequiredQuestAnswerFlagValue(0);
-                return true;
-            }
-            if (trigger <= (uint)answerCount)
-            {
-                flagValue = (int)trigger;
+                flagValue = GameWorld.QuestData.GetRequiredQuestAnswerFlagValue(
+                    (int)trigger);
                 return true;
             }
             flagValue = 1;

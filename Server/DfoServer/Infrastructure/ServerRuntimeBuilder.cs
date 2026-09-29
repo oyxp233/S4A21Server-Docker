@@ -636,7 +636,8 @@ namespace DfoServer.Infrastructure
             var raid = new RaidHandler(
                 core.CharacterRepository,
                 world.Sessions,
-                world.RaidManager);
+                world.RaidManager,
+                new Game.Quests.QuestService(core.Database.ConnectionString));
             party.AttachRaidHandler(raid);
             raid.RaidPeerRequestAsync = party.RequestRaidPeerAsync;
             var chat = new ChatHandler(
@@ -862,7 +863,10 @@ namespace DfoServer.Infrastructure
                 eventJoustHandler,
                 eventPcRoomTimePointHandler,
                 eventDailyAttendanceAnytimeHandler,
-                eventTotalAttendanceHandler);
+                eventTotalAttendanceHandler,
+                new NpcFavorHandler(
+                    core.Database,
+                    inventory.InventoryRefreshSender));
         }
 
         internal CharacterSessionLifecycleCoordinator

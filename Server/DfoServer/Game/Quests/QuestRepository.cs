@@ -282,6 +282,27 @@ namespace DfoServer.Game.Quests
             }
         }
 
+        internal static bool HasProgressEventKind(
+            SqliteConnection conn,
+            SqliteTransaction tx,
+            int characterId,
+            QuestActivationId activationId,
+            string eventKind)
+        {
+            using (var cmd = new SqliteCommand(
+                @"SELECT 1 FROM quest_progress_event_inbox
+                  WHERE character_id=@cid AND activation_id=@activation
+                    AND event_kind=@kind LIMIT 1",
+                conn,
+                tx))
+            {
+                cmd.Parameters.AddWithValue("@cid", characterId);
+                cmd.Parameters.AddWithValue("@activation", activationId.ToStorageString());
+                cmd.Parameters.AddWithValue("@kind", eventKind);
+                return cmd.ExecuteScalar() != null;
+            }
+        }
+
         private static QuestActivationId ParseActivationId(string value)
         {
             if (QuestActivationId.TryParse(value, out var activationId))

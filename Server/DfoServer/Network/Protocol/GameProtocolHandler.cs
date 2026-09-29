@@ -56,6 +56,7 @@ namespace DfoServer.Network
         private readonly EventDailyAttendanceAnytimeHandler
             _eventDailyAttendanceAnytimeHandler;
         private readonly EventTotalAttendanceHandler _eventTotalAttendanceHandler;
+        private readonly NpcFavorHandler _npcFavorHandler;
         private readonly ExpertJobStoreHandler _expertJobStoreHandler;
         private readonly ExpertJobExtractionHandler _expertJobExtractionHandler;
         private readonly ExpertJobCompoundHandler _expertJobCompoundHandler;
@@ -218,6 +219,7 @@ namespace DfoServer.Network
             _eventDailyAttendanceAnytimeHandler =
                 featureHandlers.EventDailyAttendanceAnytime;
             _eventTotalAttendanceHandler = featureHandlers.EventTotalAttendance;
+            _npcFavorHandler = featureHandlers.NpcFavor;
             _pvpChannelInfoHandler = socialHandlers.PvpChannelInfo;
             _pvpRoomHandler = socialHandlers.PvpRoom;
             _characterSessionLifecycle = characterSessionLifecycle;
@@ -280,6 +282,7 @@ namespace DfoServer.Network
                     d[(ushort)command] = _socialHandlers.GuildManagement.Handle;
             });
             _cmdDispatch.RegisterGroup("event-joust", RegisterEventJoustHandlers);
+            _cmdDispatch.RegisterGroup("npc-favor", _npcFavorHandler.RegisterHandlers);
         }
 
         public void Dispose()

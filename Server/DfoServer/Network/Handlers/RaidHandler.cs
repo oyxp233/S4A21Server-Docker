@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
 using DfoServer.Game.Inventory;
+using DfoServer.Game.Quests;
 using DfoServer.Game.Raid;
 using DfoServer.Game.Session;
 using DfoServer.GameWorld;
@@ -26,6 +27,8 @@ public sealed partial class RaidHandler
 	private readonly ISessionDirectory _sessions;
 
 	private readonly RaidManager _raids;
+
+	private readonly QuestService _questService;
 
 	private readonly ClockService _clock;
 
@@ -51,13 +54,18 @@ public sealed partial class RaidHandler
 
 	private readonly ConcurrentDictionary<(Guid RaidInstanceId, ushort SituationIndex, uint SoloMemberKey, uint DungeonId), uint[]> _raidMonsterRuntimeValues = new ConcurrentDictionary<(Guid, ushort, uint, uint), uint[]>();
 
-	public RaidHandler(ICharacterRepository characterRepository, ISessionDirectory sessions, RaidManager raids)
+	public RaidHandler(
+		ICharacterRepository characterRepository,
+		ISessionDirectory sessions,
+		RaidManager raids,
+		QuestService questService = null)
 		: this(
 			characterRepository,
 			sessions,
 			raids,
 			ClockService.Instance,
-			AntonRaidRewardProvider.GetTimerConfiguration())
+			AntonRaidRewardProvider.GetTimerConfiguration(),
+			questService)
 	{
 	}
 
@@ -66,11 +74,13 @@ public sealed partial class RaidHandler
 		ISessionDirectory sessions,
 		RaidManager raids,
 		ClockService clock,
-		AntonRaidTimerConfiguration timerConfiguration)
+		AntonRaidTimerConfiguration timerConfiguration,
+		QuestService questService = null)
 	{
 		_characterRepository = characterRepository ?? throw new ArgumentNullException("characterRepository");
 		_sessions = sessions ?? throw new ArgumentNullException("sessions");
 		_raids = raids ?? throw new ArgumentNullException("raids");
+		_questService = questService;
 		_clock = clock ?? throw new ArgumentNullException(nameof(clock));
 		_timerConfiguration = timerConfiguration ?? throw new ArgumentNullException(nameof(timerConfiguration));
 	}

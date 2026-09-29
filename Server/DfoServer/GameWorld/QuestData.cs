@@ -4,6 +4,20 @@ using System.Collections.Generic;
 
 namespace DfoServer.GameWorld
 {
+    internal readonly struct RaidPhaseClearQuestTarget
+    {
+        internal RaidPhaseClearQuestTarget(int phaseIndex, int channelIndex, int requiredCount)
+        {
+            PhaseIndex = phaseIndex;
+            ChannelIndex = channelIndex;
+            RequiredCount = requiredCount;
+        }
+
+        internal int PhaseIndex { get; }
+        internal int ChannelIndex { get; }
+        internal int RequiredCount { get; }
+    }
+
     internal static class QuestData
     {
         // PVF [slot expansion] 的 reward int data 是槽位位图索引：
@@ -457,6 +471,53 @@ namespace DfoServer.GameWorld
             return qst != null ? ComputeInitTrigger(qst) : 1;
         }
 
+        internal static bool TryGetRaidPhaseClearTargets(
+            int questId,
+            out IReadOnlyList<RaidPhaseClearQuestTarget> targets)
+            => TryParseRaidPhaseClearTargets(GetQuestFile(questId), out targets);
+
+        internal static bool TryParseRaidPhaseClearTargets(
+            QuestFile quest,
+            out IReadOnlyList<RaidPhaseClearQuestTarget> targets)
+        {
+            targets = Array.Empty<RaidPhaseClearQuestTarget>();
+            if (NormalizeQuestTag(quest?.Type) != "raid phase clear")
+                return false;
+
+            var tokens = (quest.IntData ?? string.Empty).Split(
+                new[] { ' ', '\t', '\r', '\n' },
+                StringSplitOptions.RemoveEmptyEntries);
+            var values = new List<int>(tokens.Length);
+            foreach (var token in tokens)
+            {
+                if (!int.TryParse(token, out var value))
+                    return false;
+                values.Add(value);
+            }
+            if (values.Count == 0 || values.Count % 3 != 0 || values.Count > 9)
+                return false;
+
+            var parsed = new List<RaidPhaseClearQuestTarget>();
+            var phases = new HashSet<int>();
+            for (var offset = 0; offset < values.Count; offset += 3)
+            {
+                var phase = values[offset];
+                var required = values[offset + 1];
+                var scope = values[offset + 2];
+                if (phase < 0 || phase > 1 || !phases.Add(phase)
+                    || required <= 0 || required > 0x1FF || scope != -1)
+                    return false;
+
+                parsed.Add(new RaidPhaseClearQuestTarget(
+                    phase,
+                    offset / 3,
+                    required));
+            }
+
+            targets = parsed;
+            return true;
+        }
+
         internal static bool IsQuestClearQuest(int questId)
             => QuestRelationIndex.IsQuestClearQuest(questId);
 
@@ -621,6 +682,15 @@ namespace DfoServer.GameWorld
         {
             int typeCode = MapTypeString(qst.Type);
             string typeTag = NormalizeQuestTag(qst.Type);
+
+            if (typeTag == "raid phase clear"
+                && TryParseRaidPhaseClearTargets(qst, out var raidTargets))
+            {
+                uint trigger = 0;
+                foreach (var target in raidTargets)
+                    trigger |= (uint)target.RequiredCount << (target.ChannelIndex * 9);
+                return trigger;
+            }
 
             if (NormalizeQuestTag(qst.Grade) == "challenge"
                 && TryComputeDailyChallengeInitTrigger(qst, typeTag, out var challengeTrigger))

@@ -29,7 +29,8 @@ namespace DfoServer.Infrastructure
             EventJoustHandler eventJoust,
             EventPcRoomTimePointHandler eventPcRoomTimePoint,
             EventDailyAttendanceAnytimeHandler eventDailyAttendanceAnytime,
-            EventTotalAttendanceHandler eventTotalAttendance)
+            EventTotalAttendanceHandler eventTotalAttendance,
+            NpcFavorHandler npcFavor)
         {
             LotteryItem = lotteryItem
                 ?? throw new ArgumentNullException(nameof(lotteryItem));
@@ -68,6 +69,8 @@ namespace DfoServer.Infrastructure
                     nameof(eventDailyAttendanceAnytime));
             EventTotalAttendance = eventTotalAttendance
                 ?? throw new ArgumentNullException(nameof(eventTotalAttendance));
+            NpcFavor = npcFavor
+                ?? throw new ArgumentNullException(nameof(npcFavor));
         }
 
         internal LotteryItemHandler LotteryItem { get; }
@@ -112,5 +115,7 @@ namespace DfoServer.Infrastructure
             EventDailyAttendanceAnytime { get; }
 
         internal EventTotalAttendanceHandler EventTotalAttendance { get; }
+
+        internal NpcFavorHandler NpcFavor { get; }
     }
 }
