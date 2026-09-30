@@ -529,6 +529,8 @@ namespace DfoServer.Network
             d[0x0197] = _inventoryHandler.Handle_REGENERATION_RANDOM_OPTION;       //407 equipment compound
             d[(ushort)CmdPacketTypeA21.TITLE_BOOK_PUT] = _inventoryHandler.Handle_TITLE_BOOK;
             d[0x01B6] = _inventoryHandler.Handle_CHANGE_RANDOM_OPTION;             //438
+            d[(ushort)CmdPacketTypeA21.RESET_RANDOM_OPTION] =
+                _inventoryHandler.Handle_RESET_RANDOM_OPTION;                    //456 魔法封印装备品级调整箱
             d[(ushort)CmdPacketTypeA21.TITLE_BOOK_GET] = _inventoryHandler.Handle_TITLE_BOOK;
             d[0x019E] = _inventoryHandler.Handle_ENUM_CMDPACKET_MONSTERCARD_BIND;  //414 monster card synthesis
             d[0x025C] = _inventoryHandler.Handle_UPGRADE_CARD;                     //604 monster card upgrade

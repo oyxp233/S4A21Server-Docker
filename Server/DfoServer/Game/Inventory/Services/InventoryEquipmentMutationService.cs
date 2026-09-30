@@ -1773,6 +1773,7 @@ namespace DfoServer.Game.Inventory
 
             var updatedTarget = target.Copy();
             updatedTarget.Value = newQualitySeed;
+            RerollRandomOptionsForGradeChange(metadata, updatedTarget);
 
             if (!inventory.SetItem(InventoryListType.Main, request.TargetSlotIndex, updatedTarget))
                 return false;
@@ -1811,6 +1812,30 @@ namespace DfoServer.Game.Inventory
             if (qualitySeed == currentQualitySeed)
                 qualitySeed = qualitySeed + 1 < topQualitySeed ? qualitySeed + 1 : qualitySeed - 1;
             return qualitySeed;
+        }
+
+        // 品级调整箱: 装备品级种子重 roll 的同时, 逐条按 [postfix grade modification] 重 roll
+        // 封印属性数值; 跳过名单内或无档位表的属性保持原值。条数/类型/顺序及 RandomOptionState
+        // 等其余字段一律不动; 无封印属性的装备不触发该路径(行为与现状一致)。
+        private static void RerollRandomOptionsForGradeChange(ItemMetadata metadata, ItemCore updatedTarget)
+        {
+            var existing = updatedTarget.RandomOptions;
+            if (existing == null || existing.Count == 0)
+                return;
+
+            var entries = ToRandomOptionEntries(existing);
+            var changed = false;
+            for (var i = 0; i < entries.Count && i < 3; i++)
+            {
+                if (!RandomOptionResolver.TryRerollOptionValueForGradeChange(metadata, entries[i].Type, out var rerolled))
+                    continue;
+
+                entries[i] = rerolled;
+                changed = true;
+            }
+
+            if (changed)
+                updatedTarget.SetRandomOptions(ToRandomOptions(entries));
         }
 
         private static ResetItemQualityResult CreateResetQualityErrorResult(ResetItemQualityRequest request, byte errorCode)

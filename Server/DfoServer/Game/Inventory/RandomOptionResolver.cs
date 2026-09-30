@@ -29,6 +29,22 @@ namespace DfoServer.Game.Inventory
         private static readonly Lazy<List<OptionModificationCostEntry>> OptionModificationCosts =
             new Lazy<List<OptionModificationCostEntry>>(LoadOptionModificationCosts);
 
+        private static readonly Lazy<Dictionary<int, List<GradeModificationBand>>> GradeModificationBands =
+            new Lazy<Dictionary<int, List<GradeModificationBand>>>(LoadGradeModificationBands);
+
+        private static readonly Lazy<Dictionary<int, List<DifferentWeightEntry>>> DifferentWeights =
+            new Lazy<Dictionary<int, List<DifferentWeightEntry>>>(LoadDifferentWeights);
+
+        private static readonly Lazy<HashSet<int>> UnableToModifyPostfixGrades =
+            new Lazy<HashSet<int>>(() => new HashSet<int>(ReadSectionInts(
+                PvfArchiveAccessor.ReadText("etc/randomoption/randomizedoptionoverall2.etc"),
+                "unable to modify postfix grade")));
+
+        private static readonly Lazy<HashSet<int>> GradelessPostfixes =
+            new Lazy<HashSet<int>>(() => new HashSet<int>(ReadSectionInts(
+                PvfArchiveAccessor.ReadText("etc/randomoption/randomizedoptionoverall2.etc"),
+                "gradeless postfix")));
+
         public static bool TryRollOptions(ItemMetadata metadata, out List<RandomOptionEntry> entries)
         {
             entries = null;
@@ -55,7 +71,7 @@ namespace DfoServer.Game.Inventory
                     if (!usedOptionIds.Add(optionId))
                         continue;
 
-                    picked.Add(RollOptionValue(optionId, metadata.MinimumLevel));
+                    picked.Add(RollOptionValue(optionId, metadata.MinimumLevel, metadata.Rarity, picked.Count + 1));
                     break;
                 }
             }
@@ -102,7 +118,7 @@ namespace DfoServer.Game.Inventory
                 if (usedOptionIds.Contains(optionId))
                     continue;
 
-                entry = RollOptionValue(optionId, metadata.MinimumLevel);
+                entry = RollOptionValue(optionId, metadata.MinimumLevel, metadata.Rarity, safeIndex + 1);
                 return true;
             }
 
@@ -111,11 +127,11 @@ namespace DfoServer.Game.Inventory
                 if (usedOptionIds.Contains(candidate.OptionId))
                     continue;
 
-                entry = RollOptionValue(candidate.OptionId, metadata.MinimumLevel);
+                entry = RollOptionValue(candidate.OptionId, metadata.MinimumLevel, metadata.Rarity, safeIndex + 1);
                 return true;
             }
 
-            entry = RollOptionValue(RollWeighted(weightedOptions).OptionId, metadata.MinimumLevel);
+            entry = RollOptionValue(RollWeighted(weightedOptions).OptionId, metadata.MinimumLevel, metadata.Rarity, safeIndex + 1);
             return true;
         }
 
@@ -302,34 +318,116 @@ namespace DfoServer.Game.Inventory
             return Math.Max(1, Math.Min(3, RollWeighted(weights).Quantity));
         }
 
-        private static RandomOptionEntry RollOptionValue(int optionId, int itemLevel)
+        // 解封/变换词条: Value2 的语义是品级百分比 p(客户端按 [choose postfix] 阈值表直接查
+        // 字母 C/B/A/S), 不是数值上限; p 按 [different weight] 表按 (稀有度, 槽位) roll,
+        // Value1 = 官方 PvE 区间按 p 线性插值。internal: SelfTest 需要定点验证 roll 行为。
+        internal static RandomOptionEntry RollOptionValue(int optionId, int itemLevel, int rarity, int slotIndex)
         {
             if (!OptionFiles.Value.TryGetValue(optionId, out var relativePath))
-                return new RandomOptionEntry { Type = ClampByte(optionId), Value1 = 1, Value2 = 1 };
+                return new RandomOptionEntry { Type = ClampByte(optionId), Value1 = 1, Value2 = 0 };
 
             try
             {
                 var text = PvfArchiveAccessor.ReadText("etc/randomoption/" + relativePath);
                 var values = ResolveLevelValues(text, itemLevel);
+                var (minEff, maxEff) = ClampRangeToByteDomain(values.value1, values.value2);
+                var p = RollGradePercent(rarity, slotIndex);
+                var value = minEff + (maxEff - minEff) * p / 100;
+                value = Math.Max(minEff, Math.Min(value, maxEff));
                 return new RandomOptionEntry
                 {
                     Type = ClampByte(optionId),
-                    Value1 = ClampByte(values.value1),
-                    Value2 = ClampByte(values.value2),
+                    Value1 = ClampByte(value),
+                    Value2 = ClampByte(p),
                 };
             }
             catch (Exception ex)
             {
                 FileLogger.Log($"[RandomOption] option=0x{optionId:X2} load failed: {ex.Message}");
-                return new RandomOptionEntry { Type = ClampByte(optionId), Value1 = 1, Value2 = 1 };
+                return new RandomOptionEntry { Type = ClampByte(optionId), Value1 = 1, Value2 = 0 };
             }
+        }
+
+        // 按 [different weight] 表 roll 品级百分比 p(槽位从 1 开始, clamp 到表内最大槽位);
+        // 稀有度/槽位无条目时回退均匀 [0,56]。
+        private static int RollGradePercent(int rarity, int slotIndex)
+        {
+            if (DifferentWeights.Value.TryGetValue(rarity, out var slots) && slots.Count > 0)
+            {
+                var slot = slots[Math.Max(1, Math.Min(slotIndex, slots.Count)) - 1];
+                return Random.Shared.Next(slot.PctMin, slot.PctMax + 1);
+            }
+
+            return Random.Shared.Next(0, 57);
+        }
+
+        // 品级调整箱规则: 按 [postfix grade modification] 权重选档, 档内均匀取百分比 p,
+        // 对属性官方 PvE 区间做线性插值重 roll 数值; 属性类型不变。
+        // 返回 false 表示该属性不参与调整(跳过名单 / 无该稀有度档位表 / 数据缺失), 调用方保持原值。
+        internal static bool TryRerollOptionValueForGradeChange(
+            ItemMetadata metadata,
+            int optionId,
+            out RandomOptionEntry entry)
+        {
+            entry = null;
+            if (metadata == null)
+                return false;
+            if (UnableToModifyPostfixGrades.Value.Contains(optionId) || GradelessPostfixes.Value.Contains(optionId))
+                return false;
+            if (!GradeModificationBands.Value.TryGetValue(metadata.Rarity, out var bands) || bands.Count == 0)
+                return false;
+            if (!OptionFiles.Value.TryGetValue(optionId, out var relativePath))
+                return false;
+
+            try
+            {
+                var text = PvfArchiveAccessor.ReadText("etc/randomoption/" + relativePath);
+                var values = ResolveLevelValues(text, metadata.MinimumLevel);
+                var (minEff, maxEff) = ClampRangeToByteDomain(values.value1, values.value2);
+
+                var band = RollWeighted(bands);
+                var p = Random.Shared.Next(band.PctMin, band.PctMax + 1);
+                var value = minEff + (maxEff - minEff) * p / 100;
+                value = Math.Max(minEff, Math.Min(value, maxEff));
+
+                entry = new RandomOptionEntry
+                {
+                    Type = ClampByte(optionId),
+                    Value1 = ClampByte(value),
+                    Value2 = ClampByte(p),
+                };
+                return true;
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"[RandomOption] grade reroll option=0x{optionId:X2} failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static (int minEff, int maxEff) ClampRangeToByteDomain(int minValue, int maxValue)
+        {
+            var maxEff = Math.Min(maxValue, 255);
+            var minEff = Math.Min(minValue, maxEff);
+            if (minEff > maxEff)
+                minEff = maxEff;
+
+            return (minEff, maxEff);
         }
 
         private static (int value1, int value2) ResolveLevelValues(string text, int itemLevel)
         {
             var bestLevel = -1;
             var bestValues = (value1: 1, value2: 1);
-            var matches = Regex.Matches(text ?? string.Empty, @"\[level\]\s*(.*?)\[/level\]", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+            // 只取第一个 [dungeon] 块内的等级行; 部分属性文件在 [pvp] 段还有一份数值更低的行,
+            // 全文扫描会让同级的 PvP 行覆盖 PvE 行。无 [dungeon] 段的文件回退为全文扫描。
+            var source = text ?? string.Empty;
+            var dungeonMatch = Regex.Match(source, @"\[dungeon\](.*?)\[/dungeon\]", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            if (dungeonMatch.Success)
+                source = dungeonMatch.Groups[1].Value;
+
+            var matches = Regex.Matches(source, @"\[level\]\s*(.*?)\[/level\]", RegexOptions.Singleline | RegexOptions.IgnoreCase);
             foreach (Match match in matches)
             {
                 var ints = Regex.Matches(match.Groups[1].Value, @"-?\d+")
@@ -466,6 +564,67 @@ namespace DfoServer.Game.Inventory
             return result;
         }
 
+        // [postfix grade modification] 每稀有度一组档位行: `稀有度 档序号 百分比下限 百分比上限 权重`,
+        // 权重合计 1000。全文是连续数字, 按 5 个一组切分, 跳过不完整组。
+        private static Dictionary<int, List<GradeModificationBand>> LoadGradeModificationBands()
+        {
+            var text = PvfArchiveAccessor.ReadText("etc/randomoption/randomizedoptionoverall2.etc");
+            var ints = ReadSectionInts(text, "postfix grade modification");
+            var result = new Dictionary<int, List<GradeModificationBand>>();
+            for (var i = 0; i + 4 < ints.Count; i += 5)
+            {
+                var rarity = ints[i];
+                if (rarity <= 0)
+                    continue;
+
+                if (!result.TryGetValue(rarity, out var bands))
+                {
+                    bands = new List<GradeModificationBand>();
+                    result[rarity] = bands;
+                }
+
+                bands.Add(new GradeModificationBand
+                {
+                    Slot = ints[i + 1],
+                    PctMin = ints[i + 2],
+                    PctMax = ints[i + 3],
+                    Weight = ints[i + 4],
+                });
+            }
+
+            return result;
+        }
+
+        // [different weight] 每 4 个 int 一组: (稀有度, 槽位(从1开始), 百分比下限, 百分比上限),
+        // 解封时按 (稀有度, 槽位)  roll 品级百分比 p。连续数字按 4 个一组切分, 跳过不完整组。
+        private static Dictionary<int, List<DifferentWeightEntry>> LoadDifferentWeights()
+        {
+            var text = PvfArchiveAccessor.ReadText("etc/randomoption/randomizedoptionoverall2.etc");
+            var ints = ReadSectionInts(text, "different weight");
+            var result = new Dictionary<int, List<DifferentWeightEntry>>();
+            for (var i = 0; i + 3 < ints.Count; i += 4)
+            {
+                var rarity = ints[i];
+                if (rarity <= 0)
+                    continue;
+
+                if (!result.TryGetValue(rarity, out var slots))
+                {
+                    slots = new List<DifferentWeightEntry>();
+                    result[rarity] = slots;
+                }
+
+                slots.Add(new DifferentWeightEntry
+                {
+                    Slot = ints[i + 1],
+                    PctMin = ints[i + 2],
+                    PctMax = ints[i + 3],
+                });
+            }
+
+            return result;
+        }
+
         private static string ReadSectionText(string text, string sectionName)
         {
             var match = Regex.Match(text ?? string.Empty, @"\[" + Regex.Escape(sectionName) + @"\]\s*(.*?)\[/" + Regex.Escape(sectionName) + @"\]", RegexOptions.Singleline | RegexOptions.IgnoreCase);
@@ -593,6 +752,26 @@ namespace DfoServer.Game.Inventory
             public int CommonCost { get; set; }
 
             public int UniqueCost { get; set; }
+        }
+
+        private sealed class GradeModificationBand : IWeighted
+        {
+            public int Slot { get; set; }
+
+            public int PctMin { get; set; }
+
+            public int PctMax { get; set; }
+
+            public int Weight { get; set; }
+        }
+
+        private sealed class DifferentWeightEntry
+        {
+            public int Slot { get; set; }
+
+            public int PctMin { get; set; }
+
+            public int PctMax { get; set; }
         }
     }
 }

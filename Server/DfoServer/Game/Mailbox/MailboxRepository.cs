@@ -997,8 +997,9 @@ LIMIT 1;";
             var updatedMainSlots = new List<short>();
             var updatedAvatarSlots = new List<short>();
             var updatedPetSlots = new List<short>();
+            var updatedGuildMedalSlots = new List<short>();
             foreach (var change in grantResult.Changes.Slots)
-                AddUpdatedSlot(change.ListType, change.SlotIndex, updatedMainSlots, updatedAvatarSlots, updatedPetSlots);
+                AddUpdatedSlot(change.ListType, change.SlotIndex, updatedMainSlots, updatedAvatarSlots, updatedPetSlots, updatedGuildMedalSlots);
 
             return new MailboxClaimResult
             {
@@ -1011,6 +1012,7 @@ LIMIT 1;";
                 UpdatedMainSlots = updatedMainSlots,
                 UpdatedAvatarSlots = updatedAvatarSlots,
                 UpdatedPetSlots = updatedPetSlots,
+                UpdatedGuildMedalSlots = updatedGuildMedalSlots,
                 InventoryMutations = BuildClaimInventoryMutations(inventory, grantResult),
             };
         }
@@ -1137,15 +1139,14 @@ LIMIT 1;";
 
         private static InventoryListType ResolveCoreTargetList(ItemCore core)
         {
-            if (core == null)
-                return InventoryListType.Main;
-            if (core.ItemKind == ItemCore.KindAvatar)
-                return InventoryListType.Avatar;
-            if (core.ItemKind == ItemCore.KindCreature
-                || core.ItemKind == ItemCore.KindCreatureEquipment
-                || core.ItemKind == ItemCore.KindCreatureConsumable)
-                return InventoryListType.Pet;
-            return InventoryListType.Main;
+            return core != null
+                && ItemSlotBoundService.TryGetSlotRange(
+                    core.ItemKind,
+                    ItemSlotBoundService.MainExpandStageNone,
+                    out var listType,
+                    out _)
+                ? listType
+                : InventoryListType.Main;
         }
 
         private static int CountInventoryItem(
@@ -1660,7 +1661,8 @@ WHERE message_id = @messageId
             short slot,
             List<short> updatedMainSlots,
             List<short> updatedAvatarSlots,
-            List<short> updatedPetSlots)
+            List<short> updatedPetSlots,
+            List<short> updatedGuildMedalSlots)
         {
             if (listType == InventoryListType.Avatar)
             {
@@ -1671,6 +1673,12 @@ WHERE message_id = @messageId
             if (listType == InventoryListType.Pet)
             {
                 AddUniqueSlot(updatedPetSlots, slot);
+                return;
+            }
+
+            if (listType == InventoryListType.GuildMedal)
+            {
+                AddUniqueSlot(updatedGuildMedalSlots, slot);
                 return;
             }
 

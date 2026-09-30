@@ -168,7 +168,6 @@ namespace DfoServer.Game.Inventory
             ProtectTicketSelection protectTicket = null;
             var protectedByTicket = false;
             var destroyed = false;
-            var effectivePenaltyType = penaltyType;
             byte newLevel;
 
             if (success)
@@ -181,7 +180,6 @@ namespace DfoServer.Game.Inventory
                 if (protectTicket != null)
                 {
                     protectedByTicket = true;
-                    effectivePenaltyType = 2;
                     newLevel = (byte)Clamp(protectTicket.Config.FailureRetainLevel, 0, oldLevel);
                 }
                 else
@@ -195,7 +193,23 @@ namespace DfoServer.Game.Inventory
                 newLevel = ApplyPenalty(oldLevel, row, penaltyType, context);
             }
 
-            var resultCode = success ? (byte)0 : (byte)Math.Max(1, effectivePenaltyType);
+            byte resultCode;
+            if (success)
+            {
+                resultCode = 0;
+            }
+            else if (destroyed)
+            {
+                resultCode = 3;
+            }
+            else if (newLevel < oldLevel)
+            {
+                resultCode = 2;
+            }
+            else
+            {
+                resultCode = 1;
+            }
 
             var destroyRewardRequests = new List<InventoryRewardGrantRequest>();
             InventoryRewardGrantBatchPlan destroyRewardPlan = null;

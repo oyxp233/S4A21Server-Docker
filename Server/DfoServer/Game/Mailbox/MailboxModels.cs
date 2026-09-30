@@ -141,6 +141,7 @@ namespace DfoServer.Game.Mailbox
         public IReadOnlyList<short> UpdatedMainSlots { get; set; } = Array.Empty<short>();
         public IReadOnlyList<short> UpdatedAvatarSlots { get; set; } = Array.Empty<short>();
         public IReadOnlyList<short> UpdatedPetSlots { get; set; } = Array.Empty<short>();
+        public IReadOnlyList<short> UpdatedGuildMedalSlots { get; set; } = Array.Empty<short>();
         public IReadOnlyList<InventoryMutationResult> InventoryMutations { get; set; } =
             Array.Empty<InventoryMutationResult>();
 

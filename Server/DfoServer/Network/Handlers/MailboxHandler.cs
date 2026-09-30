@@ -388,12 +388,13 @@ namespace DfoServer.Network.Handlers
                 await _inventoryRefreshSender.SendUpdateItemList(session, pair.Key, pair.Value).ConfigureAwait(false);
         }
 
-        private static Dictionary<InventoryListType, List<short>> BuildClaimRefreshSlots(MailboxClaimResult result)
+        internal static Dictionary<InventoryListType, List<short>> BuildClaimRefreshSlots(MailboxClaimResult result)
         {
             var slots = new Dictionary<InventoryListType, List<short>>();
             AddClaimRefreshSlots(slots, InventoryListType.Main, result?.UpdatedMainSlots);
             AddClaimRefreshSlots(slots, InventoryListType.Avatar, result?.UpdatedAvatarSlots);
             AddClaimRefreshSlots(slots, InventoryListType.Pet, result?.UpdatedPetSlots);
+            AddClaimRefreshSlots(slots, InventoryListType.GuildMedal, result?.UpdatedGuildMedalSlots);
             return slots;
         }
 

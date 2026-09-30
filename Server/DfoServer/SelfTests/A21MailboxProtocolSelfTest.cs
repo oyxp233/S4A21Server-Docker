@@ -4,9 +4,11 @@ using DfoServer.Infrastructure;
 using DfoServer.Network;
 using DfoServer.Network.Builders;
 using DfoServer.Network.Handlers;
+using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace DfoServer.SelfTests
@@ -179,11 +181,204 @@ namespace DfoServer.SelfTests
                 TryAllocateUidsOnImmediateTransaction(),
                 ref failures);
 
+            VerifyGuildMedalMailClaims(ref failures);
+
             Console.WriteLine(
                 failures == 0
                     ? "A21_MAILBOX_PROTOCOL selftest passed."
                     : $"A21_MAILBOX_PROTOCOL selftest failed: {failures}");
             return failures == 0 ? 0 : 1;
+        }
+
+        private static void VerifyGuildMedalMailClaims(ref int failures)
+        {
+            const int characterId = 959001;
+            const int accountId = 959000;
+            var sessionId = Guid.NewGuid();
+            var tempDir = Path.Combine(Path.GetTempPath(), "a21-mailbox-medal-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var database = new GameDatabase(Path.Combine(tempDir, "inventory.db"), ServerPaths.SchemaFilePath);
+                ExecuteSql(database, @"
+INSERT INTO accounts (account_id, m_id, password_hash) VALUES (959000, 'mailbox-medal-selftest', '');
+INSERT INTO characters (character_id, account_id, name, level) VALUES (959001, 959000, 'mailbox-medal', 86);");
+                var lease = InventoryContext.Register(sessionId, new InventoryService(characterId, accountId, database));
+                var mailbox = new MailboxService(new MailboxRepository(database));
+                var sent = SendGuildMail(mailbox, characterId, new[] { 100380051, 100380058, 90023, 90053 });
+                Check("GM medal/gem system mail is created", sent.Success, ref failures);
+                if (!sent.Success)
+                    return;
+
+                var attachments = mailbox.LoadInbox(characterId, 20).Single(x => x.MessageId == sent.MessageId).Attachments;
+                var expectedSlots = new short[] { 0, 1, 49, 50 };
+                for (var index = 0; index < attachments.Count; index++)
+                {
+                    var attachment = attachments[index];
+                    var claimObjectId = MailboxRepository.AttachmentClaimFlag + attachment.AttachmentId;
+                    var result = mailbox.ClaimMail(characterId, claimObjectId, lease);
+                    var refresh = MailboxHandler.BuildClaimRefreshSlots(result);
+                    var slot = expectedSlots[index];
+                    Check(
+                        $"claim item {attachment.ItemTemplateId} refreshes its GuildMedal slot {slot}",
+                        result.Success && result.ClaimedAttachmentCount == 1
+                        && result.UpdatedMainSlots.Count == 0
+                        && refresh.Count == 1
+                        && refresh.TryGetValue(InventoryListType.GuildMedal, out var slots)
+                        && slots.SequenceEqual(new[] { slot }),
+                        ref failures);
+
+                    var body = ItemListUpdateBuilder.BuildUpdateBody(characterId, accountId, InventoryListType.GuildMedal, slot);
+                    Check(
+                        $"claim item {attachment.ItemTemplateId} produces a populated GuildMedal update",
+                        body.Length == 3 + ItemListProtocolWriter.CommonEntrySize
+                        && body[0] == (byte)InventoryListType.GuildMedal
+                        && BitConverter.ToUInt16(body, 1) == 1
+                        && BitConverter.ToInt16(body, 3) == slot
+                        && BitConverter.ToInt32(body, 5) == attachment.ItemTemplateId,
+                        ref failures);
+
+                    var duplicate = mailbox.ClaimMail(characterId, claimObjectId, lease);
+                    Check(
+                        $"duplicate claim of item {attachment.ItemTemplateId} grants nothing",
+                        !duplicate.Success && duplicate.Error == MailboxSendError.MailNotFound
+                        && MailboxHandler.BuildClaimRefreshSlots(duplicate).Count == 0
+                        && lease.Inventory.GetItems(InventoryListType.GuildMedal).Count(x => x.Value.ItemId > 0) == index + 1,
+                        ref failures);
+                }
+
+                using (var connection = database.OpenConnection())
+                {
+                    var reloaded = InventoryService.LoadFromDb(connection, characterId, accountId, database);
+                    Check(
+                        "relogin reload preserves every claimed medal/gem core in GuildMedal",
+                        attachments.Select((attachment, index) =>
+                            reloaded.GetItem(InventoryListType.GuildMedal, expectedSlots[index])?.ToBytes()
+                                .SequenceEqual(MailboxItemCoreCodec.Decode(attachment).ToBytes()) == true).All(x => x),
+                        ref failures);
+                }
+
+                var originalGem = lease.Inventory.GetItem(InventoryListType.GuildMedal, 50).Copy();
+                var carryLimit = ItemMetadataResolver.Resolve(originalGem.ItemId).StackLimit;
+                Check("guardian gem fixture has a PVF carry limit", carryLimit > 0, ref failures);
+                if (carryLimit <= 0)
+                    return;
+                var cappedGem = originalGem.Copy();
+                cappedGem.Count = carryLimit;
+                lease.Inventory.SetItem(InventoryListType.GuildMedal, 50, cappedGem);
+                var carryMail = SendGuildMail(mailbox, characterId, new[] { originalGem.ItemId });
+                Check("carry-limit mail is created", carryMail.Success, ref failures);
+                if (!carryMail.Success)
+                    return;
+                var carryRejected = mailbox.ClaimMail(characterId, carryMail.MessageId, lease);
+                Check(
+                    "gem carry limit counts the GuildMedal container and keeps the attachment",
+                    !carryRejected.Success && carryRejected.Error == MailboxSendError.ItemCarryLimitExceeded
+                    && lease.Inventory.GetItem(InventoryListType.GuildMedal, 50)?.Count == carryLimit
+                    && mailbox.LoadInbox(characterId, 20).Single(x => x.MessageId == carryMail.MessageId).Attachments.Count == 1,
+                    ref failures);
+                lease.Inventory.SetItem(InventoryListType.GuildMedal, 50, originalGem);
+                Check("restored gem baseline is persisted", InventoryPersistenceService.SaveDirty(lease), ref failures);
+
+                var retryMail = SendGuildMail(mailbox, characterId, new[] { 100380044, 90042 });
+                Check("retry mail is created", retryMail.Success, ref failures);
+                if (!retryMail.Success)
+                    return;
+                ExecuteSql(database, @"
+CREATE TRIGGER fail_medal_claim BEFORE INSERT ON character_inventory_items
+WHEN NEW.list_type = 38 BEGIN SELECT RAISE(ABORT, 'mailbox-medal-selftest'); END;");
+                var persistenceFailed = false;
+                try
+                {
+                    mailbox.ClaimMail(characterId, retryMail.MessageId, lease);
+                }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+                {
+                    persistenceFailed = true;
+                }
+                Check(
+                    "failed persistence rolls back both inventory and mail reservations",
+                    persistenceFailed
+                    && lease.Inventory.GetItems(InventoryListType.GuildMedal).Count(x => x.Value.ItemId > 0) == 4
+                    && mailbox.LoadInbox(characterId, 20).Single(x => x.MessageId == retryMail.MessageId).Attachments.Count == 2,
+                    ref failures);
+                ExecuteSql(database, "DROP TRIGGER fail_medal_claim;");
+
+                for (short slot = 0; slot <= 48; slot++)
+                    lease.Inventory.SetItem(InventoryListType.GuildMedal, slot,
+                        new ItemCore { ItemKind = ItemCore.KindGuildMedal, ItemId = 100380051 });
+                var fullMedals = mailbox.ClaimMail(characterId, retryMail.MessageId, lease);
+                Check(
+                    "full medal range leaves both attachments unclaimed",
+                    !fullMedals.Success && fullMedals.Error == MailboxSendError.InventoryFull
+                    && lease.Inventory.GetItem(InventoryListType.GuildMedal, 51) == null
+                    && mailbox.LoadInbox(characterId, 20).Single(x => x.MessageId == retryMail.MessageId).Attachments.Count == 2,
+                    ref failures);
+
+                lease.Inventory.RemoveItem(InventoryListType.GuildMedal, 48);
+                for (short slot = 49; slot <= 97; slot++)
+                    lease.Inventory.SetItem(InventoryListType.GuildMedal, slot,
+                        new ItemCore { ItemKind = ItemCore.KindGuardianGem, ItemId = 90032, Count = 1 });
+                var fullGems = mailbox.ClaimMail(characterId, retryMail.MessageId, lease);
+                Check(
+                    "full gem range does not partially grant the medal",
+                    !fullGems.Success && fullGems.Error == MailboxSendError.InventoryFull
+                    && lease.Inventory.GetItem(InventoryListType.GuildMedal, 48) == null
+                    && mailbox.LoadInbox(characterId, 20).Single(x => x.MessageId == retryMail.MessageId).Attachments.Count == 2,
+                    ref failures);
+
+                lease.Inventory.RemoveItem(InventoryListType.GuildMedal, 97);
+                var retry = mailbox.ClaimMail(characterId, retryMail.MessageId, lease);
+                var retryRefresh = MailboxHandler.BuildClaimRefreshSlots(retry);
+                Check(
+                    "retry after freeing both ranges atomically grants and refreshes both items",
+                    retry.Success && retry.ClaimedAttachmentCount == 2
+                    && retryRefresh.Count == 1
+                    && retryRefresh.TryGetValue(InventoryListType.GuildMedal, out var retrySlots)
+                    && retrySlots.SequenceEqual(new short[] { 48, 97 })
+                    && lease.Inventory.GetItem(InventoryListType.GuildMedal, 48)?.ItemId == 100380044
+                    && lease.Inventory.GetItem(InventoryListType.GuildMedal, 97)?.ItemId == 90042,
+                    ref failures);
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[FAIL] medal/gem mail claim: " + ex);
+                failures++;
+            }
+            finally
+            {
+                InventoryContext.Unregister(sessionId);
+                SqliteConnection.ClearAllPools();
+                try { Directory.Delete(tempDir, recursive: true); }
+                catch (Exception ex) { Console.WriteLine("[WARN] medal/gem mail temp cleanup: " + ex.Message); }
+            }
+        }
+
+        private static MailboxSendResult SendGuildMail(MailboxService mailbox, int characterId, int[] itemIds)
+        {
+            return mailbox.SendSystemMail(new MailboxSendRequest
+            {
+                SenderCharacterId = characterId,
+                SenderName = "GM",
+                ReceiverCharacterId = characterId,
+                Text = "medal/gem selftest",
+                Attachments = itemIds.Select(itemId => new MailboxSendAttachmentRequest
+                {
+                    ItemId = itemId,
+                    ItemCount = 1,
+                }).ToArray(),
+            });
+        }
+
+        private static void ExecuteSql(GameDatabase database, string sql)
+        {
+            using (var connection = database.OpenConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                command.ExecuteNonQuery();
+            }
         }
 
         private static bool TryAllocateUidsOnImmediateTransaction()
