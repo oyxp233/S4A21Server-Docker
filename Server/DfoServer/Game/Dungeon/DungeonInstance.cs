@@ -1215,6 +1215,46 @@ namespace DfoServer.Game.Dungeon
             }
         }
 
+        internal bool CanParticipantMoveMap(
+            DungeonRunIdentity participant,
+            IReadOnlyList<DungeonRunIdentity> connectedRoomParticipants)
+        {
+            lock (_syncRoot)
+            {
+                if (!participant.IsValid
+                    || participant.PartyDungeonInstanceId != PartyDungeonInstanceId
+                    || _state == DungeonInstanceState.Ending
+                    || _state == DungeonInstanceState.Ended
+                    || _partyWipeCommitted
+                    || !_participantDeaths.TryGetValue(participant, out var dead))
+                {
+                    return false;
+                }
+                if (!dead)
+                    return true;
+                if (connectedRoomParticipants == null)
+                    return false;
+
+                // The client sending MOVE_MAP can be the dead party host.
+                // Only current connected participants in its physical room
+                // may keep the party moving; this never revives the host.
+                var requesterPresent = false;
+                var livingParticipantPresent = false;
+                foreach (var current in connectedRoomParticipants)
+                {
+                    if (!current.IsValid
+                        || current.PartyDungeonInstanceId != PartyDungeonInstanceId
+                        || !_participantDeaths.TryGetValue(current, out var currentDead))
+                    {
+                        continue;
+                    }
+                    requesterPresent |= current.Equals(participant);
+                    livingParticipantPresent |= !currentDead;
+                }
+                return requesterPresent && livingParticipantPresent;
+            }
+        }
+
         internal bool CanReviveParticipant(DungeonRunIdentity participant)
         {
             lock (_syncRoot)

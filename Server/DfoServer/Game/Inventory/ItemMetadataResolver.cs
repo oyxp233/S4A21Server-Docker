@@ -36,6 +36,12 @@ namespace DfoServer.Game.Inventory
 
         public int NeedMaterialCount { get; set; }
 
+        /// <summary>
+        /// Full [need material] pair list in PVF order (id/count pairs). The first
+        /// pair mirrors NeedMaterialId/NeedMaterialCount; purchase consumes every pair.
+        /// </summary>
+        public IReadOnlyList<ItemMaterialCost> NeedMaterials { get; set; } = Array.Empty<ItemMaterialCost>();
+
         public int Grade { get; set; }
 
         public int MinimumLevel { get; set; }
@@ -144,6 +150,13 @@ namespace DfoServer.Game.Inventory
         }
     }
 
+    public sealed class ItemMaterialCost
+    {
+        public int ItemId { get; set; }
+
+        public int Count { get; set; }
+    }
+
     internal sealed class ItemSellRates
     {
         public int Equipment { get; set; } = 200;  
@@ -213,6 +226,7 @@ namespace DfoServer.Game.Inventory
                 if (!TryLoadEquipmentFile(itemTemplateId, out var equipment))
                     return CreateUnknownMetadata();
                 ResolveNeedMaterial(equipment.NeedMaterial, out var equipmentNeedMatId, out var equipmentNeedMatCount);
+                var equipmentNeedMaterials = ParseNeedMaterials(equipment.NeedMaterial);
                 // Keep legacy ordinary-NPC pricing intact.  Only entries that
                 // actually exchange [need material] use PVF's price correction.
                 var buyGold = equipmentNeedMatId > 0 && equipmentNeedMatCount > 0
@@ -245,6 +259,7 @@ namespace DfoServer.Game.Inventory
                     ImpossibleContents = equipment.ImpossibleContentItems,
                     NeedMaterialId = equipmentNeedMatId,
                     NeedMaterialCount = equipmentNeedMatCount,
+                    NeedMaterials = equipmentNeedMaterials,
                 };
             }
 
@@ -257,16 +272,9 @@ namespace DfoServer.Game.Inventory
                     ? stackable.Value / 5
                     : (stackable.Price > 0 ? stackable.Price / 5 : 0);
 
-                int needMatId = 0, needMatCount = 0;
-                if (!string.IsNullOrWhiteSpace(stackable.NeedMaterial))
-                {
-                    var parts = stackable.NeedMaterial.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2)
-                    {
-                        int.TryParse(parts[0], out needMatId);
-                        int.TryParse(parts[1], out needMatCount);
-                    }
-                }
+                var needMaterials = ParseNeedMaterials(stackable.NeedMaterial);
+                int needMatId = needMaterials.Count > 0 ? needMaterials[0].ItemId : 0;
+                int needMatCount = needMaterials.Count > 0 ? needMaterials[0].Count : 0;
 
                 
                 
@@ -288,6 +296,7 @@ namespace DfoServer.Game.Inventory
                     StackLimit = stackable.StackLimit,
                     NeedMaterialId = needMatId,
                     NeedMaterialCount = needMatCount,
+                    NeedMaterials = needMaterials,
                     Grade = stackable.Grade,
                     MinimumLevel = stackable.MinimumLevel,
                     Rarity = stackable.Rarity,
@@ -349,6 +358,27 @@ namespace DfoServer.Game.Inventory
                 itemId = 0;
                 count = 0;
             }
+        }
+
+        // [need material] 全量成对解析：内容为 "id 数量 id 数量 ..."，可多对
+        // （如双材料兑换礼盒）。逐对宽松解析，坏 token 跳过；全坏则返回空表。
+        internal static List<ItemMaterialCost> ParseNeedMaterials(string needMaterial)
+        {
+            var materials = new List<ItemMaterialCost>();
+            if (string.IsNullOrWhiteSpace(needMaterial))
+                return materials;
+
+            var parts = needMaterial.Trim().Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i + 1 < parts.Length; i += 2)
+            {
+                if (!int.TryParse(parts[i], out var itemId) || !int.TryParse(parts[i + 1], out var count))
+                    continue;
+                if (itemId <= 0 || count <= 0)
+                    continue;
+                materials.Add(new ItemMaterialCost { ItemId = itemId, Count = count });
+            }
+
+            return materials;
         }
 
         public static LstEntry GetEquipmentEntry(int itemTemplateId)

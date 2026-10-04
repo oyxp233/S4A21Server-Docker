@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DfoServer.Game.Currency;
 using DfoServer.Game.CraneMiniGame;
 using DfoServer.Infrastructure;
@@ -43,20 +44,7 @@ namespace DfoServer.Game.Inventory
 
             var totalGoldCost = checked(metadata.BuyGold * effectiveCount);
             var totalCeraCost = checked(metadata.BuyCoin * effectiveCount);
-            var materialItemId = metadata.NeedMaterialId;
-            var materialCount = metadata.NeedMaterialCount;
-            if (CraneCatalog.Value.TryResolveCoinExchange(
-                    itemTemplateId,
-                    out var craneMaterialItemId,
-                    out var craneMaterialCount))
-            {
-                materialItemId = craneMaterialItemId;
-                materialCount = craneMaterialCount;
-            }
-            var usesMaterialExchange = materialItemId > 0 && materialCount > 0;
-            var totalMaterialCost = usesMaterialExchange
-                ? checked(materialCount * effectiveCount)
-                : 0;
+            var materialCosts = BuildMaterialCosts(itemTemplateId, metadata, effectiveCount);
 
             if (!CanGrant(inventory, itemTemplateId, effectiveCount))
                 return false;
@@ -74,15 +62,13 @@ namespace DfoServer.Game.Inventory
                     inventory,
                     totalGoldCost,
                     totalCeraCost,
-                    materialItemId,
-                    totalMaterialCost,
+                    materialCosts,
                     sharedConnection,
                     sharedTransaction,
                     out var updatedGold,
                     out var updatedSp,
                     out var updatedCera,
-                    out var costItemSlot,
-                    out var costItemRemaining))
+                    out var costResults))
                 return false;
 
             if (!InventoryRewardGrantService.TryCreateAndInsert(
@@ -105,11 +91,16 @@ namespace DfoServer.Game.Inventory
                 result.InstanceValue = effectiveCount;
             }
 
-            if (usesMaterialExchange)
+            if (costResults.Count > 0)
             {
-                result.CostItemTemplateId = materialItemId;
-                result.CostItemRemainingCount = costItemRemaining;
-                result.CostItemSlotIndex = costItemSlot;
+                // 第一对填既有单对字段（协议/日志兼容），其余对以 cost mutation
+                // 形式挂 ExtraResults，供 handler 逐槽刷新背包（多材料兑换每个
+                // 被扣槽都要刷）。
+                result.CostItemTemplateId = costResults[0].CostItemTemplateId;
+                result.CostItemRemainingCount = costResults[0].CostItemRemainingCount;
+                result.CostItemSlotIndex = costResults[0].CostItemSlotIndex;
+                for (int i = 1; i < costResults.Count; i++)
+                    result.ExtraResults.Add(costResults[i]);
             }
 
             result.GoldSpent = totalGoldCost > 0;
@@ -146,15 +137,18 @@ namespace DfoServer.Game.Inventory
                     inventory,
                     goldCost,
                     0,
-                    usesItemCurrency ? requiredItemId : 0,
-                    usesItemCurrency ? requiredItemCount : 0,
+                    usesItemCurrency
+                        ? new List<ItemMaterialCost>
+                        {
+                            new ItemMaterialCost { ItemId = requiredItemId, Count = requiredItemCount },
+                        }
+                        : new List<ItemMaterialCost>(),
                     null,
                     null,
                     out var updatedGold,
                     out var updatedSp,
                     out var updatedCera,
-                    out var costItemSlot,
-                    out var costItemRemaining))
+                    out var costResults))
                 return false;
 
             if (!InventoryRewardGrantService.TryCreateAndInsert(
@@ -171,11 +165,11 @@ namespace DfoServer.Game.Inventory
 
             result = ToMutationResult(inventory, grant, updatedGold, updatedSp, updatedCera, effectiveCount);
             result.GoldSpent = goldCost > 0;
-            if (usesItemCurrency)
+            if (costResults.Count > 0)
             {
-                result.CostItemTemplateId = requiredItemId;
-                result.CostItemRemainingCount = costItemRemaining;
-                result.CostItemSlotIndex = costItemSlot;
+                result.CostItemTemplateId = costResults[0].CostItemTemplateId;
+                result.CostItemRemainingCount = costResults[0].CostItemRemainingCount;
+                result.CostItemSlotIndex = costResults[0].CostItemSlotIndex;
             }
 
             return true;
@@ -385,27 +379,66 @@ namespace DfoServer.Game.Inventory
                 && plan.Success;
         }
 
+        // 构造本次购买的材料总成本（每对 = 单次数量 x 购买数，checked 防溢出）。
+        // Crane 小游戏兑换覆盖为单对材料；否则取 [need material] 全部成对
+        // （双材料兑换礼盒等：如 10088413 60 3253 45）。
+        private static List<ItemMaterialCost> BuildMaterialCosts(
+            int itemTemplateId,
+            ItemMetadata metadata,
+            int effectiveCount)
+        {
+            var costs = new List<ItemMaterialCost>();
+            IReadOnlyList<ItemMaterialCost> source;
+            if (CraneCatalog.Value.TryResolveCoinExchange(itemTemplateId, out var craneId, out var craneCount))
+            {
+                source = new[] { new ItemMaterialCost { ItemId = craneId, Count = craneCount } };
+            }
+            else
+            {
+                source = metadata.NeedMaterials;
+            }
+
+            foreach (var material in source)
+            {
+                if (material == null || material.ItemId <= 0 || material.Count <= 0)
+                    continue;
+                costs.Add(new ItemMaterialCost
+                {
+                    ItemId = material.ItemId,
+                    Count = checked(material.Count * effectiveCount),
+                });
+            }
+
+            return costs;
+        }
+
         private static bool TrySpendCosts(
             InventoryService inventory,
             int goldCost,
             int ceraCost,
-            int materialItemId,
-            int materialCount,
+            IReadOnlyList<ItemMaterialCost> materialCosts,
             SqliteConnection sharedConnection,
             SqliteTransaction sharedTransaction,
             out int updatedGold,
             out int updatedSp,
             out int updatedCera,
-            out short materialSlot,
-            out int materialRemaining)
+            out List<InventoryMutationResult> costResults)
         {
             updatedGold = inventory != null ? inventory.CountMainItem(0) : 0;
             updatedSp = 0;
             updatedCera = 0;
-            materialSlot = -1;
-            materialRemaining = -1;
-            if (inventory == null || goldCost < 0 || ceraCost < 0 || materialCount < 0)
+            costResults = new List<InventoryMutationResult>();
+            if (inventory == null || goldCost < 0 || ceraCost < 0)
                 return false;
+
+            // 先校验再扣：任一材料不足时不产生部分扣除（协调器外的调用方无回滚兜底）。
+            foreach (var material in materialCosts)
+            {
+                if (material.ItemId <= 0 || material.Count <= 0)
+                    return false;
+                if (inventory.CountMainItem(material.ItemId) < material.Count)
+                    return false;
+            }
 
             if (!TryLoadCurrentWallet(
                     inventory,
@@ -425,15 +458,20 @@ namespace DfoServer.Game.Inventory
                 updatedGold = gold.RemainingCount;
             }
 
-            if (materialItemId > 0 || materialCount > 0)
+            foreach (var material in materialCosts)
             {
-                if (materialItemId <= 0 || materialCount <= 0)
-                    return false;
-                if (!inventory.TryConsumeMainItem(materialItemId, materialCount, out var material) || !material.Success)
+                if (!inventory.TryConsumeMainItem(material.ItemId, material.Count, out var consume) || !consume.Success)
                     return false;
 
-                materialSlot = material.SlotIndex;
-                materialRemaining = material.RemainingCount;
+                costResults.Add(new InventoryMutationResult
+                {
+                    ListType = InventoryListType.Main,
+                    SlotIndex = consume.SlotIndex,
+                    ItemTemplateId = material.ItemId,
+                    CostItemTemplateId = material.ItemId,
+                    CostItemRemainingCount = consume.RemainingCount,
+                    CostItemSlotIndex = consume.SlotIndex,
+                });
             }
 
             if (ceraCost <= 0)

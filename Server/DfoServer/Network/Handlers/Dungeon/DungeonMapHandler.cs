@@ -96,11 +96,9 @@ namespace DfoServer.Network.Handlers.Dungeon
             var leaderRunIdentity = run.CaptureIdentity();
             if (run.Instance.IsParticipantDead(leaderRunIdentity))
             {
-                FileLogger.Log(
-                    $"[DungeonHandler] MOVE_MAP ignored for dead participant: " +
-                    $"cid={session.Player.CharacterId} " +
-                    $"instance={run.PartyDungeonInstanceId}");
-                return;
+                var participants = CaptureConnectedMapMoveParticipants(run);
+                if (!await TryAcceptParticipantMapMoveAsync(session, run, participants))
+                    return;
             }
 
             // 塔内分流: 在塔中时 MOVE_MAP = 推进下一层(不走普通地图切换)
@@ -250,6 +248,60 @@ namespace DfoServer.Network.Handlers.Dungeon
                 loadingProjectionId,
                 preparedFollowers,
                 loadingParticipants);
+        }
+
+        private IReadOnlyList<DungeonRunIdentity> CaptureConnectedMapMoveParticipants(
+            DungeonRun sourceRun)
+        {
+            var result = new List<DungeonRunIdentity>();
+            var room = sourceRun.CaptureRoomIdentity();
+            foreach (var participant in _svc.InstanceRegistry.CaptureParticipantRoster(room))
+            {
+                if (_svc.Sessions == null
+                    || !_svc.Sessions.TryGet(participant.CharacterId, out var session)
+                    || session?.TcpClient?.Connected != true
+                    || session.Player.CurrentRun?.RunState != DungeonRunState.Active
+                    || !session.Player.IsCurrentDungeonRun(participant.RunIdentity)
+                    || !session.Player.IsCurrentDungeonRoom(room))
+                {
+                    continue;
+                }
+                result.Add(participant.RunIdentity);
+            }
+            return result;
+        }
+
+        internal static async Task<bool> TryAcceptParticipantMapMoveAsync(
+            EnhancedClientSession session,
+            DungeonRun run,
+            IReadOnlyList<DungeonRunIdentity> connectedRoomParticipants)
+        {
+            var identity = run.CaptureIdentity();
+            if (!session.Player.IsCurrentDungeonRun(identity)
+                || run.RunState != DungeonRunState.Active)
+            {
+                return false;
+            }
+            if (run.Instance.CanParticipantMoveMap(identity, connectedRoomParticipants))
+            {
+                FileLogger.Log($"[DungeonHandler] MOVE_MAP life check accepted: " +
+                    $"cid={session.Player.CharacterId} instance={run.PartyDungeonInstanceId} " +
+                    $"room={run.CurrentRoomInstanceId}");
+                return true;
+            }
+
+            // A21 sets a pending-move latch before waiting for START_MAP.
+            // MOVE_MAP result=0 clears it at client 0x01105E3C; error=0 uses
+            // the generic failure branch. DIE_STATE(revive) does not clear it.
+            await session.TrySendPacketAsync(
+                GamePacketEnvelopeBuilder.Build(0x01,
+                    (ushort)CmdPacketTypeA21.MOVE_MAP, new byte[] { 0x00, 0x00 }),
+                CancellationToken.None,
+                () => session.Player.IsCurrentDungeonRun(identity));
+            FileLogger.Log($"[DungeonHandler] MOVE_MAP rejected: no connected living room participant; " +
+                $"cid={session.Player.CharacterId} instance={run.PartyDungeonInstanceId} " +
+                $"room={run.CurrentRoomInstanceId}");
+            return false;
         }
 
         // 队长换图时把同队【在副本里】的成员也移到同一房间(服务端驱动, 队员副本=队长迷宫拷贝)。⚠️待真机验证。

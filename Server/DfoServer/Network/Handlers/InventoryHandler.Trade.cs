@@ -270,15 +270,17 @@ namespace DfoServer.Network.Handlers
             }
 
             FileLogger.Log($"[{ProtocolName}] BUY_ITEM: OK slot={result.SlotIndex} gold={result.UpdatedGold} sp={result.UpdatedSp} coin={result.UpdatedCoin} expire={result.ExpireTime} costId={result.CostItemTemplateId} costRemain={result.CostItemRemainingCount}");
-            if (result.CostItemTemplateId > 0)
+            // 多材料兑换（如双材料礼盒）每个被扣槽都要刷新；第一对材料映射在
+            // result.CostItem*，其余对以 cost mutation 形式挂 ExtraResults。
+            foreach (var cost in EnumerateCostEntries(result))
             {
-                if (result.CostItemRemainingCount <= 0
+                if (cost.CostItemRemainingCount <= 0
                     && result.ListType == InventoryListType.Main
-                    && result.SlotIndex == result.CostItemSlotIndex)
-                    await _refresh.SendEmptyUpdateItemList(session, InventoryListType.Main, result.CostItemSlotIndex);
+                    && result.SlotIndex == cost.CostItemSlotIndex)
+                    await _refresh.SendEmptyUpdateItemList(session, InventoryListType.Main, cost.CostItemSlotIndex);
                 else
-                    await _refresh.SendUpdateItemList(session, InventoryListType.Main, result.CostItemSlotIndex);
-                FileLogger.Log($"[{ProtocolName}] BUY_ITEM: ACK cost item slot={result.CostItemSlotIndex} id=0x{result.CostItemTemplateId:X8} remain={result.CostItemRemainingCount}");
+                    await _refresh.SendUpdateItemList(session, InventoryListType.Main, cost.CostItemSlotIndex);
+                FileLogger.Log($"[{ProtocolName}] BUY_ITEM: ACK cost item slot={cost.CostItemSlotIndex} id=0x{cost.CostItemTemplateId:X8} remain={cost.CostItemRemainingCount}");
             }
 
             var purchaseCountUpdates = new List<PurchaseCountUpdate>
@@ -865,6 +867,23 @@ namespace DfoServer.Network.Handlers
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, new byte[] { 0x01 }));
             await _refresh.SendItemListRefresh(session, InventoryListType.PersonalCargo);
             FileLogger.Log($"[{ProtocolName}] UPGRADE_CARGO: cid={cid} aid={aid} personalCargoListParam16={newListParam16} rawBody({body?.Length ?? 0}B)={(body != null ? BitConverter.ToString(body) : "null")}");
+        }
+
+        // 本次购买扣除的全部材料槽：第一对在主 result 的 CostItem* 字段，
+        // 第二对起以 cost mutation 形式挂 ExtraResults（多材料兑换）。
+        private static IEnumerable<InventoryMutationResult> EnumerateCostEntries(InventoryMutationResult result)
+        {
+            if (result == null)
+                yield break;
+
+            if (result.CostItemTemplateId > 0)
+                yield return result;
+
+            foreach (var extra in result.ExtraResults)
+            {
+                if (extra != null && extra.CostItemTemplateId > 0)
+                    yield return extra;
+            }
         }
     }
 }
