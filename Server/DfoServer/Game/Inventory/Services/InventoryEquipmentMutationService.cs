@@ -526,6 +526,9 @@ namespace DfoServer.Game.Inventory
             result.SourceInstanceValue = source.Value != 0 ? source.Value : request.SourceInstanceValue;
             if (request.ExpectedSourceItemTemplateId > 0 && source.ItemId != request.ExpectedSourceItemTemplateId)
             {
+                if (!IsEquipmentEffectRuneItem(source.ItemId, out _, out _))
+                    return false;
+
                 result.Status = EquipmentEffectRuneStatus.MissingSource;
                 return true;
             }

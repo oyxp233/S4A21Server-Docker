@@ -26,6 +26,24 @@ namespace DfoServer.Game.Inventory
             if (inventory == null)
                 return false;
 
+            // 幸运券(method=5)的强化/增幅模式写在材料格的道具里，
+            // 必须在 table/mode/amplify 校验之前先把 Mode 纠正过来。
+            if (command.Method == ItemUpgradeMethod.LuckyEnchantDeed)
+            {
+                var luckyMaterial = inventory.GetItem(
+                    InventoryListType.Main,
+                    command.MaterialSlotIndex);
+                var luckyConfig = ResolveMaterialConfig(luckyMaterial);
+                if (luckyConfig == null
+                    || luckyConfig.Scene != ItemUpgradeScene.LuckyDeed)
+                {
+                    result = ItemUpgradeResult.Error(command, ItemUpgradeResult.ErrorInvalidMaterial);
+                    return false;
+                }
+
+                command.Mode = luckyConfig.Mode;
+            }
+
             if (!TryResolveTableKind(command.Method, command.Mode, out var tableKind))
             {
                 result = ItemUpgradeResult.Error(command, ItemUpgradeResult.ErrorWrongUpgradeMode);
@@ -52,6 +70,14 @@ namespace DfoServer.Game.Inventory
 
             var currentLevel = target.Upgrade;
             if (currentLevel > 30)
+            {
+                result = ItemUpgradeResult.Error(command, ItemUpgradeResult.ErrorMaxLevel);
+                return false;
+            }
+
+            // 幸运券只适用于强化/增幅 +14 及以下的装备（+15 及以上拒绝使用）。
+            if (command.Method == ItemUpgradeMethod.LuckyEnchantDeed
+                && currentLevel > ItemUpgradeConsumableResolver.GetLuckyDeedMaxSourceLevel())
             {
                 result = ItemUpgradeResult.Error(command, ItemUpgradeResult.ErrorMaxLevel);
                 return false;
@@ -374,6 +400,12 @@ namespace DfoServer.Game.Inventory
                 case ItemUpgradeMethod.AdvancedReinforce:
                     tableKind = ItemUpgradeTableKind.Advanced;
                     return mode == ItemUpgradeMode.Reinforce;
+                case ItemUpgradeMethod.LuckyEnchantDeed:
+                    // 概率由 lucky券自身提供，这里只需要选对表以便后续金币/公告查询。
+                    tableKind = mode == ItemUpgradeMode.Amplify
+                        ? ItemUpgradeTableKind.Amplify
+                        : ItemUpgradeTableKind.Normal;
+                    return true;
                 default:
                     tableKind = ItemUpgradeTableKind.Normal;
                     return false;
@@ -456,6 +488,18 @@ namespace DfoServer.Game.Inventory
             context.SuccessRateAddWeight = materialConfig.SuccessRateAddWeight;
             context.SuccessRateBonusWeight = materialConfig.SuccessRateBonusWeight;
             context.FailureRetainLevel = materialConfig.FailureRetainLevel;
+            context.FailureDecrementLevel = materialConfig.FailureDecrementLevel;
+
+            if (materialConfig.Scene == ItemUpgradeScene.LuckyDeed)
+            {
+                // 幸运券的成功目标依赖当前等级动态计算（+1），50/50 上下浮动。
+                context.ChanceEntries.Add(new ItemUpgradeChanceEntry
+                {
+                    TargetLevel = currentLevel + 1,
+                    BaseSuccessWeight = ItemUpgradeConsumableResolver.GetLuckyDeedSuccessWeight(),
+                });
+                return true;
+            }
 
             if (materialConfig.Scene == ItemUpgradeScene.Ticket)
             {
@@ -658,7 +702,8 @@ namespace DfoServer.Game.Inventory
         private static int CalculateFinalSuccessWeight(ItemUpgradeContext context, ItemUpgradeChanceEntry chance)
         {
             var baseWeight = Clamp(chance.BaseSuccessWeight, 0, WeightScale);
-            if (context.Scene == ItemUpgradeScene.Ticket)
+            if (context.Scene == ItemUpgradeScene.Ticket
+                || context.Scene == ItemUpgradeScene.LuckyDeed)
                 return baseWeight;
 
             var additiveWeight = (long)baseWeight
@@ -689,7 +734,8 @@ namespace DfoServer.Game.Inventory
 
         private static int ResolvePenaltyType(ItemUpgradeContext context, UpgradeTableRow row, ItemUpgradeTableKind tableKind)
         {
-            if (context.Scene == ItemUpgradeScene.Ticket)
+            if (context.Scene == ItemUpgradeScene.Ticket
+                || context.Scene == ItemUpgradeScene.LuckyDeed)
                 return 1;
 
             return ItemUpgradeTableProvider.GetPenaltyType(
@@ -701,6 +747,10 @@ namespace DfoServer.Game.Inventory
 
         private static byte ApplyPenalty(byte oldLevel, UpgradeTableRow row, int penaltyType, ItemUpgradeContext context)
         {
+            // 幸运券：失败等级 -1，下限 0（不归零也不会更低），且不受保护券影响。
+            if (context.Scene == ItemUpgradeScene.LuckyDeed)
+                return (byte)Math.Max(0, oldLevel - Math.Max(0, context.FailureDecrementLevel));
+
             if (context.FailureRetainLevel >= 0 && oldLevel >= context.ProtectTriggerLevel)
                 return (byte)Clamp(context.FailureRetainLevel, 0, oldLevel);
 

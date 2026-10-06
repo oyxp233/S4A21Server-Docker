@@ -21,6 +21,9 @@ namespace DfoServer.Game.Inventory
         private const string LevelUpTicketActionType = "[level up ticket]";
         internal const int SkillPointBook5ItemId = 1031;
         internal const int SkillPointBook20ItemId = 1038;
+        // TP+1 / TP+5 技能书（stackable/book_fskill1.stk、book_fskill2.stk）
+        internal const int TpPointBook1ItemId = 1204;
+        internal const int TpPointBook5ItemId = 1205;
 
         private readonly string _connectionString;
         private readonly IRentalTimeProvider _timeProvider;
@@ -178,7 +181,24 @@ namespace DfoServer.Game.Inventory
                             slotIndex,
                             sourceSnapshot,
                             resolvedItemId,
-                            grantedSkillPoints);
+                            grantedSkillPoints,
+                            0);
+                    }
+
+                    if (TryResolveTpPointBook(
+                            resolvedItemId,
+                            out var grantedTpPoints))
+                    {
+                        return UseSkillPointBook(
+                            lease,
+                            characterId,
+                            accountId,
+                            listType,
+                            slotIndex,
+                            sourceSnapshot,
+                            resolvedItemId,
+                            0,
+                            grantedTpPoints);
                     }
 
                     var definition = ExperienceItemDataProvider.Resolve(resolvedItemId);
@@ -471,7 +491,8 @@ namespace DfoServer.Game.Inventory
             short slotIndex,
             ItemCore sourceSnapshot,
             int resolvedItemId,
-            int grantedSkillPoints)
+            int grantedSkillPoints,
+            int grantedTpPoints)
         {
             var failureStatus = ExperienceItemUseStatus.PersistenceFailed;
             var failureDetail = "skill-point book transaction failed";
@@ -479,6 +500,8 @@ namespace DfoServer.Game.Inventory
             CharacterProgressSnapshot character = null;
             SkillInfoSnapshot syncedSkills = null;
             SkillPointState syncedPoints = null;
+            var updatedBonusSp = 0;
+            var updatedBonusTp = 0;
 
             var committed = OnlineInventoryMutationCommitCoordinator.TryCommit(
                 lease,
@@ -527,16 +550,32 @@ namespace DfoServer.Game.Inventory
                         return false;
                     }
 
-                    if (!_progressRepository.TryGrantBonusSp(
+                    if (grantedSkillPoints > 0
+                        && !_progressRepository.TryGrantBonusSp(
                             connection,
                             transaction,
                             characterId,
                             grantedSkillPoints,
-                            out var updatedBonusSp))
+                            out updatedBonusSp))
                     {
                         failureDetail = "bonus SP persistence failed";
                         return false;
                     }
+
+                    if (grantedTpPoints > 0
+                        && !_progressRepository.TryGrantBonusTp(
+                            connection,
+                            transaction,
+                            characterId,
+                            grantedTpPoints,
+                            out updatedBonusTp))
+                    {
+                        failureDetail = "bonus TP persistence failed";
+                        return false;
+                    }
+
+                    if (updatedBonusSp == 0) updatedBonusSp = character.BonusSp;
+                    if (updatedBonusTp == 0) updatedBonusTp = character.BonusTp;
 
                     if (!InventoryDeleteService.TryConsumeFromSlot(
                             inventory,
@@ -565,7 +604,7 @@ namespace DfoServer.Game.Inventory
                         character.Job,
                         character.Level,
                         updatedBonusSp,
-                        character.BonusTp,
+                        updatedBonusTp,
                         persist: true,
                         growType: firstGrow,
                         secondGrowType: secondGrow);
@@ -614,7 +653,9 @@ namespace DfoServer.Game.Inventory
                 SkillPoints = SkillStateService.GetProtocolState(
                     syncedSkills,
                     syncedPoints),
-                Detail = $"bonus SP +{grantedSkillPoints}",
+                Detail = grantedTpPoints > 0
+                    ? $"bonus TP +{grantedTpPoints}"
+                    : $"bonus SP +{grantedSkillPoints}",
             };
         }
 
@@ -632,6 +673,24 @@ namespace DfoServer.Game.Inventory
                     return true;
                 default:
                     grantedSkillPoints = 0;
+                    return false;
+            }
+        }
+
+        private static bool TryResolveTpPointBook(
+            int itemTemplateId,
+            out int grantedTpPoints)
+        {
+            switch (itemTemplateId)
+            {
+                case TpPointBook1ItemId:
+                    grantedTpPoints = 1;
+                    return true;
+                case TpPointBook5ItemId:
+                    grantedTpPoints = 5;
+                    return true;
+                default:
+                    grantedTpPoints = 0;
                     return false;
             }
         }

@@ -105,7 +105,17 @@ namespace DfoServer.Game.Inventory
             var succeeded = roll < ticket.SuccessWeight;
             var updatedTarget = target.Copy();
             if (succeeded)
+            {
                 updatedTarget.GenuineUpgrade = targetLevel;
+            }
+            else if (ticket.FailureDecrementLevel > 0)
+            {
+                // 只有显式配置了失败下降数才会掉级（当前幸运锻造券为 0，即失败保持原阶段）。
+                updatedTarget.GenuineUpgrade = checked((byte)Math.Max(
+                    0,
+                    oldLevel - ticket.FailureDecrementLevel));
+            }
+            var newLevel = updatedTarget.GenuineUpgrade;
             var ticketItemId = ticketItem.ItemId;
             var ticketSnapshot = ticketItem.Copy();
 
@@ -121,7 +131,9 @@ namespace DfoServer.Game.Inventory
                 return false;
             }
 
-            if (succeeded && !inventory.SetItem(command.TargetListType, command.TargetSlotIndex, updatedTarget))
+            // 失败掉级的券（幸运锻造券）同样需要把新等级写回背包。
+            if (newLevel != oldLevel
+                && !inventory.SetItem(command.TargetListType, command.TargetSlotIndex, updatedTarget))
             {
                 inventory.SetItem(InventoryListType.Main, command.MaterialSlotIndex, ticketSnapshot);
                 result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorMaterialCommit);
@@ -133,7 +145,7 @@ namespace DfoServer.Game.Inventory
                 Command = command,
                 UpgradeSucceeded = succeeded,
                 OldLevel = oldLevel,
-                NewLevel = succeeded ? targetLevel : oldLevel,
+                NewLevel = newLevel,
                 TargetReinforceLevel = target.Upgrade,
                 SuccessWeight = ticket.SuccessWeight,
                 MaterialItemTemplateId = ticketItemId,

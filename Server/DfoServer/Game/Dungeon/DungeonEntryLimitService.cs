@@ -695,6 +695,64 @@ namespace DfoServer.Game.Dungeon
             return true;
         }
 
+        internal bool TryAddDimensionGateExtraCount(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            int defaultCurrentCount,
+            int defaultExtraCount,
+            int addCount,
+            out DimensionGateEntryLimitSnapshot snapshot)
+        {
+            snapshot = null;
+            if (connection == null
+                || characterId <= 0
+                || defaultCurrentCount < 0
+                || defaultExtraCount < 0
+                || addCount <= 0)
+            {
+                return false;
+            }
+
+            var dayId = CurrentDayId();
+            if (!TryLoadDimensionGateRecord(
+                    connection,
+                    transaction,
+                    characterId,
+                    dayId,
+                    out var state))
+            {
+                state = new MutableEntryLimitState
+                {
+                    CurrentCount = defaultCurrentCount,
+                    ExtraCount = defaultExtraCount,
+                    UsedCount = 0,
+                    DayId = dayId,
+                };
+            }
+
+            var nextExtra = (long)state.ExtraCount + addCount;
+            if (nextExtra > int.MaxValue)
+                return false;
+
+            state.ExtraCount = (int)nextExtra;
+            state.DayId = dayId;
+            UpsertDimensionGateRecord(
+                connection,
+                transaction,
+                characterId,
+                state);
+            snapshot = new DimensionGateEntryLimitSnapshot
+            {
+                CharacterId = characterId,
+                DayId = dayId,
+                CurrentCount = state.CurrentCount,
+                ExtraCount = state.ExtraCount,
+                UsedCount = state.UsedCount,
+            };
+            return true;
+        }
+
         private int CurrentDayId()
             => DailyResetService.TodayId(_utcNowProvider());
 

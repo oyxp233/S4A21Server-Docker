@@ -21,7 +21,10 @@ namespace DfoServer.Network.Parsers.Inventory
                 return false;
 
             var rawMethod = BitConverter.ToUInt16(body, 0);
-            if (rawMethod > (ushort)ItemUpgradeMethod.AdvancedReinforce)
+            // method=5 是「幸运强化券/幸运增幅券」共用的 UI 命令，
+            // 真正走强化还是增幅由材料格里的券决定，这里不能直接按越界拒绝。
+            var lukcyDeed = rawMethod == (ushort)ItemUpgradeMethod.LuckyEnchantDeed;
+            if (rawMethod > (ushort)ItemUpgradeMethod.AdvancedReinforce && !lukcyDeed)
                 return false;
 
             var nameLength = BitConverter.ToInt32(body, 12);
@@ -31,9 +34,11 @@ namespace DfoServer.Network.Parsers.Inventory
             request = new ItemUpgradeRequest
             {
                 Method = (ItemUpgradeMethod)rawMethod,
-                Mode = rawMethod == (ushort)ItemUpgradeMethod.Amplify
-                    ? ItemUpgradeMode.Amplify
-                    : ItemUpgradeMode.Reinforce,
+                Mode = lukcyDeed
+                    ? ItemUpgradeMode.Reinforce
+                    : rawMethod == (ushort)ItemUpgradeMethod.Amplify
+                        ? ItemUpgradeMode.Amplify
+                        : ItemUpgradeMode.Reinforce,
                 TargetSlotIndex = BitConverter.ToInt16(body, 2),
                 TargetItemTemplateId = BitConverter.ToInt32(body, 4),
                 MaterialSlotIndex = BitConverter.ToInt16(body, 8),

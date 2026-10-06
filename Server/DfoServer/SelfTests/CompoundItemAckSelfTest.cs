@@ -12,13 +12,18 @@ namespace DfoServer.SelfTests
             var failures = 0;
 
             Check(
-                "normal recipe ACK matches A21 captured length and remaining-count fields",
+                "normal recipe ACK keeps remaining-count fields and zero reserved reward bytes",
                 VerifyNormalRecipeAck(),
                 ref failures);
 
             Check(
-                "equipment output ACK uses equipment reward kind and preserved core fields",
+                "equipment transform reward keeps enhance fields out of the ACK",
                 VerifyEquipmentRewardAck(),
+                ref failures);
+
+            Check(
+                "reward entries keep a fixed stride with a zero reserved packet tail",
+                VerifyMultiRewardEntryStride(),
                 ref failures);
 
             Console.WriteLine(
@@ -86,7 +91,7 @@ namespace DfoServer.SelfTests
                 && ReadInt16(body, 25) == 65
                 && ReadInt32(body, 27) == 1183
                 && ReadInt32(body, 31) == 1
-                && ReadInt32(body, 42) == 0x6A8AC176;
+                && IsZeroRange(body, 35, 34);
         }
 
         private static bool VerifyEquipmentRewardAck()
@@ -136,14 +141,46 @@ namespace DfoServer.SelfTests
                 && ReadInt16(body, 11) == 9
                 && ReadInt32(body, 13) == equipment.ItemId
                 && ReadInt32(body, 17) == equipment.Value
-                && body[21] == equipment.Attr
-                && ReadUInt16(body, 22) == equipment.Durability
-                && body[24] == equipment.SealFlag
-                && ReadUInt16(body, 25) == equipment.AmplifyValue
-                && body[27] == equipment.AmplifyType
-                && ReadInt32(body, 28) == equipment.Marker16
-                && body[32] == equipment.GenuineUpgrade
-                && body[42] == equipment.EquipmentLockId;
+                && IsZeroRange(body, 21, 34);
+        }
+
+        private static bool VerifyMultiRewardEntryStride()
+        {
+            var result = new CompoundItemRecipeResult();
+            result.Rewards.Add(new BoosterRewardResult
+            {
+                ListType = InventoryListType.Main,
+                SlotIndex = 4,
+                ItemTemplateId = 1183,
+                StackCount = 3,
+                GrantedCount = 3,
+                CoreSnapshot = CreateStackable(1183, 3),
+            });
+            result.Rewards.Add(new BoosterRewardResult
+            {
+                ListType = InventoryListType.Main,
+                SlotIndex = 12,
+                ItemTemplateId = 2205,
+                StackCount = 1,
+                GrantedCount = 1,
+                CoreSnapshot = CreateStackable(2205, 1),
+            });
+
+            var body = CompoundItemAckBuilder.Build(result);
+            return body.Length == 81
+                && body[0] == 1
+                && body[1] == 0
+                && body[2] == 2
+                && body[3] == 0
+                && ReadInt16(body, 4) == 4
+                && ReadInt32(body, 6) == 1183
+                && ReadInt32(body, 10) == 3
+                && IsZeroRange(body, 14, 22)
+                && body[36] == 0
+                && ReadInt16(body, 37) == 12
+                && ReadInt32(body, 39) == 2205
+                && ReadInt32(body, 43) == 1
+                && IsZeroRange(body, 47, 34);
         }
 
         private static ItemCore CreateStackable(int itemId, int count, int marker16 = ItemCore.Marker16Default)
@@ -157,11 +194,19 @@ namespace DfoServer.SelfTests
         private static short ReadInt16(byte[] data, int offset)
             => BitConverter.ToInt16(data, offset);
 
-        private static ushort ReadUInt16(byte[] data, int offset)
-            => BitConverter.ToUInt16(data, offset);
-
         private static int ReadInt32(byte[] data, int offset)
             => BitConverter.ToInt32(data, offset);
+
+        private static bool IsZeroRange(byte[] data, int offset, int length)
+        {
+            for (var index = 0; index < length; index++)
+            {
+                if (data[offset + index] != 0)
+                    return false;
+            }
+
+            return true;
+        }
 
         private static void Check(string name, bool condition, ref int failures)
         {

@@ -52,22 +52,9 @@ namespace DfoServer.Network.Builders
                 writer.WriteInt16(reward.SlotIndex);
                 writer.WriteInt32(reward.ItemTemplateId);
                 writer.WriteInt32(ResolveRewardValue(reward, core));
-                writer.WriteByte(core != null ? core.Attr : reward.Attr);
-                writer.WriteUInt16(core != null ? core.Durability : reward.Durability);
-                writer.WriteByte(core != null ? core.SealFlag : (byte)0);
-                writer.WriteUInt16(core != null ? core.AmplifyValue : (ushort)0);
-                writer.WriteByte(core != null ? core.AmplifyType : (byte)0);
-                writer.WriteInt32(ResolveRewardMarker(core));
-                writer.WriteByte(core != null ? core.GenuineUpgrade : (byte)0);
-                writer.WriteByte(core != null ? core.EmancipateEquipmentLevel : (byte)0);
-                writer.WriteByte(core != null ? core.TradeRestriction : (byte)0);
-                writer.WriteUInt16(core != null ? core.TailUnknown0 : (ushort)0);
-                writer.WriteByte(core != null ? core.TailUnknown1 : (byte)0);
-                writer.WriteByte(core != null ? core.TailUnknown2 : (byte)0);
-                writer.WriteByte(core != null ? core.TailUnknown3 : (byte)0);
-                writer.WriteByte(core != null ? core.RemainUseCount : (byte)0);
-                writer.WriteByte(core != null ? core.SortLockFlag : (byte)0);
-                writer.WriteByte(core != null ? core.EquipmentLockId : (byte)0);
+                // 强化/增幅/锻造等字段不写入 ACK：客户端在保留位读到非 0 值会卡死，
+                // 物品真实属性由随后的 UPDATE_ITEM_LIST 通知下发。
+                writer.WriteZeroBytes(22);
             }
         }
 
@@ -110,14 +97,6 @@ namespace DfoServer.Network.Builders
                 return 1;
 
             return Math.Max(1, reward.GrantedCount);
-        }
-
-        private static int ResolveRewardMarker(ItemCore core)
-        {
-            if (core == null || core.Marker16 == ItemCore.Marker16Default)
-                return 0;
-
-            return core.Marker16;
         }
     }
 }

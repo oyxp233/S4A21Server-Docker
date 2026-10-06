@@ -333,6 +333,7 @@ namespace DfoServer.Game.Inventory
             var transformed = plan.SourceSnapshot.Copy();
             transformed.ItemId = plan.OutputItemTemplateId;
             transformed.ItemKind = plan.OutputItemKind;
+            ApplyOutputItemDefaults(transformed, plan.OutputItemTemplateId);
             if (!inventory.SetItem(InventoryListType.Main, plan.SourceSlotIndex, transformed))
                 return false;
 
@@ -349,6 +350,19 @@ namespace DfoServer.Game.Inventory
                 CoreSnapshot = transformed.Copy(),
             };
             return true;
+        }
+
+        // 转换产物是新物品：封装/交易态按产物自身 PVF 初始化，不继承源武器的实例状态。
+        // 释魂系列 [attach type] [sealing]（设计图说明「该武器为封装状态」）；
+        // 圣耀系列 [attach type] [trade]，与源一致。强化/增幅/锻造/附魔/品级仍保留。
+        internal static void ApplyOutputItemDefaults(ItemCore transformed, int outputItemTemplateId)
+        {
+            if (transformed == null || outputItemTemplateId <= 0)
+                return;
+
+            var metadata = ItemMetadataResolver.Resolve(outputItemTemplateId);
+            transformed.SealFlag = metadata != null && metadata.IsSealed ? (byte)1 : (byte)0;
+            transformed.TradeRestriction = 0;
         }
 
         internal static bool TryParseCompoundRecipe(int itemTemplateId, out CompoundItemRecipeDefinition recipe)

@@ -24,6 +24,7 @@ namespace DfoServer.SelfTests
             VerifyPvfLifecycleParsing(ref failures);
             VerifyExperienceBonusEffectLookup(ref failures);
             VerifyLifecycleRules(ref failures);
+            VerifyEquipmentTransformOutputDefaults(ref failures);
 
             Console.WriteLine(failures == 0
                 ? "ITEM_STATE selftest passed"
@@ -618,6 +619,55 @@ PRAGMA user_version = 6;";
             Check(
                 "pet cleanup marks one creature detail deleted",
                 cleanupInventory.CreatureDetails.DeletedDetailUids.Count == 1,
+                ref failures);
+        }
+
+        private static void VerifyEquipmentTransformOutputDefaults(ref int failures)
+        {
+            var transformedSource = ItemCore.Create(ItemCore.KindEquipment, 101000027);
+            transformedSource.SealFlag = 0;
+            transformedSource.TradeRestriction = 1;
+            transformedSource.Attr = 13;
+            transformedSource.AmplifyType = 3;
+            transformedSource.AmplifyValue = 7;
+            transformedSource.GenuineUpgrade = 8;
+            transformedSource.EnchantCardId = 0x1234;
+            transformedSource.EnchantUpgradeCount = 2;
+            transformedSource.Value = 999999998;
+            transformedSource.Durability = 45;
+
+            InventoryCompoundItemRecipeService.ApplyOutputItemDefaults(transformedSource, 101000028);
+            Check(
+                "equipment transform output initializes sealed state from output PVF",
+                transformedSource.SealFlag == 1
+                && transformedSource.TradeRestriction == 0,
+                ref failures);
+            Check(
+                "equipment transform output keeps source upgrade attributes",
+                transformedSource.Attr == 13
+                && transformedSource.AmplifyType == 3
+                && transformedSource.AmplifyValue == 7
+                && transformedSource.GenuineUpgrade == 8
+                && transformedSource.EnchantCardId == 0x1234
+                && transformedSource.EnchantUpgradeCount == 2
+                && transformedSource.Value == 999999998
+                && transformedSource.Durability == 45,
+                ref failures);
+
+            var sealedSource = ItemCore.Create(ItemCore.KindEquipment, 101000027);
+            sealedSource.SealFlag = 1;
+            InventoryCompoundItemRecipeService.ApplyOutputItemDefaults(sealedSource, 101000028);
+            Check(
+                "equipment transform output seal state follows output PVF not source state",
+                sealedSource.SealFlag == 1,
+                ref failures);
+
+            var tradeOutputSource = ItemCore.Create(ItemCore.KindEquipment, 101000027);
+            tradeOutputSource.SealFlag = 1;
+            InventoryCompoundItemRecipeService.ApplyOutputItemDefaults(tradeOutputSource, 101000027);
+            Check(
+                "equipment transform output with trade output stays unsealed",
+                tradeOutputSource.SealFlag == 0,
                 ref failures);
         }
 

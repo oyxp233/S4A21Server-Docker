@@ -54,6 +54,7 @@ namespace DfoServer
             ("--selftest-a21-death-tower-protocol", SelfTests.A21DeathTowerProtocolSelfTest.Run),
             ("--selftest-a21-special-dungeon-protocol", SelfTests.A21SpecialDungeonProtocolSelfTest.Run),
             ("--selftest-dungeon-entry-limit", SelfTests.DungeonEntryLimitServiceSelfTest.Run),
+            ("--selftest-dimension-enter-ticket", SelfTests.DimensionDungeonEnterTicketSelfTest.Run),
             ("--selftest-item-state", SelfTests.ItemStateSelfTest.Run),
             ("--selftest-inventory-sort-condition", SelfTests.InventorySortConditionSelfTest.Run),
             ("--selftest-sort-lock-equip-swap", SelfTests.SortLockEquipSwapSelfTest.Run),

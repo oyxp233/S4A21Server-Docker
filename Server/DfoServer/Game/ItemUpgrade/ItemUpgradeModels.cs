@@ -16,6 +16,9 @@ namespace DfoServer.Game.ItemUpgrade
         Reinforce = 0,
         Amplify = 1,
         AdvancedReinforce = 2,
+        // 幸运强化券/幸运增幅券走同一 UI(method=5)，
+        // 具体是强化还是增幅由材料格里的券决定（见 ItemUpgradeConsumableResolver）。
+        LuckyEnchantDeed = 5,
     }
 
     public enum ItemUpgradeScene
@@ -23,6 +26,8 @@ namespace DfoServer.Game.ItemUpgrade
         Npc = 0,
         Ticket = 1,
         Portable = 2,
+        // 幸运券：成功 +1，失败 -1（下限 0），不归零、不消耗保护券。
+        LuckyDeed = 3,
     }
 
     public enum ItemUpgradeConsumableKind
@@ -35,6 +40,8 @@ namespace DfoServer.Game.ItemUpgrade
         PortableAmplify = 5,
         ProtectReinforcement = 6,
         ProtectAmplify = 7,
+        LuckyReinforcement = 8,
+        LuckyAmplify = 9,
     }
 
     public enum ItemUpgradeTableKind
@@ -100,6 +107,8 @@ namespace DfoServer.Game.ItemUpgrade
         public int SuccessRateBonusWeight { get; set; }
         public ItemUpgradeCost Cost { get; set; } = new ItemUpgradeCost();
         public int FailureRetainLevel { get; set; } = -1;
+        // 幸运券专用：失败时下降的等级数，适用时不受装备保护券影响。
+        public int FailureDecrementLevel { get; set; } = -1;
         public int ProtectTriggerLevel => FailureRetainLevel >= 0 ? FailureRetainLevel + 1 : -1;
     }
 
@@ -122,6 +131,7 @@ namespace DfoServer.Game.ItemUpgrade
         public int SuccessRateBonusWeight { get; set; }
         public int EquippedUpgradeProbabilityIncrease { get; set; }
         public int FailureRetainLevel { get; set; } = -1;
+        public int FailureDecrementLevel { get; set; } = -1;
         public int ProtectTriggerLevel => FailureRetainLevel >= 0 ? FailureRetainLevel + 1 : -1;
     }
 
@@ -132,6 +142,14 @@ namespace DfoServer.Game.ItemUpgrade
             config = null;
             if (stackable == null)
                 return false;
+
+            // 幸运券同时带 [enchant random] 框架（但没有任何 [er_enchant] 行），
+            // 必须先按 [action type] 判定，否则会被误判成随机强化券。
+            if (IsLuckyEnchantDeed(stackable))
+            {
+                config = FromLuckyDeed(itemTemplateId, stackable);
+                return true;
+            }
 
             if (stackable.EquipmentReinforcementTicket != null)
             {
@@ -167,6 +185,54 @@ namespace DfoServer.Game.ItemUpgrade
 
             return false;
         }
+
+        private static bool IsLuckyEnchantDeed(StackableItemFile stackable)
+        {
+            return string.Equals(
+                NormalizeActionName(stackable.ActionTypeName),
+                "[lucky enchant deed]",
+                StringComparison.Ordinal);
+        }
+
+        // 幸运强化券(param 0)/幸运增幅券(param 1)：成功等级 +1，失败 -1（下限 0）。
+        // 概率在 PVF 中没有定义，按 explain 文案取 50/50。
+        private const int LuckyDeedSuccessWeight = 50000;
+
+        // 幸运券只适用于「强化/增幅 +14 及以下」的装备：
+        // 当前等级 > 14 时拒绝使用；对 +14 使用成功可到 +15。
+        private const int LuckyDeedMaxSourceLevel = 14;
+
+        private static ItemUpgradeConsumableConfig FromLuckyDeed(
+            int itemTemplateId,
+            StackableItemFile stackable)
+        {
+            var kind = ItemUpgradeConsumableKind.LuckyReinforcement;
+            var mode = ItemUpgradeMode.Reinforce;
+            var kindParam = stackable.ActionTypeParams.Count > 0
+                ? stackable.ActionTypeParams[0]
+                : 0;
+            if (kindParam == 1)
+            {
+                kind = ItemUpgradeConsumableKind.LuckyAmplify;
+                mode = ItemUpgradeMode.Amplify;
+            }
+
+            return new ItemUpgradeConsumableConfig
+            {
+                ItemTemplateId = itemTemplateId,
+                Kind = kind,
+                Mode = mode,
+                Scene = ItemUpgradeScene.LuckyDeed,
+                ActionTypeName = stackable.ActionTypeName,
+                ActionTypeParams = new List<int>(stackable.ActionTypeParams),
+                Cost = new ItemUpgradeCost { MaterialItemId = itemTemplateId, MaterialCount = 1, Gold = 0 },
+                FailureDecrementLevel = 1,
+            };
+        }
+
+        internal static int GetLuckyDeedSuccessWeight() => LuckyDeedSuccessWeight;
+
+        internal static int GetLuckyDeedMaxSourceLevel() => LuckyDeedMaxSourceLevel;
 
         private static ItemUpgradeConsumableConfig FromTicket(
             int itemTemplateId,
