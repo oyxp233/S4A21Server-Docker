@@ -454,6 +454,54 @@ namespace DfoServer.Game.Inventory
                         choice.OptionValue);
                 }
             }
+            else if (definition.Categories.Count > 0)
+            {
+                // 自选礼盒: selnum=0 发所选分类全集, selnum=K>0 只发校验后的选中集。
+                var stackable = StackableItemProvider.Load(packageItemTemplateId);
+                if (stackable == null || request.SelectionContext < 0)
+                    return false;
+
+                var categories = new List<IReadOnlyList<int>>(definition.Categories.Count);
+                foreach (var category in definition.Categories)
+                {
+                    var categoryItemIds = new List<int>(category.Count);
+                    foreach (var entry in category)
+                        categoryItemIds.Add(entry.ItemTemplateId);
+
+                    categories.Add(categoryItemIds);
+                }
+
+                if (!BoosterSelectionGrantResolver.TryResolveGrantedItemIds(
+                        stackable.BoosterSelectionNum,
+                        categories,
+                        request.SelectionContext,
+                        request.SelectedItemTemplateIds,
+                        out var grantedItemIds))
+                    return false;
+
+                foreach (var itemId in grantedItemIds)
+                {
+                    if (!definition.TryGetReward(itemId, out var grantedReward))
+                        return false;
+
+                    if (grantedReward.ExpireTime > 0
+                        && grantedReward.ExpireTime <= DateTimeOffset.Now.ToUnixTimeSeconds())
+                        return false;
+
+                    var grantedMetadata = ItemMetadataResolver.Resolve(grantedReward.ItemTemplateId);
+                    if (grantedMetadata.ItemKind == "special"
+                        && !EpicPieceCatalogService.IsEpicPieceId(grantedReward.ItemTemplateId))
+                        return false;
+
+                    rewardForResult = rewardForResult ?? grantedReward;
+                    AddRewardRequest(
+                        rewardRequests,
+                        grantedReward.ItemTemplateId,
+                        grantedReward.Count,
+                        grantedReward.ExpireTime,
+                        request.SelectionFlag);
+                }
+            }
             else
             {
                 if (!definition.TryGetReward(request.SelectedItemTemplateId, out var reward))

@@ -116,18 +116,17 @@ namespace DfoServer.Game.Inventory
 
             if (stackableType.Equals("[booster selection]", StringComparison.OrdinalIgnoreCase))
             {
-                if (selectedItemTemplateIds != null
-                    && selectedItemTemplateIds.Count > 0
-                    && TryResolveClientSelectedRewards(stackable, selectedItemTemplateIds, out rewards))
-                    return true;
+                if (selectedItemTemplateIds != null && selectedItemTemplateIds.Count > 0)
+                    return TryResolveClientSelectedRewards(stackable, selectedItemTemplateIds, out rewards);
 
+                // 兼容兜底: 入口不带选中信息(0x00D0/0x0450/0x0218)时按整表发放, 保持现状。
                 if (stackable.BoosterSelectionNum <= 0)
                 {
                     rewards = stackable.BoosterSelectionRewards.ToList();
                     return rewards.Count > 0;
                 }
 
-                return TryResolveClientSelectedRewards(stackable, selectedItemTemplateIds, out rewards);
+                return false;
             }
 
             return false;
@@ -142,9 +141,11 @@ namespace DfoServer.Game.Inventory
             if (stackable == null || selectedItemTemplateIds == null || selectedItemTemplateIds.Count == 0)
                 return false;
 
-            var candidates = stackable.BoosterSelectionRewards.Count > 0
-                ? stackable.BoosterSelectionRewards
-                : stackable.PackageRewards;
+            // [booster selection] 走分组校验语义; 其他类型(如 [usable cera package])保持按选中 id 取奖励。
+            if (stackable.BoosterSelectionRewards.Count > 0)
+                return TryResolveBoosterSelectionRewards(stackable, selectedItemTemplateIds, out rewards);
+
+            var candidates = stackable.PackageRewards;
             if (candidates.Count == 0)
                 return false;
 
@@ -170,6 +171,81 @@ namespace DfoServer.Game.Inventory
             }
 
             return rewards.Count > 0;
+        }
+
+        private static bool TryResolveBoosterSelectionRewards(
+            PvfLib.StackableItemFile stackable,
+            IReadOnlyList<int> selectedItemTemplateIds,
+            out List<PvfLib.BoosterRewardEntry> rewards)
+        {
+            rewards = new List<PvfLib.BoosterRewardEntry>();
+            if (stackable == null || selectedItemTemplateIds == null || selectedItemTemplateIds.Count == 0)
+                return false;
+
+            // 兜底入口没有 body[2..4] 分类索引, 由选中 id 所属 Group 反查分类。
+            var categories = BuildBoosterSelectionCategories(stackable);
+            if (!BoosterSelectionGrantResolver.TryResolveGrantedItemIds(
+                    stackable.BoosterSelectionNum,
+                    categories,
+                    -1,
+                    selectedItemTemplateIds,
+                    out var grantedItemIds))
+                return false;
+
+            var rewardByItemId = new Dictionary<int, PvfLib.BoosterRewardEntry>();
+            foreach (var reward in stackable.BoosterSelectionRewards)
+            {
+                if (reward == null || reward.ItemId <= 0 || rewardByItemId.ContainsKey(reward.ItemId))
+                    continue;
+
+                rewardByItemId[reward.ItemId] = reward;
+            }
+
+            foreach (var itemId in grantedItemIds)
+            {
+                if (!rewardByItemId.TryGetValue(itemId, out var reward))
+                    return false;
+
+                rewards.Add(reward);
+            }
+
+            return rewards.Count > 0;
+        }
+
+        private static List<IReadOnlyList<int>> BuildBoosterSelectionCategories(PvfLib.StackableItemFile stackable)
+        {
+            var categories = new List<IReadOnlyList<int>>();
+            if (stackable?.BoosterSelectionRewards == null || stackable.BoosterSelectionRewards.Count == 0)
+                return categories;
+
+            // ParseBoosterSelection 按 [booster select category] 顺序写入 Group(从 1 开始)。
+            var maxGroup = 0;
+            foreach (var reward in stackable.BoosterSelectionRewards)
+            {
+                if (reward != null && reward.Group > maxGroup)
+                    maxGroup = reward.Group;
+            }
+
+            var buckets = new List<int>[maxGroup];
+            foreach (var reward in stackable.BoosterSelectionRewards)
+            {
+                if (reward == null || reward.ItemId <= 0)
+                    continue;
+
+                var categoryIndex = reward.Group - 1;
+                if (categoryIndex < 0 || categoryIndex >= maxGroup)
+                    continue;
+
+                if (buckets[categoryIndex] == null)
+                    buckets[categoryIndex] = new List<int>();
+
+                buckets[categoryIndex].Add(reward.ItemId);
+            }
+
+            for (var i = 0; i < maxGroup; i++)
+                categories.Add(buckets[i] ?? new List<int>());
+
+            return categories;
         }
 
         internal static bool TryResolveMallAutoOpenRewards(

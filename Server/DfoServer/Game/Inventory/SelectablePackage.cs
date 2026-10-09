@@ -16,6 +16,8 @@ namespace DfoServer.Game.Inventory
 
         public int SelectedItemTemplateId { get; set; }
 
+        public List<int> SelectedItemTemplateIds { get; } = new List<int>();
+
         public byte SelectionFlag { get; set; }
 
         public List<AvatarPackageChoice> AvatarChoices { get; } = new List<AvatarPackageChoice>();
@@ -28,24 +30,53 @@ namespace DfoServer.Game.Inventory
             if (body == null || body.Length < 9)
                 return false;
 
-            var slotIndex = BitConverter.ToInt16(body, 0);
-            var selectionContext = BitConverter.ToInt16(body, 2);
-            var selectedItemTemplateId = BitConverter.ToInt32(body, 4);
-            if (selectedItemTemplateId <= 0)
-                return false;
-
             request = new SelectablePackageOpenRequest
             {
-                SlotIndex = slotIndex,
-                SelectionContext = selectionContext,
-                SelectedItemTemplateId = selectedItemTemplateId,
-                SelectionFlag = body[8],
+                SlotIndex = BitConverter.ToInt16(body, 0),
+                SelectionContext = BitConverter.ToInt16(body, 2),
             };
-            TryParseAvatarChoices(body, request);
+
+            // 装扮多选布局 slot(2)+ctx(2)+ids(N*4)+count(1)+records(N*5) 优先识别,
+            // 命中后不再按普通布局解释 id 区。
+            if (TryParseAvatarChoices(body, request))
+            {
+                request.SelectedItemTemplateId = BitConverter.ToInt32(body, 4);
+                request.SelectionFlag = body[8];
+                return true;
+            }
+
+            // 普通布局 slot(2)+categoryIndex(2)+itemIds(N*4)+flag(1)。
+            var itemIdByteCount = body.Length - 5;
+            if (itemIdByteCount <= 0 || itemIdByteCount % 4 != 0)
+            {
+                request = null;
+                return false;
+            }
+
+            for (var offset = 4; offset + 4 <= body.Length - 1; offset += 4)
+            {
+                var itemTemplateId = BitConverter.ToInt32(body, offset);
+                if (itemTemplateId <= 0)
+                {
+                    request = null;
+                    return false;
+                }
+
+                request.SelectedItemTemplateIds.Add(itemTemplateId);
+            }
+
+            if (request.SelectedItemTemplateIds.Count == 0)
+            {
+                request = null;
+                return false;
+            }
+
+            request.SelectedItemTemplateId = request.SelectedItemTemplateIds[0];
+            request.SelectionFlag = body[body.Length - 1];
             return true;
         }
 
-        private static void TryParseAvatarChoices(byte[] body, SelectablePackageOpenRequest request)
+        private static bool TryParseAvatarChoices(byte[] body, SelectablePackageOpenRequest request)
         {
             for (var count = 1; count <= 32; count++)
             {
@@ -66,7 +97,7 @@ namespace DfoServer.Game.Inventory
                     if (itemTemplateId <= 0 || itemTemplateId != selectedIds[i])
                     {
                         request.AvatarChoices.Clear();
-                        return;
+                        return false;
                     }
 
                     request.AvatarChoices.Add(new AvatarPackageChoice
@@ -76,8 +107,10 @@ namespace DfoServer.Game.Inventory
                     });
                 }
 
-                return;
+                return true;
             }
+
+            return false;
         }
     }
 
@@ -108,6 +141,11 @@ namespace DfoServer.Game.Inventory
 
         public IReadOnlyList<PackageRewardEntry> Rewards { get; set; }
 
+        // [booster select category] 按出现顺序展开的分类, 索引与请求 body[2..4] 一致;
+        // 普通选择包/装扮包为空。
+        public IReadOnlyList<IReadOnlyList<PackageRewardEntry>> Categories { get; set; }
+            = Array.Empty<IReadOnlyList<PackageRewardEntry>>();
+
         public bool TryGetReward(int itemTemplateId, out PackageRewardEntry reward)
         {
             foreach (var entry in Rewards)
@@ -120,6 +158,34 @@ namespace DfoServer.Game.Inventory
             }
 
             reward = null;
+            return false;
+        }
+
+        public bool TryGetCategory(int categoryIndex, out IReadOnlyList<PackageRewardEntry> category)
+        {
+            category = null;
+            if (Categories == null || categoryIndex < 0 || categoryIndex >= Categories.Count)
+                return false;
+
+            category = Categories[categoryIndex];
+            return true;
+        }
+
+        public bool TryGetReward(int categoryIndex, int itemTemplateId, out PackageRewardEntry reward)
+        {
+            reward = null;
+            if (!TryGetCategory(categoryIndex, out var category))
+                return false;
+
+            foreach (var entry in category)
+            {
+                if (entry.ItemTemplateId == itemTemplateId)
+                {
+                    reward = entry;
+                    return true;
+                }
+            }
+
             return false;
         }
     }
@@ -141,8 +207,15 @@ namespace DfoServer.Game.Inventory
                 return false;
 
             var rewards = ParsePackageData(stackable.PackageData);
+            IReadOnlyList<IReadOnlyList<PackageRewardEntry>> categories = null;
             if (rewards.Count == 0 && IsBoosterSelection(stackable))
-                rewards = ParseBoosterSelectCategory(stackable);
+            {
+                categories = ParseBoosterSelectCategories(stackable);
+                rewards = new List<PackageRewardEntry>();
+                foreach (var category in categories)
+                    rewards.AddRange(category);
+            }
+
             if (rewards.Count == 0)
                 return false;
 
@@ -153,6 +226,7 @@ namespace DfoServer.Game.Inventory
             {
                 PackageItemTemplateId = packageItemTemplateId,
                 Rewards = rewards,
+                Categories = categories ?? Array.Empty<IReadOnlyList<PackageRewardEntry>>(),
             };
             return true;
         }
@@ -215,33 +289,39 @@ namespace DfoServer.Game.Inventory
             return rewards;
         }
 
-        private static List<PackageRewardEntry> ParseBoosterSelectCategory(StackableItemFile stackable)
+        private static List<IReadOnlyList<PackageRewardEntry>> ParseBoosterSelectCategories(StackableItemFile stackable)
         {
-            var rewards = new List<PackageRewardEntry>();
-            var category = stackable.Root?.GetChild("booster select category");
-            if (category == null)
-                return rewards;
+            var categories = new List<IReadOnlyList<PackageRewardEntry>>();
+            var categoryCount = stackable.Root?.GetChildren("booster select category")?.Count ?? 0;
+            if (categoryCount <= 0)
+                return categories;
 
-            ParseBoosterSelectNode(category, stackable.Content, rewards);
-            return rewards;
-        }
-
-        private static void ParseBoosterSelectNode(ScriptNode node, string content, List<PackageRewardEntry> rewards)
-        {
-            if (node == null)
-                return;
-
-            if (node.DataItems.Count > 0)
+            // PvfLib 已按 [booster select category] 出现顺序把奖励解析进 BoosterSelectionRewards 并打上
+            // Group(从 1 开始), 直接分桶即可保留分类索引; 4 字节 [avatar] 记录也由它正确解析。
+            var buckets = new List<PackageRewardEntry>[categoryCount];
+            foreach (var reward in stackable.BoosterSelectionRewards)
             {
-                var data = "";
-                foreach (var item in node.DataItems)
-                    data += " " + item.GetContent(content).Trim();
+                if (reward == null || reward.ItemId <= 0 || reward.Count <= 0)
+                    continue;
 
-                rewards.AddRange(ParsePackageData(data));
+                var categoryIndex = reward.Group - 1;
+                if (categoryIndex < 0 || categoryIndex >= categoryCount)
+                    continue;
+
+                if (buckets[categoryIndex] == null)
+                    buckets[categoryIndex] = new List<PackageRewardEntry>();
+
+                buckets[categoryIndex].Add(new PackageRewardEntry
+                {
+                    ItemTemplateId = reward.ItemId,
+                    Count = reward.Count,
+                });
             }
 
-            foreach (var child in node.Children)
-                ParseBoosterSelectNode(child, content, rewards);
+            for (var i = 0; i < categoryCount; i++)
+                categories.Add(buckets[i] ?? new List<PackageRewardEntry>());
+
+            return categories;
         }
 
         public static int ResolveItemExpirationUnixTime(int itemTemplateId)

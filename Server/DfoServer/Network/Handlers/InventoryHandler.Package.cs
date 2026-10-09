@@ -1996,16 +1996,10 @@ namespace DfoServer.Network.Handlers
 
         private static IReadOnlyList<int> ParseBoosterSelectionItemIds(byte[] body)
         {
-            var selected = new List<int>();
-            if (body == null || body.Length < 6)
-                return selected;
-
-            AddAlignedInt32Candidates(body, 4, 4, selected);
-            if (body.Length >= 3)
-                AddRecordCandidates(body, 3, body[2], 5, selected);
-            AddAlignedInt32Candidates(body, 2, 4, selected);
-
-            return selected;
+            // 0x00A0/0x0218 自选礼盒与 0x00A0 主路径共用同一布局解析, 不再做错位模糊扫描。
+            return SelectablePackageOpenRequest.TryParse(body, out var request)
+                ? request.SelectedItemTemplateIds
+                : Array.Empty<int>();
         }
 
         private static IReadOnlyList<int> Parse0207ItemIds(byte[] body)
@@ -2025,24 +2019,6 @@ namespace DfoServer.Network.Handlers
             }
 
             return selected;
-        }
-
-        private static void AddAlignedInt32Candidates(byte[] body, int startOffset, int stride, List<int> selected)
-        {
-            for (var offset = startOffset; offset + 4 <= body.Length; offset += stride)
-                AddItemCandidate(BitConverter.ToInt32(body, offset), selected);
-        }
-
-        private static void AddRecordCandidates(byte[] body, int startOffset, int count, int recordSize, List<int> selected)
-        {
-            for (var i = 0; i < count; i++)
-            {
-                var offset = startOffset + i * recordSize;
-                if (offset + 4 > body.Length)
-                    break;
-
-                AddItemCandidate(BitConverter.ToInt32(body, offset), selected);
-            }
         }
 
         private static void AddItemCandidate(int itemTemplateId, List<int> selected)
