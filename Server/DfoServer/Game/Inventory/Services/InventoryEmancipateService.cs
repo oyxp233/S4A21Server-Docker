@@ -31,7 +31,8 @@ namespace DfoServer.Game.Inventory
                 || ticketFile.EmancipateTicket < 0
                 || !ItemMetadataResolver.TryLoadEquipmentFile(target.ItemId, out var sourceFile)
                 || sourceFile.Emancipate == null
-                || sourceFile.Emancipate.Type != ticketFile.EmancipateTicket
+                || (sourceFile.Emancipate.Type >= 0
+                    && sourceFile.Emancipate.Type != ticketFile.EmancipateTicket)
                 || sourceFile.Emancipate.Inputs.Count == 0
                 || sourceFile.Emancipate.Outputs.Count != 1)
                 return false;

@@ -163,6 +163,20 @@ namespace DfoServer.Game.Inventory
         public bool DeliveredByMail { get; set; }
     }
 
+    // NPC 商店购买失败原因。用于把限购/金币不足/背包满等失败原因从业务层
+    // 带到协议层(handler 按原因选错误码并写归因日志)，不再只回一个含义不明的 false。
+    internal enum ShopBuyFailureReason
+    {
+        None = 0,
+        InvalidRequest = 1,
+        PurchaseLimitExceeded = 2,
+        InsufficientGold = 3,
+        InsufficientCera = 4,
+        InsufficientMaterial = 5,
+        InventoryFull = 6,
+        InternalError = 7,
+    }
+
     public enum PersonalCargoUpgradeTicketStatus
     {
         NotApplicable,
@@ -538,6 +552,29 @@ namespace DfoServer.Game.Inventory
         public bool TargetEquipped { get; set; }
 
         public List<InventoryMutationResult> ConsumedEmblems { get; } = new List<InventoryMutationResult>();
+    }
+
+    public sealed class EquipmentEmblemCollectResult
+    {
+        public InventoryListType TargetListType { get; set; } = InventoryListType.Main;
+
+        public short TargetSlotIndex { get; set; }
+
+        public bool TargetEquipped { get; set; }
+
+        public int ReturnedEmblemTemplateId { get; set; }
+
+        public int DestroyedEmblemTemplateId { get; set; }
+
+        public InventoryListType ReturnedEmblemListType { get; set; } = InventoryListType.Main;
+
+        public short ReturnedEmblemSlotIndex { get; set; } = -1;
+
+        public int BoxItemTemplateId { get; set; }
+
+        public short BoxSlotIndex { get; set; }
+
+        public int BoxRemainingCount { get; set; }
     }
 
     public sealed class AvatarSocketMutationResult

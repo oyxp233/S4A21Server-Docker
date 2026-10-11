@@ -17,7 +17,8 @@ namespace DfoServer.Game.Inventory
             int itemTemplateId,
             int buyCount,
             int npcId,
-            out InventoryMutationResult result)
+            out InventoryMutationResult result,
+            out ShopBuyFailureReason failureReason)
         {
             return TryBuyNpcItem(
                 inventory,
@@ -26,7 +27,8 @@ namespace DfoServer.Game.Inventory
                 npcId,
                 null,
                 null,
-                out result);
+                out result,
+                out failureReason);
         }
 
         internal static bool TryBuyNpcItem(
@@ -36,27 +38,41 @@ namespace DfoServer.Game.Inventory
             int npcId,
             SqliteConnection sharedConnection,
             SqliteTransaction sharedTransaction,
-            out InventoryMutationResult result)
+            out InventoryMutationResult result,
+            out ShopBuyFailureReason failureReason)
         {
             result = null;
+            failureReason = ShopBuyFailureReason.None;
             if (!TryNormalizeShopRequest(inventory, itemTemplateId, buyCount, out var metadata, out var effectiveCount))
+            {
+                failureReason = ShopBuyFailureReason.InvalidRequest;
                 return false;
+            }
 
             var totalGoldCost = checked(metadata.BuyGold * effectiveCount);
             var totalCeraCost = checked(metadata.BuyCoin * effectiveCount);
             var materialCosts = BuildMaterialCosts(itemTemplateId, metadata, effectiveCount);
 
             if (!CanGrant(inventory, itemTemplateId, effectiveCount))
+            {
+                failureReason = ShopBuyFailureReason.InventoryFull;
                 return false;
+            }
 
-            if (!ItemPurchaseLimitService.TryRecordPurchase(
-                    inventory,
-                    npcId,
-                    itemTemplateId,
-                    effectiveCount,
-                    sharedConnection,
-                    sharedTransaction))
+            var limitOutcome = ItemPurchaseLimitService.TryRecordPurchase(
+                inventory,
+                npcId,
+                itemTemplateId,
+                effectiveCount,
+                sharedConnection,
+                sharedTransaction);
+            if (limitOutcome != PurchaseLimitRecordOutcome.Ok)
+            {
+                failureReason = limitOutcome == PurchaseLimitRecordOutcome.LimitExceeded
+                    ? ShopBuyFailureReason.PurchaseLimitExceeded
+                    : ShopBuyFailureReason.InternalError;
                 return false;
+            }
 
             if (!TrySpendCosts(
                     inventory,
@@ -68,8 +84,12 @@ namespace DfoServer.Game.Inventory
                     out var updatedGold,
                     out var updatedSp,
                     out var updatedCera,
-                    out var costResults))
+                    out var costResults,
+                    out var spendFailureReason))
+            {
+                failureReason = spendFailureReason;
                 return false;
+            }
 
             if (!InventoryRewardGrantService.TryCreateAndInsert(
                     inventory,
@@ -80,6 +100,10 @@ namespace DfoServer.Game.Inventory
                 || grant == null
                 || !grant.Success)
             {
+                failureReason = grant != null
+                    && grant.Error == InventoryRewardGrantError.InsertPlanFailed
+                        ? ShopBuyFailureReason.InventoryFull
+                        : ShopBuyFailureReason.InternalError;
                 return false;
             }
 
@@ -148,7 +172,8 @@ namespace DfoServer.Game.Inventory
                     out var updatedGold,
                     out var updatedSp,
                     out var updatedCera,
-                    out var costResults))
+                    out var costResults,
+                    out _))
                 return false;
 
             if (!InventoryRewardGrantService.TryCreateAndInsert(
@@ -422,12 +447,14 @@ namespace DfoServer.Game.Inventory
             out int updatedGold,
             out int updatedSp,
             out int updatedCera,
-            out List<InventoryMutationResult> costResults)
+            out List<InventoryMutationResult> costResults,
+            out ShopBuyFailureReason failureReason)
         {
             updatedGold = inventory != null ? inventory.CountMainItem(0) : 0;
             updatedSp = 0;
             updatedCera = 0;
             costResults = new List<InventoryMutationResult>();
+            failureReason = ShopBuyFailureReason.InternalError;
             if (inventory == null || goldCost < 0 || ceraCost < 0)
                 return false;
 
@@ -435,9 +462,16 @@ namespace DfoServer.Game.Inventory
             foreach (var material in materialCosts)
             {
                 if (material.ItemId <= 0 || material.Count <= 0)
+                {
+                    failureReason = ShopBuyFailureReason.InternalError;
                     return false;
+                }
+
                 if (inventory.CountMainItem(material.ItemId) < material.Count)
+                {
+                    failureReason = ShopBuyFailureReason.InsufficientMaterial;
                     return false;
+                }
             }
 
             if (!TryLoadCurrentWallet(
@@ -453,7 +487,10 @@ namespace DfoServer.Game.Inventory
             if (goldCost > 0)
             {
                 if (!inventory.TryConsumeMainItem(0, goldCost, out var gold) || !gold.Success)
+                {
+                    failureReason = ShopBuyFailureReason.InsufficientGold;
                     return false;
+                }
 
                 updatedGold = gold.RemainingCount;
             }
@@ -461,7 +498,10 @@ namespace DfoServer.Game.Inventory
             foreach (var material in materialCosts)
             {
                 if (!inventory.TryConsumeMainItem(material.ItemId, material.Count, out var consume) || !consume.Success)
+                {
+                    failureReason = ShopBuyFailureReason.InsufficientMaterial;
                     return false;
+                }
 
                 costResults.Add(new InventoryMutationResult
                 {
@@ -475,14 +515,24 @@ namespace DfoServer.Game.Inventory
             }
 
             if (ceraCost <= 0)
+            {
+                failureReason = ShopBuyFailureReason.None;
                 return true;
+            }
 
-            return TrySpendCera(
-                inventory,
-                ceraCost,
-                out updatedCera,
-                sharedConnection,
-                sharedTransaction);
+            if (!TrySpendCera(
+                    inventory,
+                    ceraCost,
+                    out updatedCera,
+                    sharedConnection,
+                    sharedTransaction))
+            {
+                failureReason = ShopBuyFailureReason.InsufficientCera;
+                return false;
+            }
+
+            failureReason = ShopBuyFailureReason.None;
+            return true;
         }
 
         private static bool TryLoadCurrentWallet(

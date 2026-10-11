@@ -52,6 +52,18 @@ namespace DfoServer.Game.Inventory
             return applied && committed;
         }
 
+        internal static bool TryCommitEmblemCollect(InventoryLease lease, short boxSlot, int boxItemId, short targetSlot, int targetUid, out EquipmentEmblemCollectResult result, out bool persistenceFailed)
+        {
+            result = null;
+            persistenceFailed = false;
+            var applied = false;
+            EquipmentEmblemCollectResult value = null;
+            var committed = TryCommit(lease, "emblem-collect-item", () => applied = InventoryEquipmentMutationService.TryCollectEquipmentEmblems(lease.Inventory, boxSlot, boxItemId, targetSlot, targetUid, out value));
+            result = value;
+            persistenceFailed = applied && !committed;
+            return applied && committed;
+        }
+
         internal static bool TryCommitAvatarSocket(InventoryLease lease, short slot, int itemId, short materialSlot, out AvatarSocketMutationResult result, out bool persistenceFailed)
         {
             result = null;

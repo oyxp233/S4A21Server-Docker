@@ -18,6 +18,17 @@ namespace DfoServer.Game.Inventory
         public int ResetType { get; set; }
     }
 
+    // TryRecordPurchase 的三态结果：
+    //   Ok            计数已写入，或该物品无购买限制(按放行处理)
+    //   LimitExceeded UPSERT 限购守卫拒绝本次计数(唯一含义: 加上本次后超过上限)
+    //   Error         参数非法、建表失败或库存对象缺失等内部错误
+    internal enum PurchaseLimitRecordOutcome
+    {
+        Ok = 0,
+        LimitExceeded = 1,
+        Error = 2,
+    }
+
     internal static class ItemPurchaseLimitService
     {
         private const string TableName = "item_purchase_limits";
@@ -145,7 +156,7 @@ CREATE INDEX IF NOT EXISTS idx_item_purchase_limits_account_reset
             return result;
         }
 
-        internal static bool TryRecordPurchase(
+        internal static PurchaseLimitRecordOutcome TryRecordPurchase(
             InventoryService inventory,
             int npcId,
             int itemTemplateId,
@@ -154,10 +165,10 @@ CREATE INDEX IF NOT EXISTS idx_item_purchase_limits_account_reset
             SqliteTransaction transaction)
         {
             if (inventory == null || purchaseCount <= 0)
-                return false;
+                return PurchaseLimitRecordOutcome.Error;
 
             if (!TryResolveDefinition(itemTemplateId, out var definition))
-                return true;
+                return PurchaseLimitRecordOutcome.Ok;
 
             if (connection == null
                 || transaction == null
@@ -165,11 +176,11 @@ CREATE INDEX IF NOT EXISTS idx_item_purchase_limits_account_reset
                 || inventory.AccountId <= 0
                 || (definition.LimitType == LimitTypeCharacter && inventory.CharacterId <= 0))
             {
-                return false;
+                return PurchaseLimitRecordOutcome.Error;
             }
 
             if (!EnsureSchema(connection, transaction))
-                return false;
+                return PurchaseLimitRecordOutcome.Error;
 
             var characterId = definition.LimitType == LimitTypeAccount
                 ? 0
@@ -197,7 +208,9 @@ WHERE {TableName}.buy_count <= @limitCount - excluded.buy_count;";
                 command.Parameters.AddWithValue("@limitType", definition.LimitType);
                 command.Parameters.AddWithValue("@resetType", definition.ResetType);
                 command.Parameters.AddWithValue("@limitCount", definition.LimitCount);
-                return command.ExecuteNonQuery() > 0;
+                return command.ExecuteNonQuery() > 0
+                    ? PurchaseLimitRecordOutcome.Ok
+                    : PurchaseLimitRecordOutcome.LimitExceeded;
             }
         }
 

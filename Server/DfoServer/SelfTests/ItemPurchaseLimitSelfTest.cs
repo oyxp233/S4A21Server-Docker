@@ -200,6 +200,169 @@ namespace DfoServer.SelfTests
                     VerifyBuyItemAckRequestedCount(accountItemId, 5),
                     ref failures);
 
+                // ── TryRecordPurchase 三态 ────────────────────────────────────
+                const int freshLimitNpcId = 599101;
+                using (var connection = database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    var outcome = ItemPurchaseLimitService.TryRecordPurchase(
+                        purchaseInventory,
+                        freshLimitNpcId,
+                        accountItemId,
+                        accountDefinition.LimitCount + 1,
+                        connection,
+                        transaction);
+                    Check(
+                        "全新行购买数超上限返回 LimitExceeded",
+                        outcome == PurchaseLimitRecordOutcome.LimitExceeded,
+                        ref failures);
+                    transaction.Rollback();
+                }
+
+                Check(
+                    "超上限购买不写入限购行",
+                    ReadPurchaseCount(
+                        database,
+                        purchaseAccountId,
+                        GetRowCharacterId(accountDefinition.LimitType, purchaseCharacterId),
+                        freshLimitNpcId,
+                        accountItemId,
+                        accountDefinition.LimitType,
+                        accountDefinition.ResetType) == 0,
+                    ref failures);
+
+                const int atLimitNpcId = 599102;
+                InsertPurchaseLimitRow(
+                    database,
+                    purchaseAccountId,
+                    GetRowCharacterId(accountDefinition.LimitType, purchaseCharacterId),
+                    atLimitNpcId,
+                    accountItemId,
+                    accountDefinition.LimitCount,
+                    accountDefinition.LimitType,
+                    accountDefinition.ResetType);
+                using (var connection = database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    var outcome = ItemPurchaseLimitService.TryRecordPurchase(
+                        purchaseInventory,
+                        atLimitNpcId,
+                        accountItemId,
+                        1,
+                        connection,
+                        transaction);
+                    Check(
+                        "已达上限再购 1 个返回 LimitExceeded",
+                        outcome == PurchaseLimitRecordOutcome.LimitExceeded,
+                        ref failures);
+                    transaction.Rollback();
+                }
+
+                Check(
+                    "已达上限的限购行计数不变",
+                    ReadPurchaseCount(
+                        database,
+                        purchaseAccountId,
+                        GetRowCharacterId(accountDefinition.LimitType, purchaseCharacterId),
+                        atLimitNpcId,
+                        accountItemId,
+                        accountDefinition.LimitType,
+                        accountDefinition.ResetType) == accountDefinition.LimitCount,
+                    ref failures);
+
+                const int legalPurchaseNpcId = 599103;
+                using (var connection = database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    var outcome = ItemPurchaseLimitService.TryRecordPurchase(
+                        purchaseInventory,
+                        legalPurchaseNpcId,
+                        accountItemId,
+                        1,
+                        connection,
+                        transaction);
+                    Check(
+                        "未超上限购买返回 Ok",
+                        outcome == PurchaseLimitRecordOutcome.Ok,
+                        ref failures);
+                    transaction.Commit();
+                }
+
+                Check(
+                    "未超上限购买写入计数",
+                    ReadPurchaseCount(
+                        database,
+                        purchaseAccountId,
+                        GetRowCharacterId(accountDefinition.LimitType, purchaseCharacterId),
+                        legalPurchaseNpcId,
+                        accountItemId,
+                        accountDefinition.LimitType,
+                        accountDefinition.ResetType) == 1,
+                    ref failures);
+
+                if (TryFindUnlimitedShopItem(catalog, out var unlimitedItemId))
+                {
+                    using (var connection = database.OpenConnection())
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        var outcome = ItemPurchaseLimitService.TryRecordPurchase(
+                            purchaseInventory,
+                            accountNpcId,
+                            unlimitedItemId,
+                            1,
+                            connection,
+                            transaction);
+                        Check(
+                            "无购买限制物品返回 Ok",
+                            outcome == PurchaseLimitRecordOutcome.Ok,
+                            ref failures);
+                        transaction.Rollback();
+                    }
+                }
+                else
+                {
+                    Check("无购买限制物品返回 Ok", false, ref failures);
+                }
+
+                // ── TryBuyNpcItem 带出失败原因 ───────────────────────────────
+                using (var connection = purchaseInventory.Database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    var goldBefore = purchaseInventory.CountMainItem(0);
+                    var bought = InventoryShopRuntimeService.TryBuyNpcItem(
+                        purchaseInventory,
+                        accountItemId,
+                        1,
+                        accountNpcId,
+                        connection,
+                        transaction,
+                        out var blockedResult,
+                        out var blockedReason);
+                    Check(
+                        "超限购买返回失败并带出 PurchaseLimitExceeded",
+                        !bought
+                        && blockedResult == null
+                        && blockedReason == ShopBuyFailureReason.PurchaseLimitExceeded,
+                        ref failures);
+                    Check(
+                        "超限购买不扣金币且不发放物品",
+                        purchaseInventory.CountMainItem(0) == goldBefore
+                        && purchaseInventory.CountMainItem(accountItemId) == 0,
+                        ref failures);
+                    transaction.Rollback();
+                }
+
+                // ── 失败回包格式 ────────────────────────────────────────────
+                Check(
+                    "NPC 商店失败 ack 恒为 [0x00, errorCode] 两字节",
+                    VerifyBuyItemErrorAck(),
+                    ref failures);
+                Check(
+                    "限购超限映射到限制购买错误码",
+                    BuyItemAckBuilder.ResolveErrorCode(
+                        ShopBuyFailureReason.PurchaseLimitExceeded) == BuyItemAckBuilder.ErrorCodePurchaseLimited,
+                    ref failures);
+
                 var resetItemIdA = charItemId;
                 var resetItemIdB = accountItemId;
                 var resetRowCharacterIdA = GetRowCharacterId(
@@ -339,6 +502,56 @@ namespace DfoServer.SelfTests
                 && BitConverter.ToInt32(body, body.Length - 4) == buyCount;
         }
 
+        private static bool VerifyBuyItemErrorAck()
+        {
+            var codes = new[]
+            {
+                BuyItemAckBuilder.ErrorCodeInventoryFull,
+                BuyItemAckBuilder.ErrorCodeInsufficientGold,
+                BuyItemAckBuilder.ErrorCodeCannotBuy,
+                BuyItemAckBuilder.ErrorCodePurchaseLimited,
+            };
+
+            foreach (var code in codes)
+            {
+                var body = BuyItemAckBuilder.BuildError(code);
+                if (body == null || body.Length != 2 || body[0] != 0x00 || body[1] != code)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryFindUnlimitedShopItem(
+            ItemShopCatalog catalog,
+            out int itemId)
+        {
+            itemId = 0;
+            if (catalog == null)
+                return false;
+
+            var seen = new HashSet<int>();
+            foreach (var entry in catalog.Entries)
+            {
+                if (entry?.Shop == null || entry.NpcId <= 0)
+                    continue;
+
+                foreach (var candidate in entry.Shop.GetItemIds(true))
+                {
+                    if (candidate <= 0 || !seen.Add(candidate))
+                        continue;
+
+                    if (!ItemPurchaseLimitService.TryResolveDefinition(candidate, out _))
+                    {
+                        itemId = candidate;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         private static bool TryPurchaseOnce(
             InventoryService inventory,
             int npcId,
@@ -358,14 +571,14 @@ namespace DfoServer.SelfTests
             using (var connection = inventory.Database.OpenConnection())
             using (var transaction = connection.BeginTransaction())
             {
-                var ok = ItemPurchaseLimitService.TryRecordPurchase(
+                var outcome = ItemPurchaseLimitService.TryRecordPurchase(
                     inventory,
                     npcId,
                     itemId,
                     purchaseCount,
                     connection,
                     transaction);
-                if (!ok)
+                if (outcome != PurchaseLimitRecordOutcome.Ok)
                 {
                     transaction.Rollback();
                     return false;

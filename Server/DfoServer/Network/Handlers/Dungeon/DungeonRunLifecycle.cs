@@ -974,7 +974,8 @@ namespace DfoServer.Network.Handlers.Dungeon
         }
 
         // 离开一局时把会话内存的等级/经验落库(实现收口在经验系统,
-        // 这里只保留"仍在一局中才需要兜底"的副本生命周期判断)。
+        // 这里只保留"仍在一局中才需要兜底"的副本生命周期判断);
+        // 账号级荣誉/成长胶囊经验同样只累计内存, 一并在这里落库。
         private static bool PersistSessionExp(
             EnhancedClientSession session,
             DungeonRun run,
@@ -984,12 +985,25 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (player == null || run == null)
                 return false;
 
-            return Game.Progression.CharacterExperienceService.PersistSessionExp(
+            var persisted = Game.Progression.CharacterExperienceService.PersistSessionExp(
                 player,
                 source,
                 session.GameSession?.ConnectionString
                     ?? Infrastructure.GameDatabase.CreateDefault()
                         .ConnectionString);
+
+            // 失败仅记日志: 分钟 tick 与停机 FlushAll 还会重试,
+            // 不影响角色经验落库的既有返回语义。
+            var accountId = session.Account?.AccountId ?? 0;
+            if (accountId > 0
+                && !Game.Accounts.AccountExperienceBuffer.Instance.Flush(accountId))
+            {
+                FileLogger.Log(
+                    $"[DungeonRunLifecycle] account exp flush failed on {source}: " +
+                    $"account={accountId}");
+            }
+
+            return persisted;
         }
 
         private static void LogIncompleteCleanup(

@@ -33,11 +33,10 @@ namespace DfoServer.Network.Handlers
                     (connection, transaction) =>
                     {
                         if (ItemMetadataResolver.TryLoadStackableFile(command.TicketItemTemplateId, out var ticket)
-                            && IsEquipmentConversionTicket(ticket.EmancipateTicket)
                             && ticket.EmancipateTicket >= 0
                             && ItemMetadataResolver.TryLoadEquipmentFile(command.TargetItemTemplateId, out var target)
                             && target.Emancipate != null
-                            && target.Emancipate.Type == ticket.EmancipateTicket)
+                            && target.Emancipate.Outputs.Count > 0)
                         {
                             isEmancipate = true;
                             return InventoryEmancipateService.TryConvert(lease.Inventory, command, out result);
@@ -78,14 +77,6 @@ namespace DfoServer.Network.Handlers
             await _refresh.SendUpdateItemList(session, InventoryListType.Main, refreshSlots);
 
             FileLogger.Log($"[{ProtocolName}] UPGRADE_CHRONICLE: OK mode={(isEmancipate ? "emancipate" : "growth")} target={command.TargetSlotIndex} level={result.OldLevel}->{result.NewLevel} success={result.GrowthSucceeded} fragments={result.RequiredFragmentCount} roll={result.ProbabilityRoll}/{result.SuccessWeight}");
-        }
-
-        private static bool IsEquipmentConversionTicket(int ticket)
-        {
-            // Keep the existing growth/改造 path for PVF tickets handled by
-            // ChronicleGrowthService. This branch is only for equipment
-            // conversion records with an [emancipate] source definition.
-            return ticket >= 4 && ticket != 5;
         }
     }
 }

@@ -97,6 +97,15 @@ namespace DfoServer.Game.Progression
                     player.Exp,
                     _database);
 
+            // 升级点顺带把账号荣誉/胶囊的 pending 落库: 升级会紧接着触发
+            // USERINFO1 / subtype0 这类"仍直接读库"的广播(它们不在副本内
+            // read-your-writes 的范围内), 不落库就会出现 EXP 包是新值、
+            // 随后的广播把客户端展示回退成旧值的现象。
+            // 与角色经验"升级即落库"的策略同频, 升级是低频事件,
+            // 不构成"每杀必写"的回退。
+            if (result.LeveledUp && accountId > 0)
+                AccountExperienceBuffer.Instance.Flush(accountId);
+
             return result;
         }
 

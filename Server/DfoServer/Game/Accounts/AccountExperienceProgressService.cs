@@ -33,7 +33,6 @@ namespace DfoServer.Game.Accounts
     {
         private readonly string _connectionString;
         private readonly ICharacterRepository _characterRepository;
-        private readonly GrowthCapsuleProgressRepository _growthCapsuleRepository;
 
         public AccountExperienceProgressService(ICharacterRepository characterRepository)
             : this(characterRepository, ServerPaths.DatabasePath, ServerPaths.SchemaFilePath)
@@ -58,34 +57,44 @@ namespace DfoServer.Game.Accounts
             if (database == null)
                 throw new ArgumentNullException(nameof(database));
             _connectionString = database.ConnectionString;
-            _growthCapsuleRepository = new GrowthCapsuleProgressRepository(database);
         }
 
+        // 胶囊进度(含尚未落库的内存 pending)。
         public GrowthCapsuleSummary LoadGrowthCapsule(int accountId)
         {
-            return _growthCapsuleRepository.LoadSummary(accountId);
+            return GrowthCapsuleDataProvider.Calculate(
+                AccountExperienceBuffer.Instance
+                    .GetEffectiveTotals(accountId, _connectionString)
+                    .TotalGrowthCapsuleExp);
         }
 
+        // 荣誉进度(含尚未落库的内存 pending)。
+        public HonorLevelSummary LoadHonorSummary(int accountId)
+        {
+            var characters = accountId > 0
+                ? _characterRepository?.ListByAccount(accountId)
+                : null;
+            var totals = AccountExperienceBuffer.Instance
+                .GetEffectiveTotals(accountId, _connectionString);
+            return HonorLevelDataProvider.CalculateFromHonorExp(
+                totals.TotalHonorExp, characters);
+        }
+
+        // 高频杀怪入口: 只累计内存并立即返回含 pending 的有效总值,
+        // 落库交给分钟 tick / 出图兜底 / 停机 FlushAll。
         public AccountExperienceProgressSummary AddHonorAndGrowthCapsuleExp(int accountId, uint honorExpGain)
         {
             if (accountId <= 0)
                 return BuildSummary(accountId, default);
 
-            AccountExperienceProgressTotals totals;
-            using (var connection = new SqliteConnection(_connectionString))
-            {
-                connection.Open();
-                using (var transaction = connection.BeginTransaction())
-                {
-                    totals = AddInTransaction(
-                        connection, transaction, accountId, honorExpGain);
-                    transaction.Commit();
-                }
-            }
-
+            var totals = AccountExperienceBuffer.Instance.Add(
+                accountId, honorExpGain, _connectionString);
             return BuildSummary(accountId, totals);
         }
 
+        // 低频事务内入口(任务交付/经验道具/结算): 增量直写调用方事务, 有效总值由
+        // AccountExperienceBuffer 用"直写后的 DB 值 + 内存 pending"给出。
+        // 这里刻意不把 pending 搬进调用方事务 — 调用方随后可能回滚。
         internal static AccountExperienceProgressTotals AddInTransaction(
             SqliteConnection connection,
             SqliteTransaction transaction,
@@ -98,14 +107,18 @@ namespace DfoServer.Game.Accounts
                 return default;
 
             var growthCapsuleExpGain = GrowthCapsuleDataProvider.CalculateExpGain(honorExpGain);
+            // 直写前的胶囊进度: 只用于算"本次实际应用了多少"(胶囊可能已满)。
+            var growthCapsuleExpBefore = GrowthCapsuleProgressRepository.LoadTotalExp(
+                connection, transaction, accountId);
             var totalHonorExp = HonorLevelProgressRepository.AddHonorExpInTransaction(
                 connection, transaction, accountId, honorExpGain);
             var totalGrowthCapsuleExp = GrowthCapsuleProgressRepository.AddExpInTransaction(
-                connection, transaction, accountId, growthCapsuleExpGain, out var appliedGrowthCapsuleExp);
-            return new AccountExperienceProgressTotals(
+                connection, transaction, accountId, growthCapsuleExpGain, out _);
+            return AccountExperienceBuffer.Instance.CompleteDirectWrite(
+                accountId,
                 totalHonorExp,
                 totalGrowthCapsuleExp,
-                appliedGrowthCapsuleExp);
+                growthCapsuleExpBefore);
         }
 
         internal AccountExperienceProgressSummary BuildSummary(

@@ -75,8 +75,14 @@ namespace DfoServer.Game.Accounts
                                 };
                             }
 
-                            var totalExp = GrowthCapsuleProgressRepository.LoadTotalExp(
-                                connection, transaction, accountId);
+                            var persistedTotalExp =
+                                GrowthCapsuleProgressRepository.LoadTotalExp(
+                                    connection, transaction, accountId);
+                            // 内存里尚未落库的杀怪胶囊经验也是玩家进度: 判定与展示必须
+                            // 按有效值, 否则客户端已满格时服务端还判不足。
+                            var totalExp = AccountExperienceBuffer.Instance
+                                .ResolveCapsuleExpWithPending(
+                                    accountId, persistedTotalExp);
                             var summary = GrowthCapsuleDataProvider.Calculate(totalExp);
                             if (totalExp < summary.RequiredExp)
                             {
@@ -122,6 +128,10 @@ namespace DfoServer.Game.Accounts
                             }
 
                             transaction.Commit();
+                            // 领取判定与消耗用的是含 pending 的有效值, 提交后内存视图
+                            // 一并清零, 否则下一轮 Flush 会把刚领走的增量写回胶囊。
+                            AccountExperienceBuffer.Instance
+                                .NotifyCapsuleClaimed(accountId);
                             lease.Inventory.ClearDirtyState();
                             return new GrowthCapsuleClaimResult
                             {

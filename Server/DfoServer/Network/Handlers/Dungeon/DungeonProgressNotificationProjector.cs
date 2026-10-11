@@ -61,7 +61,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 };
             }
 
-            summary ??= _honorLevel.LoadSummary(session?.Account?.AccountId ?? 0);
+            summary ??= _accountExperience.LoadHonorSummary(session?.Account?.AccountId ?? 0);
             if (session?.Player != null)
             {
                 tail ??= new UserInfoMinimumTailSnapshot();
@@ -165,7 +165,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (reloadMissingAccountProgress)
             {
                 var accountId = session?.Account?.AccountId ?? 0;
-                honor ??= _honorLevel.LoadSummary(accountId);
+                honor ??= _accountExperience.LoadHonorSummary(accountId);
                 capsule ??= _accountExperience.LoadGrowthCapsule(accountId);
             }
             honor = ResolveHonorLevelForExp(session, honor);

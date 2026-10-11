@@ -240,6 +240,7 @@ namespace DfoServer.Network.Handlers
 
             var (cid, _) = ResolveOwner(session);
             InventoryMutationResult result = null;
+            var failureReason = ShopBuyFailureReason.InternalError;
             bool ok;
             if (TryGetOwnedInventoryLease(session, cid, out var lease))
             {
@@ -254,7 +255,8 @@ namespace DfoServer.Network.Handlers
                             npcId,
                             connection,
                             transaction,
-                            out result));
+                            out result,
+                            out failureReason));
             }
             else
             {
@@ -264,8 +266,18 @@ namespace DfoServer.Network.Handlers
 
             if (!ok)
             {
-                FileLogger.Log($"[{ProtocolName}] BUY_ITEM: FAILED itemTemplateId=0x{itemTemplateId:X8}");
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0015, BuyItemAckBuilder.BuildError(0x00)));
+                // 业务失败分支已在业务层带出原因；提交失败(如协调器 SaveDirty 失败)没有原因时按内部错误处理。
+                var reason = failureReason == ShopBuyFailureReason.None
+                    ? ShopBuyFailureReason.InternalError
+                    : failureReason;
+
+                FileLogger.Log(
+                    $"[{ProtocolName}] BUY_ITEM: FAILED itemTemplateId=0x{itemTemplateId:X8} "
+                    + $"count={buyCount} shopId={shopId} npcId={npcId} reason={reason}");
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x01,
+                    0x0015,
+                    BuyItemAckBuilder.BuildError(BuyItemAckBuilder.ResolveErrorCode(reason))));
                 return;
             }
 
@@ -341,6 +353,8 @@ namespace DfoServer.Network.Handlers
             FileLogger.Log(
                 $"[{ProtocolName}] SHOP_PURCHASE_COUNT: npcId={npcId} items={counts.Count}");
 
+            // 已购计数按请求回显约定下发(CMD 0x02CC 回包, 与 BUY_ITEM 回显 0x0015 同款)。
+            // 2026-10-11 实测: 改成 NOTI 0x02A0 下发客户端不认, 商店 UI 已购计数会归零, 勿改。
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x01,
                 0x02CC,

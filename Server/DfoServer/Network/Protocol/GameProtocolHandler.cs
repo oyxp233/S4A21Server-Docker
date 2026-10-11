@@ -1,4 +1,4 @@
-﻿using DfoServer.Game.Accounts;
+using DfoServer.Game.Accounts;
 using DfoServer.Game.Appearance;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Dungeon;
@@ -608,6 +608,7 @@ namespace DfoServer.Network
         private void RegisterEquipmentEmblemHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
         {
             d[(ushort)CmdPacketType.USE_EMBLEM_FOR_EQUIPMENT] = _inventoryHandler.Handle_EQUIPMENT_EMBLEM_ATTACH;
+            d[(ushort)CmdPacketType.EMBLEM_COLLECT_ITEM] = _inventoryHandler.Handle_EMBLEM_COLLECT_ITEM;
         }
 
         private void RegisterAvatarSocketHandlers(GameCommandRegistry.GameCommandRegistrationGroup d)
