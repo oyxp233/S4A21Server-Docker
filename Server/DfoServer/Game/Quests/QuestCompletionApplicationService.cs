@@ -1655,12 +1655,13 @@ namespace DfoServer.Game.Quests
                     $"invalid grow type reward chain: {chainType}");
             }
 
-            if (!Progression.CharacterProgressService.PersistLevelAndExp(
+            if (!Progression.CharacterExperienceService.CommitProgressInTransaction(
                     connection,
                     transaction,
                     characterId,
                     characterLevel,
-                    characterExp))
+                    characterExp,
+                    "grow-type-refresh"))
             {
                 throw new InvalidOperationException(
                     $"combat stat refresh failed after grow type update: " +
@@ -1740,12 +1741,13 @@ WHERE character_id = @cid";
                 characterId,
                 skills);
 
-            if (!Progression.CharacterProgressService.PersistLevelAndExp(
+            if (!Progression.CharacterExperienceService.CommitProgressInTransaction(
                     connection,
                     transaction,
                     characterId,
                     characterLevel,
-                    characterExp))
+                    characterExp,
+                    "grow-type-refresh"))
             {
                 throw new InvalidOperationException(
                     $"combat stat refresh failed after exact grow type update: " +

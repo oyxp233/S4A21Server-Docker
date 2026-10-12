@@ -71,6 +71,7 @@ namespace DfoServer
             ("--selftest-quest-chain-availability", SelfTests.QuestChainAvailabilitySelfTest.Run),
             ("--selftest-quest-question-branch", SelfTests.QuestQuestionBranchSelfTest.Run),
             ("--selftest-level-up-ticket", SelfTests.LevelUpTicketSelfTest.Run),
+            ("--selftest-character-level-up-reward", SelfTests.CharacterLevelUpRewardSelfTest.Run),
             ("--selftest-growup-change", SelfTests.GrowupChangeSelfTest.Run),
             ("--selftest-cargo-transport-stone", SelfTests.CargoTransportStoneSelfTest.Run),
             ("--selftest-dye-item", SelfTests.DyeItemSelfTest.Run),

@@ -517,6 +517,8 @@ namespace DfoServer.SelfTests
                     && !finishReplay.Success
                     && inventory.CountMainItem(3309) == 9
                     && inventory.CountMainItem(3300) == 4
+                    && Scalar(database.ConnectionString,
+                        "SELECT exp FROM characters WHERE character_id=@cid;") > 0
                     && new QuestRepository(database.ConnectionString)
                         .ReadClearedFlagValue(CharacterId, rewardChallengeQuestId) == 1
                     && claimedClearList.Length == 4 + ClearQuestListBodyBuilder.PayloadLength
@@ -684,7 +686,8 @@ PRAGMA user_version=5;";
 INSERT INTO accounts (account_id, m_id, password_hash)
 VALUES (@aid, 'a21-daily-challenge-selftest', '');
 INSERT INTO characters (character_id, account_id, name, level)
-VALUES (@cid, @aid, 'a21-daily-challenge', 61);";
+VALUES (@cid, @aid, 'a21-daily-challenge', 61);
+INSERT INTO character_subtype1_fields (character_id) VALUES (@cid);";
                 command.Parameters.AddWithValue("@aid", AccountId);
                 command.Parameters.AddWithValue("@cid", CharacterId);
                 command.ExecuteNonQuery();

@@ -1027,6 +1027,34 @@ CREATE INDEX IF NOT EXISTS idx_mailbox_messages_sender_created
 CREATE INDEX IF NOT EXISTS idx_mailbox_messages_expiry
     ON mailbox_messages(mail_type, expire_at, message_id);
 
+-- 等级变更与角色进度同事务记录；基础升级邮件的消费状态不影响其他活动读取事件。
+CREATE TABLE IF NOT EXISTS character_level_up_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    previous_level INTEGER NOT NULL CHECK(previous_level BETWEEN 1 AND 254),
+    new_level INTEGER NOT NULL CHECK(new_level BETWEEN 2 AND 255 AND new_level > previous_level),
+    source TEXT NOT NULL,
+    occurred_at_utc TEXT NOT NULL,
+    base_rewards_processed_at_utc TEXT,
+    retry_after_unix INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_character_level_up_events_pending
+    ON character_level_up_events(retry_after_unix, event_id)
+    WHERE base_rewards_processed_at_utc IS NULL;
+
+-- 发放账本独立于邮件生命周期，清理过期邮件不得恢复同等级的发奖资格。
+CREATE TABLE IF NOT EXISTS character_level_up_rewards (
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    reward_key TEXT NOT NULL,
+    level INTEGER NOT NULL CHECK(level BETWEEN 2 AND 255),
+    item_id INTEGER NOT NULL CHECK(item_id > 0),
+    item_count INTEGER NOT NULL CHECK(item_count > 0),
+    message_id INTEGER REFERENCES mailbox_messages(message_id) ON DELETE SET NULL,
+    delivered_at_utc TEXT NOT NULL,
+    PRIMARY KEY(character_id, reward_key, level)
+);
+
 CREATE TABLE IF NOT EXISTS mailbox_recipients (
     recipient_id INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id INTEGER NOT NULL,

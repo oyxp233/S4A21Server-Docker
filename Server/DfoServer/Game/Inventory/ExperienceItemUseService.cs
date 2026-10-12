@@ -55,7 +55,8 @@ namespace DfoServer.Game.Inventory
             int accountId,
             InventoryListType listType,
             short slotIndex,
-            ExperienceItemUseLocation location)
+            ExperienceItemUseLocation location,
+            uint? currentExp = null)
         {
             if (listType != InventoryListType.Main || characterId <= 0 || slotIndex < 0)
                 return Reject(ExperienceItemUseStatus.NotApplicable, 0, "invalid source slot");
@@ -182,7 +183,8 @@ namespace DfoServer.Game.Inventory
                             sourceSnapshot,
                             resolvedItemId,
                             grantedSkillPoints,
-                            0);
+                            0,
+                            currentExp);
                     }
 
                     if (TryResolveTpPointBook(
@@ -198,7 +200,8 @@ namespace DfoServer.Game.Inventory
                             sourceSnapshot,
                             resolvedItemId,
                             0,
-                            grantedTpPoints);
+                            grantedTpPoints,
+                            currentExp);
                     }
 
                     var definition = ExperienceItemDataProvider.Resolve(resolvedItemId);
@@ -296,13 +299,15 @@ namespace DfoServer.Game.Inventory
                                     "character/account ownership mismatch");
                             }
 
+                            // 杀怪未升级时经验仍在会话中；不能从数据库旧值重新累加。
+                            var experience = Math.Max(character.Exp, currentExp ?? character.Exp);
                             var usePlan = ExperienceItemUsePolicy.Evaluate(
                                 new ExperienceItemUseContext
                                 {
                                     Definition = definition,
                                     Job = character.Job,
                                     Level = character.Level,
-                                    Exp = character.Exp,
+                                    Exp = experience,
                                     IsHardcore = character.IsHardcore,
                                     Location = location,
                                 });
@@ -357,7 +362,7 @@ namespace DfoServer.Game.Inventory
                                 characterId,
                                 accountId,
                                 character.Level,
-                                character.Exp,
+                                experience,
                                 usePlan.GrantedExp);
                             if (!grant.Persisted)
                             {
@@ -429,7 +434,7 @@ namespace DfoServer.Game.Inventory
                                 ConsumedItem = consumedItem,
                                 PreviousLevel = character.Level,
                                 NewLevel = grant.NewLevel,
-                                PreviousExp = character.Exp,
+                                PreviousExp = grant.PreviousExp,
                                 NewExp = grant.NewExp,
                                 GrantedExp = usePlan.GrantedExp,
                                 HonorExpGain = grant.HonorExpGain,
@@ -492,7 +497,8 @@ namespace DfoServer.Game.Inventory
             ItemCore sourceSnapshot,
             int resolvedItemId,
             int grantedSkillPoints,
-            int grantedTpPoints)
+            int grantedTpPoints,
+            uint? currentExp)
         {
             var failureStatus = ExperienceItemUseStatus.PersistenceFailed;
             var failureDetail = "skill-point book transaction failed";
@@ -646,8 +652,8 @@ namespace DfoServer.Game.Inventory
                     deleteResult),
                 PreviousLevel = character.Level,
                 NewLevel = character.Level,
-                PreviousExp = character.Exp,
-                NewExp = character.Exp,
+                PreviousExp = Math.Max(character.Exp, currentExp ?? character.Exp),
+                NewExp = Math.Max(character.Exp, currentExp ?? character.Exp),
                 GrantedExp = 0,
                 SyncedSkills = syncedSkills,
                 SkillPoints = SkillStateService.GetProtocolState(
@@ -878,12 +884,13 @@ namespace DfoServer.Game.Inventory
                                     inventory);
 
                             var targetExp = (uint)targetThreshold;
-                            if (!Progression.CharacterProgressService.PersistLevelAndExp(
+                            if (!Progression.CharacterExperienceService.CommitProgressInTransaction(
                                     connection,
                                     transaction,
                                     characterId,
                                     targetLevel,
-                                    targetExp))
+                                    targetExp,
+                                    "level-up-ticket"))
                             {
                                 RestoreConsumedSource(
                                     inventory,

@@ -1025,41 +1025,59 @@ namespace DfoServer.Network.Handlers.Dungeon
             ExperienceGrantResult grant = null;
             if (allowsExperience && awardedExp > 0)
             {
-                grant = _services.CharacterExperience.Grant(
+                ExperienceGrantResult ApplyExperience() => _services.CharacterExperience.Grant(
                     session.Player,
                     session.Account?.AccountId ?? 0,
                     awardedExp,
                     ExperiencePersistMode.OnLevelUpOnly,
                     "dungeon-kill");
+                if (participantEffect.IsValid)
+                {
+                    if (!run.Instance.ParticipantEffects.TryApplyMonsterExperienceOnce(
+                            participantEffect, ApplyExperience, out grant))
+                        throw new InvalidOperationException("Participant monster experience checkpoint is unavailable.");
+                }
+                else
+                    grant = ApplyExperience();
             }
 
             lock (run.SyncRoot)
             {
-                run.Combat.Experience.RecordMonster(
-                    monsterAwardBaseExp,
-                    growthContractBonus,
-                    isBoss,
-                    isChampion,
-                    isSuperChampion,
-                    isNamed,
-                    actorSequenceId: sequenceId,
-                    equipmentBonusExperience: equipmentBonus);
-                if (reusesFrozenSequentialOutcome)
+                void ApplyStatistics()
                 {
-                    if (!run.Instance.ParticipantEffects.TryApplyMonsterDropGold(
-                            participantEffect,
-                            monsterDropIdentity,
-                            amount => run.TotalGold = checked(
-                                run.TotalGold + amount)))
+                    if (reusesFrozenSequentialOutcome)
                     {
-                        throw new InvalidOperationException(
-                            "Sequential monster drop gold checkpoint lost its frozen outcome.");
+                        if (!run.Instance.ParticipantEffects.TryApplyMonsterDropGold(
+                                participantEffect,
+                                monsterDropIdentity,
+                                amount => run.TotalGold = checked(
+                                    run.TotalGold + amount)))
+                        {
+                            throw new InvalidOperationException(
+                                "Sequential monster drop gold checkpoint lost its frozen outcome.");
+                        }
                     }
+                    else
+                    {
+                        run.TotalGold = checked(run.TotalGold + goldGained);
+                    }
+                    run.Combat.Experience.RecordMonster(
+                        monsterAwardBaseExp,
+                        growthContractBonus,
+                        isBoss,
+                        isChampion,
+                        isSuperChampion,
+                        isNamed,
+                        actorSequenceId: sequenceId,
+                        equipmentBonusExperience: equipmentBonus);
+                }
+                if (participantEffect.IsValid)
+                {
+                    if (!run.Instance.ParticipantEffects.TryApplyMonsterStatisticsOnce(participantEffect, ApplyStatistics))
+                        throw new InvalidOperationException("Participant monster statistics checkpoint is unavailable.");
                 }
                 else
-                {
-                    run.TotalGold = checked(run.TotalGold + goldGained);
-                }
+                    ApplyStatistics();
             }
 
             if (allowsExperience)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DfoServer.Game.Progression;
 
 namespace DfoServer.Game.Dungeon
 {
@@ -222,6 +223,9 @@ namespace DfoServer.Game.Dungeon
             internal DungeonParticipantEffectState State;
             internal Guid LeaseId;
             internal DungeonMonsterDropOutcome MonsterDropOutcome;
+            internal bool MonsterExperienceApplying;
+            internal bool MonsterExperienceApplied;
+            internal bool MonsterStatisticsApplied;
         }
 
         private sealed class DungeonMonsterDropOutcome
@@ -458,6 +462,50 @@ namespace DfoServer.Game.Dungeon
                 // overflow or other exception leaves the checkpoint retryable.
                 apply(entry.MonsterDropOutcome.Result.GoldAmount);
                 entry.MonsterDropOutcome.GoldApplied = true;
+                return true;
+            }
+        }
+
+        // 经验成功后，后续通知/任务处理失败不能使它再次可领取。
+        // 写库回调在 journal 锁外执行，阶段状态沿用同一个 participant effect。
+        internal bool TryApplyMonsterExperienceOnce(
+            DungeonParticipantEffectReservation reservation,
+            Func<ExperienceGrantResult> apply,
+            out ExperienceGrantResult result)
+        {
+            if (apply == null) throw new ArgumentNullException(nameof(apply));
+            result = null;
+            EffectEntry entry;
+            lock (_syncRoot)
+            {
+                if (!TryGetEntry(reservation, out entry)) return false;
+                if (entry.MonsterExperienceApplied) return true;
+                if (entry.MonsterExperienceApplying) return false;
+                entry.MonsterExperienceApplying = true;
+            }
+            try
+            {
+                result = apply() ?? throw new InvalidOperationException("Monster experience grant returned no result.");
+                lock (_syncRoot) entry.MonsterExperienceApplied = true;
+                return true;
+            }
+            finally
+            {
+                lock (_syncRoot) entry.MonsterExperienceApplying = false;
+            }
+        }
+
+        // 此回调只更新 run 内存，不能写库或发包。
+        internal bool TryApplyMonsterStatisticsOnce(
+            DungeonParticipantEffectReservation reservation, Action apply)
+        {
+            if (apply == null) throw new ArgumentNullException(nameof(apply));
+            lock (_syncRoot)
+            {
+                if (!TryGetEntry(reservation, out var entry)) return false;
+                if (entry.MonsterStatisticsApplied) return true;
+                apply();
+                entry.MonsterStatisticsApplied = true;
                 return true;
             }
         }

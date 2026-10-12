@@ -76,36 +76,58 @@ namespace DfoServer.Game.Progression
             var level = player.Level;
             var exp = player.Exp;
             ApplyGainCore(result, ref level, ref exp, rawGain, normalizeMaxLevelExp: true);
+            var persist = ShouldPersist(persistMode, result);
+            var hasAccountGain = result.HonorExpGain > 0 && accountId > 0;
+            if (persist || (persistMode == ExperiencePersistMode.OnAnyChange && hasAccountGain))
+            {
+                _database.Write((connection, transaction) =>
+                {
+                    if (persist)
+                    {
+                        result.Persisted = CommitProgressInTransaction(
+                            connection, transaction, player.CharacterId, level, exp, logTag);
+                        if (!result.Persisted)
+                            throw new InvalidOperationException($"character progression persistence failed: cid={player.CharacterId}");
+                    }
+                    if (hasAccountGain)
+                    {
+                        var totals = AccountExperienceProgressService.AddInTransaction(
+                            connection, transaction, accountId, result.HonorExpGain);
+                        result.GrowthCapsuleExpGain = totals.GrowthCapsuleExpGain;
+                        result.TotalHonorExp = totals.TotalHonorExp;
+                        result.TotalGrowthCapsuleExp = totals.TotalGrowthCapsuleExp;
+                    }
+                });
+            }
+            else if (hasAccountGain)
+            {
+                // 无需保存角色的高频杀怪只累计账号 pending。先取得数值，再单独
+                // 构建派生快照，避免快照读取失败让调用方重试并重复累计经验。
+                var totals = AccountExperienceBuffer.Instance.Add(
+                    accountId, result.HonorExpGain, _database.ConnectionString);
+                result.GrowthCapsuleExpGain = totals.GrowthCapsuleExpGain;
+                result.TotalHonorExp = totals.TotalHonorExp;
+                result.TotalGrowthCapsuleExp = totals.TotalGrowthCapsuleExp;
+            }
+            // 数据库提交成功后才发布会话投影，失败时不留下虚假的升级状态。
             player.Level = level;
             player.Exp = exp;
 
-            if (result.HonorExpGain > 0 && accountId > 0)
-            {
-                var progress = _accountExperience.AddHonorAndGrowthCapsuleExp(accountId, result.HonorExpGain);
-                result.Honor = progress.Honor;
-                result.GrowthCapsule = progress.GrowthCapsule;
-                result.GrowthCapsuleExpGain = progress.GrowthCapsuleExpGain;
-                result.TotalHonorExp = progress.Honor?.TotalHonorExp ?? 0;
-                result.TotalGrowthCapsuleExp = progress.GrowthCapsule?.TotalExp ?? 0;
-                LogAccountGain(logTag, accountId, player.CharacterId, result);
-            }
-
-            if (ShouldPersist(persistMode, result))
-                result.Persisted = CharacterProgressService.PersistLevelAndExp(
-                    player.CharacterId,
-                    player.Level,
-                    player.Exp,
-                    _database);
-
-            // 升级点顺带把账号荣誉/胶囊的 pending 落库: 升级会紧接着触发
-            // USERINFO1 / subtype0 这类"仍直接读库"的广播(它们不在副本内
-            // read-your-writes 的范围内), 不落库就会出现 EXP 包是新值、
-            // 随后的广播把客户端展示回退成旧值的现象。
-            // 与角色经验"升级即落库"的策略同频, 升级是低频事件,
-            // 不构成"每杀必写"的回退。
+            // 升级后的 USERINFO1/subtype0 仍读数据库，沿用上游的低频 flush
+            // 挂点。只在经验事务成功后执行；失败由原缓存保留 pending 并重试。
             if (result.LeveledUp && accountId > 0)
                 AccountExperienceBuffer.Instance.Flush(accountId);
 
+            if (hasAccountGain)
+            {
+                try { PopulateAccountProgressSummary(result, accountId); }
+                catch (Exception ex)
+                {
+                    // 账号增量已提交或累计；派生快照读取失败不能重发这次经验。
+                    FileLogger.Log($"[Progression] account EXP summary deferred cid={player.CharacterId}: {ex}");
+                }
+                LogAccountGain(logTag, accountId, player.CharacterId, result);
+            }
             return result;
         }
 
@@ -124,6 +146,7 @@ namespace DfoServer.Game.Progression
             bool normalizeMaxLevelExp = false)
         {
             if (connection == null) throw new ArgumentNullException(nameof(connection));
+            if (transaction == null) throw new ArgumentNullException(nameof(transaction));
 
             var result = NewResult(currentLevel, currentExp, rawGain);
             var level = currentLevel;
@@ -140,11 +163,27 @@ namespace DfoServer.Game.Progression
             }
 
             if (ShouldPersist(ExperiencePersistMode.OnAnyChange, result))
-                result.Persisted = CharacterProgressService.PersistLevelAndExp(
+            {
+                result.Persisted = CommitProgressInTransaction(
                     connection, transaction, characterId, level, exp);
+                if (!result.Persisted)
+                    throw new InvalidOperationException($"character progression persistence failed: cid={characterId}");
+            }
 
             return result;
         }
+
+        // 直升道具及转职属性刷新也使用同一个提交原语。实际升高等级时，
+        // 升级事件自动加入调用方事务；提交/回滚前不发送邮件或协议。
+        internal static bool CommitProgressInTransaction(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            byte level,
+            uint exp,
+            string source = "experience")
+            => CharacterProgressService.PersistLevelAndExp(
+                connection, transaction, characterId, level, exp, source);
 
         internal void PopulateAccountProgressSummary(
             ExperienceGrantResult result,
@@ -167,6 +206,8 @@ namespace DfoServer.Game.Progression
         internal ExperienceGrantResult GrantToLevel(PlayerContext player, byte targetLevel, string logTag)
         {
             if (player == null) throw new ArgumentNullException(nameof(player));
+            if (targetLevel < 1 || targetLevel > ExpTableProvider.MaxLevel)
+                throw new ArgumentOutOfRangeException(nameof(targetLevel));
 
             var result = NewResult(player.Level, player.Exp, 0);
             uint targetExp = 0;
@@ -176,15 +217,18 @@ namespace DfoServer.Game.Progression
                 if (threshold > targetExp) targetExp = threshold;
             }
 
-            player.Exp = targetExp;
-            player.Level = targetLevel;
             result.NewLevel = targetLevel;
             result.NewExp = targetExp;
             result.Persisted = CharacterProgressService.PersistLevelAndExp(
                 player.CharacterId,
                 targetLevel,
                 targetExp,
-                _database);
+                _database,
+                logTag ?? "tutorial-level");
+            if (!result.Persisted)
+                throw new InvalidOperationException($"character progression persistence failed: cid={player.CharacterId}");
+            player.Exp = targetExp;
+            player.Level = targetLevel;
             FileLogger.Log($"[Progression] GRANT_TO_LEVEL {logTag ?? "set"}: cid={player.CharacterId} {result.PreviousLevel}->{targetLevel} exp={targetExp}");
             return result;
         }
@@ -214,12 +258,12 @@ namespace DfoServer.Game.Progression
 
             try
             {
-                CharacterProgressService.PersistLevelAndExp(
+                return CharacterProgressService.PersistLevelAndExp(
                     connectionString,
                     player.CharacterId,
                     player.Level,
-                    player.Exp);
-                return true;
+                    player.Exp,
+                    source ?? "session-save");
             }
             catch (Exception ex)
             {

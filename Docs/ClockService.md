@@ -70,6 +70,12 @@
 
 ## 当前已接入
 
+### 升级奖励恢复
+
+- `CharacterLevelUpRewardCoordinator` 在组合根启动时处理持久待投递事件，公共命令完成后也执行同一恢复入口；玩家没有后续请求时，由具名一次性 timer 每分钟提醒处理有界批次。
+- 等级变化事实由经验事务写入 `character_level_up_events`，timer 只消费这些已有事实。邮件、永久发放账本和消费标记在同一事务提交，失败延迟重试，不按当前等级凭空生成奖励。
+- SQLite 工作在 Clock 的顺序回调内执行，提交后的通知使用异步 one-shot；通知重新取得当前角色 gate 和 owned lease。协议运行时或组合根销毁时取消两个 timer，重启依靠数据库重新处理，不依赖旧 timer 存活。
+
 ### 疑惑之村电梯
 
 - `DungeonInstanceRoom.Elevator` 保存共享起点和结束结果，其 `RunTimerRegistry` 持有 `ElevatorStage`。加载屏障释放时注册第一个 15 秒 deadline，后续推进至 30、45、60 秒；晚到回调按原起点合并阶段。

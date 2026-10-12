@@ -16,6 +16,7 @@ using DfoServer.Game.Lottery;
 using DfoServer.Game.Mercenary;
 using DfoServer.Game.Mailbox;
 using DfoServer.Game.Party;
+using DfoServer.Game.Progression;
 using DfoServer.Game.Raid;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Game.Session;
@@ -46,6 +47,7 @@ namespace DfoServer.Infrastructure
         private PartyUdpRelay _boundUdpRelay;
         private PartyUdpRelay _boundPvpUdpRelay;
         private bool _gameProtocolBuilt;
+        private IDisposable _levelUpRewardRecovery;
         private ISessionDirectory _boundSessionDirectory;
         private bool _disposed;
 
@@ -131,6 +133,7 @@ namespace DfoServer.Infrastructure
                 socialHandlers,
                 featureHandlers,
                 characterSessionLifecycle);
+            _levelUpRewardRecovery = handler.StartLevelUpRewardRecovery(ClockService.Instance);
             _gameProtocolBuilt = true;
             return handler;
         }
@@ -255,6 +258,7 @@ namespace DfoServer.Infrastructure
                     core.CharacterRepository,
                     core.Database),
                 mailboxService,
+                new CharacterLevelUpRewardService(core.Database, mailboxService),
                 recommendDungeonClears,
                 dailyAttendanceAnytimeService,
                 totalAttendanceService,
@@ -991,6 +995,7 @@ namespace DfoServer.Infrastructure
                 return;
 
             _disposed = true;
+            _levelUpRewardRecovery?.Dispose();
             _gameProtocolSocialHandlers?.Dispose();
             _gameProtocolWorld?.Dispose();
         }

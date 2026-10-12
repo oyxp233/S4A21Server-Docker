@@ -14,20 +14,22 @@ namespace DfoServer.Game.Progression
             int characterId,
             byte level,
             uint exp,
-            IGameDatabase database)
+            IGameDatabase database,
+            string source = "experience")
         {
             if (database == null)
                 throw new ArgumentNullException(nameof(database));
 
             using (var connection = database.OpenConnection())
-                return PersistLevelAndExp(connection, characterId, level, exp);
+                return PersistLevelAndExp(connection, characterId, level, exp, source);
         }
 
         internal static bool PersistLevelAndExp(
             string connectionString,
             int characterId,
             byte level,
-            uint exp)
+            uint exp,
+            string source = "experience")
         {
             if (string.IsNullOrWhiteSpace(connectionString))
                 throw new ArgumentException("connectionString is empty", nameof(connectionString));
@@ -35,7 +37,7 @@ namespace DfoServer.Game.Progression
             using (var conn = new SqliteConnection(connectionString))
             {
                 conn.Open();
-                return PersistLevelAndExp(conn, characterId, level, exp);
+                return PersistLevelAndExp(conn, characterId, level, exp, source);
             }
         }
 
@@ -45,12 +47,16 @@ namespace DfoServer.Game.Progression
             SqliteConnection conn,
             int characterId,
             byte level,
-            uint exp)
+            uint exp,
+            string source)
         {
             using (var tx = conn.BeginTransaction())
             {
-                var updated = PersistLevelAndExp(conn, tx, characterId, level, exp);
-                tx.Commit();
+                var updated = PersistLevelAndExp(conn, tx, characterId, level, exp, source);
+                if (updated)
+                    tx.Commit();
+                else
+                    tx.Rollback();
                 return updated;
             }
         }
@@ -62,8 +68,36 @@ namespace DfoServer.Game.Progression
             SqliteTransaction tx,
             int characterId,
             byte level,
-            uint exp)
+            uint exp,
+            string source = "experience")
         {
+            if (conn == null) throw new ArgumentNullException(nameof(conn));
+            if (tx == null) throw new ArgumentNullException(nameof(tx));
+
+            byte job;
+            byte growType;
+            byte previousLevel;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "SELECT job, grow_type, level FROM characters WHERE character_id = @cid;";
+                cmd.Parameters.AddWithValue("@cid", characterId);
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (!reader.Read())
+                        return false;   // 角色不存在: 随事务回滚, 不留半截写入
+
+                    job = (byte)reader.GetInt32(0);
+                    growType = (byte)reader.GetInt32(1);
+                    previousLevel = (byte)reader.GetInt32(2);
+                }
+            }
+
+            CharacterStatComputer.DecodeGrowType(growType, out int firstGrow, out int secondGrow);
+            var combatStats = CharacterStatComputer.BuildAdditionalInfo(job, level, firstGrow, secondGrow);
+            if (SqliteSubtype1Repository.UpdateCombatStatsOnConnection(conn, characterId, combatStats, tx) <= 0)
+                return false;
+
             using (var cmd = conn.CreateCommand())
             {
                 cmd.Transaction = tx;
@@ -74,29 +108,13 @@ WHERE character_id = @cid;";
                 cmd.Parameters.AddWithValue("@lvl", (int)level);
                 cmd.Parameters.AddWithValue("@exp", (long)exp);
                 cmd.Parameters.AddWithValue("@cid", characterId);
-                cmd.ExecuteNonQuery();
+                if (cmd.ExecuteNonQuery() != 1)
+                    return false;
             }
 
-            byte job;
-            byte growType;
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = tx;
-                cmd.CommandText = "SELECT job, grow_type FROM characters WHERE character_id = @cid;";
-                cmd.Parameters.AddWithValue("@cid", characterId);
-                using (var reader = cmd.ExecuteReader())
-                {
-                    if (!reader.Read())
-                        return false;   // 角色不存在: 随事务回滚, 不留半截写入
-
-                    job = (byte)reader.GetInt32(0);
-                    growType = (byte)reader.GetInt32(1);
-                }
-            }
-
-            CharacterStatComputer.DecodeGrowType(growType, out int firstGrow, out int secondGrow);
-            var combatStats = CharacterStatComputer.BuildAdditionalInfo(job, level, firstGrow, secondGrow);
-            return SqliteSubtype1Repository.UpdateCombatStatsOnConnection(conn, characterId, combatStats, tx) > 0;
+            if (level > previousLevel)
+                CharacterLevelUpEventRepository.Record(conn, tx, characterId, previousLevel, level, source);
+            return true;
         }
     }
 }

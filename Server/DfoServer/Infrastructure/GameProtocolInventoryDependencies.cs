@@ -6,6 +6,7 @@ using DfoServer.Game.Events.TotalAttendance;
 using DfoServer.Game.ExpertJob;
 using DfoServer.Game.KnightShield;
 using DfoServer.Game.Mailbox;
+using DfoServer.Game.Progression;
 using DfoServer.Network.Handlers;
 using System;
 
@@ -25,6 +26,7 @@ namespace DfoServer.Infrastructure
             SqliteSubtype0FieldsRepository subtype0Repository,
             HonorLevelSyncService honorLevel,
             MailboxService mailboxService,
+            CharacterLevelUpRewardService levelUpRewards,
             RecommendDungeonClearStatsService recommendDungeonClears,
             DailyAttendanceAnytimeService dailyAttendanceAnytime,
             TotalAttendanceService totalAttendance,
@@ -50,6 +52,8 @@ namespace DfoServer.Infrastructure
                 ?? throw new ArgumentNullException(nameof(honorLevel));
             MailboxService = mailboxService
                 ?? throw new ArgumentNullException(nameof(mailboxService));
+            LevelUpRewards = levelUpRewards
+                ?? throw new ArgumentNullException(nameof(levelUpRewards));
             RecommendDungeonClears = recommendDungeonClears
                 ?? throw new ArgumentNullException(
                     nameof(recommendDungeonClears));
@@ -81,6 +85,7 @@ namespace DfoServer.Infrastructure
         internal HonorLevelSyncService HonorLevel { get; }
 
         internal MailboxService MailboxService { get; }
+        internal CharacterLevelUpRewardService LevelUpRewards { get; }
 
         internal RecommendDungeonClearStatsService RecommendDungeonClears { get; }
 

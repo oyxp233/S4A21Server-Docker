@@ -56,6 +56,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(31, "add_guild_management", ApplyGuildManagement),
                 new MigrationStep(32, "add_character_blacklist", ApplyCharacterBlacklist),
                 new MigrationStep(33, "add_character_npc_favor", ApplyCharacterNpcFavor),
+                new MigrationStep(34, "add_character_level_up_events_and_rewards", ApplyCharacterLevelUpRewards),
             };
 
         internal static int CurrentVersion =>
@@ -138,6 +139,37 @@ ON CONFLICT(singleton_id) DO UPDATE SET
         {
             var metadata = ReadMetadata(connection);
             return string.Equals(metadata.BaselineId, BaselineId, StringComparison.Ordinal);
+        }
+
+        private static void ApplyCharacterLevelUpRewards(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            ExecuteSql(connection, transaction, @"
+CREATE TABLE IF NOT EXISTS character_level_up_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    previous_level INTEGER NOT NULL CHECK(previous_level BETWEEN 1 AND 254),
+    new_level INTEGER NOT NULL CHECK(new_level BETWEEN 2 AND 255 AND new_level > previous_level),
+    source TEXT NOT NULL,
+    occurred_at_utc TEXT NOT NULL,
+    base_rewards_processed_at_utc TEXT,
+    retry_after_unix INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_character_level_up_events_pending
+    ON character_level_up_events(retry_after_unix, event_id)
+    WHERE base_rewards_processed_at_utc IS NULL;
+CREATE TABLE IF NOT EXISTS character_level_up_rewards (
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    reward_key TEXT NOT NULL,
+    level INTEGER NOT NULL CHECK(level BETWEEN 2 AND 255),
+    item_id INTEGER NOT NULL CHECK(item_id > 0),
+    item_count INTEGER NOT NULL CHECK(item_count > 0),
+    message_id INTEGER REFERENCES mailbox_messages(message_id) ON DELETE SET NULL,
+    delivered_at_utc TEXT NOT NULL,
+    PRIMARY KEY(character_id, reward_key, level)
+);");
         }
 
         private static void ApplyCharacterNpcFavor(

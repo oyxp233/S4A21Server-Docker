@@ -42,6 +42,7 @@ namespace DfoServer.Network
         private readonly LuckyStarHandler _luckyStarHandler;
         private readonly RentalHandler _rentalHandler;
         private readonly MailboxHandler _mailboxHandler;
+        private readonly CharacterLevelUpRewardCoordinator _levelUpRewards;
         private readonly CollectionBoxHandler _collectionBoxHandler;
         private readonly ShopCoinEventHandler _shopCoinEventHandler;
         private readonly InventoryRefreshSender _inventoryRefreshSender;
@@ -174,6 +175,8 @@ namespace DfoServer.Network
             var sqliteSelectCharacterDataSource = core.SelectCharacterDataSource;
 
             _characterTransitions = world.CharacterTransitions;
+            _levelUpRewards = new CharacterLevelUpRewardCoordinator(
+                inventory.LevelUpRewards, sessionDirectory, _characterTransitions);
             _loginHandler = characterInventoryHandlers.Login;
             _characterSelectHandler = characterInventoryHandlers.CharacterSelect;
             _inventoryRefreshSender = inventory.InventoryRefreshSender;
@@ -287,9 +290,16 @@ namespace DfoServer.Network
 
         public void Dispose()
         {
+            _levelUpRewards.Dispose();
             _socialHandlers.Dispose();
             if (_ownsWorldDependencies)
                 _worldDependencies.Dispose();
+        }
+
+        internal IDisposable StartLevelUpRewardRecovery(ClockService clock)
+        {
+            _levelUpRewards.StartRecovery(clock);
+            return _levelUpRewards;
         }
 
         public override Task OnClientConnected(
@@ -341,11 +351,18 @@ namespace DfoServer.Network
 
             if (header.cmd == 1)
             {
-                await _socialHandlers.Trade.CancelBeforeTransition(session, header.type);
-                if (_cmdDispatch.TryGetValue(header.type, out var handler))
-                    await handler(session, header, body);
-                else
-                    FileLogger.Log($"[GameProtocol] Unhandled CMD type=0x{header.type:X4} body({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
+                try
+                {
+                    await _socialHandlers.Trade.CancelBeforeTransition(session, header.type);
+                    if (_cmdDispatch.TryGetValue(header.type, out var handler))
+                        await handler(session, header, body);
+                    else
+                        FileLogger.Log($"[GameProtocol] Unhandled CMD type=0x{header.type:X4} body({body?.Length ?? 0}B): {(body != null ? BitConverter.ToString(body) : "null")}");
+                }
+                finally
+                {
+                    await _levelUpRewards.DrainAndNotifyAsync();
+                }
             }
         }
 

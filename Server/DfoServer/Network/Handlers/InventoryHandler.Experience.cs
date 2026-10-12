@@ -60,7 +60,8 @@ namespace DfoServer.Network.Handlers
                     request.SlotIndex,
                     session.Player.CurrentRun == null
                         ? ExperienceItemUseLocation.Town
-                        : ExperienceItemUseLocation.Dungeon);
+                        : ExperienceItemUseLocation.Dungeon,
+                    session.Player.Exp);
             }
             catch (Exception ex)
             {
