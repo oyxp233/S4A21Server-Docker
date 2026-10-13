@@ -207,6 +207,18 @@ namespace DfoServer.Game.Inventory
             if (string.Equals(metadata.ItemKind, "special", StringComparison.Ordinal))
                 return false;
 
+            if (AvatarInventoryExpansionRule.TryResolveStage(itemTemplateId, out var avatarStage, out var avatarTargetParam16))
+                return TryBuyAvatarInventoryExpansion(
+                    inventory,
+                    itemTemplateId,
+                    avatarTargetParam16,
+                    totalGoldCost,
+                    totalCeraCost,
+                    ceraMode,
+                    couponId,
+                    out result,
+                    transactionContext);
+
             if (TryResolvePersonalCargoUpgradeTarget(itemTemplateId, out var personalCargoTarget))
             {
                 // 个人金库扩容工具档位达成语义:
@@ -404,6 +416,19 @@ namespace DfoServer.Game.Inventory
                         product,
                         ResolveCeraPayMode(itemTemplateId),
                         out failure);
+                }
+
+                if (AvatarInventoryExpansionRule.TryResolveStage(itemTemplateId, out _, out var avatarTargetParam16))
+                {
+                    // 装扮栏扩展券: 目标阶段已达成(重复/降级购买)时 NoEffect 拒绝, 不进提交事务;
+                    // 升级购买的余额校验与扣费由事务内 TryBuyAvatarInventoryExpansion 继续。
+                    if (avatarTargetParam16 <= inventory.GetListParam16(InventoryListType.Avatar))
+                    {
+                        failure = CeraShopPurchaseFailure.NoEffect;
+                        return false;
+                    }
+
+                    return true;
                 }
             }
             catch (Exception ex)
@@ -792,6 +817,58 @@ namespace DfoServer.Game.Inventory
                 ItemTemplateId = itemTemplateId,
                 RemainingStackCount = targetCapacity,
                 InstanceValue = targetCapacity,
+                UpdatedGold = payment.NewGold,
+                UpdatedCoin = payment.NewCera,
+                UpdatedTokenCera = payment.NewTokenCera,
+                UpdatedHappyTokenCera = payment.NewHappyTokenCera,
+                GoldSpent = totalGoldCost > 0,
+                ConsumedOnPurchase = true,
+                RequestedCount = 1,
+                AppliedCount = 1,
+            };
+            foreach (var cost in costMutations)
+                result.ExtraResults.Add(cost);
+
+            return true;
+        }
+
+        private static bool TryBuyAvatarInventoryExpansion(
+            InventoryService inventory,
+            int itemTemplateId,
+            ushort targetParam16,
+            int totalGoldCost,
+            int totalCeraCost,
+            CeraPayMode ceraMode,
+            int couponId,
+            out InventoryMutationResult result,
+            TransactionContext transactionContext)
+        {
+            result = null;
+            var currentParam16 = inventory.GetListParam16(InventoryListType.Avatar);
+            if (targetParam16 <= currentParam16)
+                return false;
+
+            if (!TrySpendPayment(
+                    inventory,
+                    totalGoldCost,
+                    totalCeraCost,
+                    ceraMode,
+                    out var payment,
+                    transactionContext))
+                return false;
+
+            var costMutations = new List<InventoryMutationResult>();
+            if (!ApplyInventoryCosts(inventory, totalGoldCost, couponId, costMutations))
+                return false;
+
+            inventory.SetListParam16(InventoryListType.Avatar, targetParam16);
+            result = new InventoryMutationResult
+            {
+                ListType = InventoryListType.Avatar,
+                SlotIndex = -1,
+                ItemTemplateId = itemTemplateId,
+                RemainingStackCount = targetParam16,
+                InstanceValue = targetParam16,
                 UpdatedGold = payment.NewGold,
                 UpdatedCoin = payment.NewCera,
                 UpdatedTokenCera = payment.NewTokenCera,

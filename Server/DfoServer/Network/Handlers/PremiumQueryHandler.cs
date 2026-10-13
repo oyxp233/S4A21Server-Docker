@@ -46,10 +46,10 @@ namespace DfoServer.Network.Handlers
                 Game.Premium.PremiumService.DefaultServiceType,
                 serviceData);
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                0x00,
-                (ushort)NotiPacketTypeA21.PREMIUM_SERVICE,
+                0x01,
+                (ushort)CmdPacketTypeA21.PREMIUM_SERVICE,
                 responseBody));
-            FileLogger.Log($"[{ProtocolLogName}] CMD_PREMIUM_SERVICE: responded with NOTI_PREMIUM_SERVICE character={cid} account={aid}");
+            FileLogger.Log($"[{ProtocolLogName}] CMD_PREMIUM_SERVICE: responded with cmd=1 PREMIUM_SERVICE character={cid} account={aid}");
         }
     }
 }

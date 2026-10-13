@@ -158,8 +158,8 @@ namespace DfoServer.Game.Premium
                     accountId,
                     usage);
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                    0x00,
-                    (ushort)NotiPacketTypeA21.PREMIUM_SERVICE,
+                    0x01,
+                    (ushort)CmdPacketTypeA21.PREMIUM_SERVICE,
                     BuildPremiumServiceStateBody(DefaultServiceType, serviceData)));
             }
             catch (Exception ex)

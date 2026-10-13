@@ -3,17 +3,16 @@ using DfoServer.Game.SelectCharacter;
 
 namespace DfoServer.Network.Builders
 {
-    public sealed class PremiumServiceInitBodyBuilder : IInitPacketBuilder
+    public sealed class PremiumServiceInitBodyBuilder : IInitCmdPacketBuilder
     {
-        public ushort NotiType => (ushort)NotiPacketTypeA21.PREMIUM_SERVICE;
+        public ushort CmdType => (ushort)CmdPacketTypeA21.PREMIUM_SERVICE;
 
         public bool TryBuild(
             SelectCharacterDataSnapshot snapshot,
-            int occurrenceIndex,
             out byte[] body)
         {
             var init = snapshot?.InitializationSnapshot;
-            if (occurrenceIndex != 0 || init?.PremiumServiceData == null)
+            if (init?.PremiumServiceData == null)
             {
                 body = null;
                 return false;

@@ -58,6 +58,7 @@ namespace DfoServer
             ("--selftest-dimension-enter-ticket", SelfTests.DimensionDungeonEnterTicketSelfTest.Run),
             ("--selftest-item-state", SelfTests.ItemStateSelfTest.Run),
             ("--selftest-inventory-sort-condition", SelfTests.InventorySortConditionSelfTest.Run),
+            ("--selftest-avatar-expansion", SelfTests.AvatarExpansionSelfTest.Run),
             ("--selftest-sort-lock-equip-swap", SelfTests.SortLockEquipSwapSelfTest.Run),
             ("--selftest-dungeon-experience", SelfTests.DungeonExperienceSelfTest.Run),
             ("--selftest-pet-creature-runtime", SelfTests.PetCreatureRuntimeSelfTest.Run),

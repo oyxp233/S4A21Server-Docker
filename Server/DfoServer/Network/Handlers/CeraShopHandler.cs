@@ -200,6 +200,7 @@ namespace DfoServer.Network.Handlers
             var refreshSlots = new Dictionary<InventoryListType, HashSet<short>>();
             var refreshAccountCargo = false;
             var refreshPersonalCargo = false;
+            var refreshAvatar = false;
             var mailboxAlarmNeeded = false;
             foreach (var result in results)
             {
@@ -219,6 +220,10 @@ namespace DfoServer.Network.Handlers
                         {
                             SyncOnlineCargoCapacity(session, cid, updateResult);
                             refreshPersonalCargo = true;
+                        }
+                        else if (updateResult.ListType == InventoryListType.Avatar)
+                        {
+                            refreshAvatar = true;
                         }
                         continue;
                     }
@@ -260,6 +265,12 @@ namespace DfoServer.Network.Handlers
                     0x01,
                     0x0040,
                     CeraShopPurchaseAckBuilder.BuildSuccess(item.Item1, item.Item2)));
+            }
+
+            if (refreshAvatar)
+            {
+                await SendItemListRefresh(session, cid, aid, InventoryListType.Avatar);
+                FileLogger.Log($"[{ProtocolName}] CERA_SHOP_BUY: avatar inventory expansion ITEM_LIST refresh sent");
             }
 
             await SendQueuedItemListUpdates(session, refreshSlots);

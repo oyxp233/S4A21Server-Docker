@@ -85,7 +85,8 @@ namespace DfoServer.Game.Inventory
                     item.ItemKind,
                     inventory.GetListParam16(InventoryListType.Main),
                     out var listType,
-                    out var range))
+                    out var range,
+                    inventory.GetListParam16(InventoryListType.Avatar)))
                 return Fail(plan, InventoryInsertError.InvalidTargetList);
 
             var insertCount = InventoryStackRuleService.NormalizeInsertCount(item, count);
@@ -405,7 +406,8 @@ namespace DfoServer.Game.Inventory
                 item.ItemKind,
                 targetListType,
                 slotIndex,
-                inventory.GetListParam16(InventoryListType.Main));
+                inventory.GetListParam16(InventoryListType.Main),
+                inventory.GetListParam16(InventoryListType.Avatar));
         }
 
         private static bool TryPlanMergeIntoOccupiedSlot(
@@ -671,7 +673,8 @@ namespace DfoServer.Game.Inventory
                     item.ItemKind,
                     targetListType,
                     targetSlotIndex,
-                    inventory.GetListParam16(InventoryListType.Main)))
+                    inventory.GetListParam16(InventoryListType.Main),
+                    inventory.GetListParam16(InventoryListType.Avatar)))
                 return Fail(plan, InventoryInsertError.SlotKindMismatch);
 
             return true;
@@ -717,7 +720,8 @@ namespace DfoServer.Game.Inventory
                     item.ItemKind,
                     targetListType,
                     targetSlotIndex,
-                    inventory.GetListParam16(InventoryListType.Main)))
+                    inventory.GetListParam16(InventoryListType.Main),
+                    inventory.GetListParam16(InventoryListType.Avatar)))
                 return Fail(result, InventoryInsertError.SlotKindMismatch);
 
             return true;

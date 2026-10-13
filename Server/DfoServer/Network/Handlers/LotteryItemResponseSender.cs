@@ -166,8 +166,8 @@ namespace DfoServer.Network.Handlers
                     accountId,
                     _doubleRewardPolicy.BuildPremiumServiceUsage(characterId));
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                    0x00,
-                    (ushort)NotiPacketTypeA21.PREMIUM_SERVICE,
+                    0x01,
+                    (ushort)CmdPacketTypeA21.PREMIUM_SERVICE,
                     PremiumService.BuildPremiumServiceStateBody(
                         PremiumService.DefaultServiceType,
                         serviceData)));

@@ -43,6 +43,9 @@ namespace DfoServer.Game.Inventory
         internal const int GuildMedalInventorySlotEnd = 48;
         internal const int GuardianGemInventorySlotStart = 49;
         internal const int GuardianGemInventorySlotEnd = 97;
+        internal const int AvatarInventorySlotStart = 0;
+        internal const int AvatarBaseOpenSlotEnd = 104;
+        internal const int AvatarInventorySlotEnd = 209;
 
         internal static bool IsMainQuickSlot(int slotIndex)
         {
@@ -53,7 +56,8 @@ namespace DfoServer.Game.Inventory
             byte itemKind,
             int mainExpandStageKey,
             out InventoryListType listType,
-            out ItemSlotRange range)
+            out ItemSlotRange range,
+            int avatarListParam16 = 0)
         {
             listType = InventoryListType.Main;
             range = default;
@@ -86,7 +90,7 @@ namespace DfoServer.Game.Inventory
                     return true;
                 case ItemCore.KindAvatar:
                     listType = InventoryListType.Avatar;
-                    range = GetAvatarOpenRange(0);
+                    range = GetAvatarOpenRange(avatarListParam16);
                     return true;
                 case ItemCore.KindCreature:
                     listType = InventoryListType.Pet;
@@ -109,7 +113,8 @@ namespace DfoServer.Game.Inventory
             byte itemKind,
             InventoryListType listType,
             short slotIndex,
-            int mainExpandStageKey)
+            int mainExpandStageKey,
+            int avatarListParam16 = 0)
         {
             if (listType == InventoryListType.Equipment)
                 return TryGetBodyItemKindBySlot(slotIndex, out var bodyKind) && bodyKind == itemKind;
@@ -117,7 +122,7 @@ namespace DfoServer.Game.Inventory
                 return TryGetGuildMedalItemKindBySlot(slotIndex, out var guildItemKind)
                     && guildItemKind == itemKind;
 
-            return TryGetSlotRange(itemKind, mainExpandStageKey, out var expectedListType, out var range)
+            return TryGetSlotRange(itemKind, mainExpandStageKey, out var expectedListType, out var range, avatarListParam16)
                 && expectedListType == listType
                 && range.Contains(slotIndex);
         }
@@ -126,7 +131,8 @@ namespace DfoServer.Game.Inventory
             InventoryListType listType,
             short slotIndex,
             int mainExpandStageKey,
-            out byte itemKind)
+            out byte itemKind,
+            int avatarListParam16 = 0)
         {
             itemKind = ItemCore.KindUnknown;
 
@@ -136,7 +142,7 @@ namespace DfoServer.Game.Inventory
                     return TryGetMainItemKindBySlot(slotIndex, mainExpandStageKey, out itemKind);
                 case InventoryListType.Avatar:
                     itemKind = ItemCore.KindAvatar;
-                    return GetAvatarOpenRange(0).Contains(slotIndex);
+                    return GetAvatarOpenRange(avatarListParam16).Contains(slotIndex);
                 case InventoryListType.Equipment:
                     return TryGetBodyItemKindBySlot(slotIndex, out itemKind);
                 case InventoryListType.Pet:
@@ -184,7 +190,7 @@ namespace DfoServer.Game.Inventory
                     range = new ItemSlotRange(3, 351);
                     return true;
                 case InventoryListType.Avatar:
-                    range = GetAvatarOpenRange(0);
+                    range = new ItemSlotRange(AvatarInventorySlotStart, AvatarInventorySlotEnd);
                     return true;
                 case InventoryListType.Equipment:
                     range = new ItemSlotRange(0, 29);
@@ -247,7 +253,9 @@ namespace DfoServer.Game.Inventory
 
         internal static ItemSlotRange GetAvatarOpenRange(int avatarListParam16)
         {
-            return new ItemSlotRange(0, 209);
+            var expanded = AvatarInventoryExpansionRule.NormalizeParam16(avatarListParam16);
+            var capacity = AvatarBaseOpenSlotEnd + 1 + expanded;
+            return CreateOpenRange(AvatarInventorySlotStart, (ushort)capacity);
         }
 
         internal static ItemSlotRange GetPersonalCargoOpenRange(int personalCargoListParam16)

@@ -594,7 +594,8 @@ namespace DfoServer.Game.Inventory
                     item.ItemKind,
                     targetListType,
                     targetSlotIndex,
-                    inventory.GetListParam16(InventoryListType.Main)))
+                    inventory.GetListParam16(InventoryListType.Main),
+                    inventory.GetListParam16(InventoryListType.Avatar)))
                 return Fail(result, InventoryMoveServiceError.InvalidDestinationSlot);
 
             return true;
@@ -823,12 +824,14 @@ namespace DfoServer.Game.Inventory
                     sourceListType,
                     sourceSlotIndex,
                     inventory.GetListParam16(InventoryListType.Main),
-                    out var sourceKind)
+                    out var sourceKind,
+                    inventory.GetListParam16(InventoryListType.Avatar))
                 && ItemSlotBoundService.TryGetItemKindBySlot(
                     destinationListType,
                     destinationSlotIndex,
                     inventory.GetListParam16(InventoryListType.Main),
-                    out var destinationKind)
+                    out var destinationKind,
+                    inventory.GetListParam16(InventoryListType.Avatar))
                 && sourceKind == item.ItemKind
                 && destinationKind == item.ItemKind;
         }
