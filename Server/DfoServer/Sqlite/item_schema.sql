@@ -236,6 +236,7 @@ CREATE TABLE IF NOT EXISTS item_purchase_limits (
     buy_count INTEGER NOT NULL DEFAULT 0,
     limit_type INTEGER NOT NULL DEFAULT 0,
     reset_type INTEGER NOT NULL DEFAULT 0,
+    day_id INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (account_id, character_id, npc_id, item_id, limit_type, reset_type),
     CHECK(limit_type IN (0, 1)),

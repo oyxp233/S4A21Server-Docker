@@ -541,8 +541,8 @@ WHEN NEW.character_id=62002 BEGIN SELECT RAISE(ABORT, 'failed member selftest');
 UPDATE schema_metadata SET schema_version=33; PRAGMA user_version=33;");
             fixture.ApplyMigrations();
             check("v33 upgrade creates empty progression tables without issuing historical rewards",
-                fixture.Scalar("PRAGMA user_version;") == 34
-                    && fixture.Scalar("SELECT schema_version FROM schema_metadata;") == 34
+                fixture.Scalar("PRAGMA user_version;") == SqliteMigrations.CurrentVersion
+                    && fixture.Scalar("SELECT schema_version FROM schema_metadata;") == SqliteMigrations.CurrentVersion
                     && fixture.Count("character_level_up_rewards") == 0
                     && fixture.Count("character_level_up_events") == 0 && fixture.Count("mailbox_messages") == 0);
             fixture.ApplyMigrations();
@@ -565,7 +565,10 @@ CREATE TABLE idx_character_level_up_events_pending (invalid_schema INTEGER);");
                     && fixture.Scalar("SELECT COUNT(*) FROM sqlite_master WHERE name='character_level_up_events';") == 0);
             fixture.Execute("DROP TABLE idx_character_level_up_events_pending;");
             fixture.ApplyMigrations();
-            fixture.Execute("UPDATE schema_metadata SET schema_version=35; PRAGMA user_version=35;");
+            var unsupportedVersion = SqliteMigrations.CurrentVersion + 1;
+            fixture.Execute(
+                $"UPDATE schema_metadata SET schema_version={unsupportedVersion}; " +
+                $"PRAGMA user_version={unsupportedVersion};");
             rejected = false;
             try { fixture.ApplyMigrations(); }
             catch (InvalidOperationException) { rejected = true; }

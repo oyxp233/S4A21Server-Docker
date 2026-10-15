@@ -57,6 +57,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(32, "add_character_blacklist", ApplyCharacterBlacklist),
                 new MigrationStep(33, "add_character_npc_favor", ApplyCharacterNpcFavor),
                 new MigrationStep(34, "add_character_level_up_events_and_rewards", ApplyCharacterLevelUpRewards),
+                new MigrationStep(35, "add_item_purchase_limit_day_id", ApplyItemPurchaseLimitDayId),
             };
 
         internal static int CurrentVersion =>
@@ -964,6 +965,20 @@ CREATE INDEX IF NOT EXISTS idx_item_purchase_limits_account_reset
     ON item_purchase_limits(account_id, reset_type);";
                 command.ExecuteNonQuery();
             }
+        }
+
+        // v35: 每日限购计数加日期维度, 跨天归零内建于每次购买的 UPSERT(挂机跨过 06:00 也能刷新)。
+        // 存量行 day_id=0, 不等于任何合法 TodayId, 迁移当天会被视为过期并重计一次。
+        private static void ApplyItemPurchaseLimitDayId(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            AddColumnIfMissing(
+                connection,
+                transaction,
+                "item_purchase_limits",
+                "day_id",
+                "INTEGER NOT NULL DEFAULT 0");
         }
 
         private static void ApplyAuraSkinFlag(

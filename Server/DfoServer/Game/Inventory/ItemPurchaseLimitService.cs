@@ -1,3 +1,4 @@
+using DfoServer.Game.DailyReset;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.GameWorld;
 using Microsoft.Data.Sqlite;
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS {TableName} (
     buy_count INTEGER NOT NULL DEFAULT 0,
     limit_type INTEGER NOT NULL DEFAULT 0,
     reset_type INTEGER NOT NULL DEFAULT 0,
+    day_id INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (account_id, character_id, npc_id, item_id, limit_type, reset_type),
     CHECK(limit_type IN (0, 1)),
@@ -191,15 +193,30 @@ CREATE INDEX IF NOT EXISTS idx_item_purchase_limits_account_reset
                 command.Transaction = transaction;
                 command.CommandText = $@"
 INSERT INTO {TableName} (
-    account_id, character_id, npc_id, item_id, buy_count, limit_type, reset_type, updated_at
+    account_id, character_id, npc_id, item_id, buy_count, limit_type, reset_type, day_id, updated_at
 )
 SELECT
-    @aid, @cid, @npcId, @itemId, @buyCount, @limitType, @resetType, CURRENT_TIMESTAMP
+    @aid, @cid, @npcId, @itemId, @buyCount, @limitType, @resetType, @today, CURRENT_TIMESTAMP
 WHERE @buyCount <= @limitCount
 ON CONFLICT(account_id, character_id, npc_id, item_id, limit_type, reset_type) DO UPDATE SET
-    buy_count = {TableName}.buy_count + excluded.buy_count,
+    buy_count = CASE
+        WHEN {TableName}.reset_type = {ResetTypeDaily}
+         AND {TableName}.day_id <> excluded.day_id
+        THEN excluded.buy_count
+        ELSE {TableName}.buy_count + excluded.buy_count
+    END,
+    day_id = CASE
+        WHEN {TableName}.reset_type = {ResetTypeDaily} THEN excluded.day_id
+        ELSE {TableName}.day_id
+    END,
     updated_at = CURRENT_TIMESTAMP
-WHERE {TableName}.buy_count <= @limitCount - excluded.buy_count;";
+WHERE
+    ({TableName}.reset_type = {ResetTypeDaily}
+     AND {TableName}.day_id <> excluded.day_id
+     AND excluded.buy_count <= @limitCount)
+ OR (({TableName}.reset_type <> {ResetTypeDaily}
+      OR {TableName}.day_id = excluded.day_id)
+     AND {TableName}.buy_count <= @limitCount - excluded.buy_count);";
                 command.Parameters.AddWithValue("@aid", inventory.AccountId);
                 command.Parameters.AddWithValue("@cid", characterId);
                 command.Parameters.AddWithValue("@npcId", npcId);
@@ -208,6 +225,7 @@ WHERE {TableName}.buy_count <= @limitCount - excluded.buy_count;";
                 command.Parameters.AddWithValue("@limitType", definition.LimitType);
                 command.Parameters.AddWithValue("@resetType", definition.ResetType);
                 command.Parameters.AddWithValue("@limitCount", definition.LimitCount);
+                command.Parameters.AddWithValue("@today", DailyResetService.TodayId());
                 return command.ExecuteNonQuery() > 0
                     ? PurchaseLimitRecordOutcome.Ok
                     : PurchaseLimitRecordOutcome.LimitExceeded;
@@ -295,7 +313,10 @@ WHERE account_id = @aid
             {
                 command.Transaction = transaction;
                 command.CommandText = $@"
-SELECT buy_count
+SELECT CASE
+    WHEN reset_type = {ResetTypeDaily} AND day_id <> @today THEN 0
+    ELSE buy_count
+END
 FROM {TableName}
 WHERE account_id = @aid
   AND character_id = @cid
@@ -309,6 +330,7 @@ WHERE account_id = @aid
                 command.Parameters.AddWithValue("@itemId", definition.ItemId);
                 command.Parameters.AddWithValue("@limitType", definition.LimitType);
                 command.Parameters.AddWithValue("@resetType", definition.ResetType);
+                command.Parameters.AddWithValue("@today", DailyResetService.TodayId());
                 var value = command.ExecuteScalar();
                 if (value == null || value == DBNull.Value)
                     return false;
@@ -332,8 +354,56 @@ WHERE account_id = @aid
                 command.ExecuteNonQuery();
                 command.CommandText = CreateAccountResetIndexSql;
                 command.ExecuteNonQuery();
-                return true;
             }
+
+            EnsureDayIdColumn(connection, transaction);
+            return true;
+        }
+
+        // 迁移未覆盖的库(如自测直接跑 EnsureSchema)兜底补列。
+        private static void EnsureDayIdColumn(
+            SqliteConnection connection,
+            SqliteTransaction transaction)
+        {
+            if (HasTableColumn(connection, transaction, TableName, "day_id"))
+                return;
+
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText =
+                    $"ALTER TABLE {TableName} ADD COLUMN day_id INTEGER NOT NULL DEFAULT 0;";
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static bool HasTableColumn(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            string tableName,
+            string columnName)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = $"PRAGMA table_info({tableName});";
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        if (!reader.IsDBNull(1)
+                            && string.Equals(
+                                reader.GetString(1),
+                                columnName,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
         }
 
         private static ItemShopCatalog LoadShopCatalog()

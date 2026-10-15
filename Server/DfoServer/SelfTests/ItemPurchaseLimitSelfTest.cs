@@ -421,6 +421,311 @@ namespace DfoServer.SelfTests
                     ReadPurchaseCount(database, resetAccountId, resetRowCharacterIdA, 60001, resetItemIdA, charDefinition.LimitType, 1) == 0
                     && ReadPurchaseCount(database, resetAccountId, resetRowCharacterIdB, 60002, resetItemIdB, accountDefinition.LimitType, 0) == 5,
                     ref failures);
+
+                // ── item_purchase_limits 内建跨天 rollover(挂机跨过 06:00) ────
+                // 过期 day_id 恒用 1: 不等于任何合法 TodayId(yyyyMMdd)。
+                const int staleDayId = 1;
+                var today = DailyResetService.TodayId();
+
+                Check(
+                    "新库 item_purchase_limits 含 day_id 列",
+                    HasTableColumn(database, "item_purchase_limits", "day_id"),
+                    ref failures);
+                Check(
+                    "新库 schema 版本为 35",
+                    ReadUserVersion(database) == 35,
+                    ref failures);
+
+                if (!TryFindLimitedItemByResetType(
+                        catalog,
+                        1,
+                        out var rolloverItemId,
+                        out var rolloverNpcId,
+                        out var rolloverDefinition))
+                {
+                    Check("找到 reset_type=1 的限购物品", false, ref failures);
+                }
+                else
+                {
+                    const int rolloverAccountId = 54001;
+                    const int rolloverCharacterId = 54002;
+                    SeedAccount(database, rolloverAccountId, "item-limit-rollover-a");
+                    SeedCharacter(
+                        database,
+                        rolloverCharacterId,
+                        rolloverAccountId,
+                        "item-limit-rollover-c");
+                    var rolloverInventory = LoadInventory(
+                        database,
+                        rolloverCharacterId,
+                        rolloverAccountId);
+                    var rolloverRowCharacterId = GetRowCharacterId(
+                        rolloverDefinition.LimitType,
+                        rolloverCharacterId);
+
+                    InsertPurchaseLimitRow(
+                        database,
+                        rolloverAccountId,
+                        rolloverRowCharacterId,
+                        rolloverNpcId,
+                        rolloverItemId,
+                        rolloverDefinition.LimitCount,
+                        rolloverDefinition.LimitType,
+                        1,
+                        dayId: staleDayId);
+                    using (var connection = database.OpenConnection())
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        var outcome = ItemPurchaseLimitService.TryRecordPurchase(
+                            rolloverInventory,
+                            rolloverNpcId,
+                            rolloverItemId,
+                            1,
+                            connection,
+                            transaction);
+                        Check(
+                            "过期 day_id 的日限购行跨天购买返回 Ok",
+                            outcome == PurchaseLimitRecordOutcome.Ok,
+                            ref failures);
+                        transaction.Commit();
+                    }
+
+                    Check(
+                        "跨天购买后 buy_count 从本次购买数重计",
+                        ReadPurchaseCount(
+                            database,
+                            rolloverAccountId,
+                            rolloverRowCharacterId,
+                            rolloverNpcId,
+                            rolloverItemId,
+                            rolloverDefinition.LimitType,
+                            1) == 1,
+                        ref failures);
+                    Check(
+                        "跨天购买后 day_id 更新为当日",
+                        ReadPurchaseDayId(
+                            database,
+                            rolloverAccountId,
+                            rolloverRowCharacterId,
+                            rolloverNpcId,
+                            rolloverItemId,
+                            rolloverDefinition.LimitType,
+                            1) == today,
+                        ref failures);
+
+                    const int sameDayAccountId = 55001;
+                    const int sameDayCharacterId = 55002;
+                    SeedAccount(database, sameDayAccountId, "item-limit-sameday-a");
+                    SeedCharacter(
+                        database,
+                        sameDayCharacterId,
+                        sameDayAccountId,
+                        "item-limit-sameday-c");
+                    var sameDayInventory = LoadInventory(
+                        database,
+                        sameDayCharacterId,
+                        sameDayAccountId);
+
+                    InsertPurchaseLimitRow(
+                        database,
+                        sameDayAccountId,
+                        GetRowCharacterId(
+                            rolloverDefinition.LimitType,
+                            sameDayCharacterId),
+                        rolloverNpcId,
+                        rolloverItemId,
+                        rolloverDefinition.LimitCount,
+                        rolloverDefinition.LimitType,
+                        1,
+                        dayId: today);
+                    using (var connection = database.OpenConnection())
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        var outcome = ItemPurchaseLimitService.TryRecordPurchase(
+                            sameDayInventory,
+                            rolloverNpcId,
+                            rolloverItemId,
+                            1,
+                            connection,
+                            transaction);
+                        Check(
+                            "当日已达上限的日限购行再购返回 LimitExceeded",
+                            outcome == PurchaseLimitRecordOutcome.LimitExceeded,
+                            ref failures);
+                        transaction.Rollback();
+                    }
+
+                    Check(
+                        "当日已达上限的日限购行计数不变",
+                        ReadPurchaseCount(
+                            database,
+                            sameDayAccountId,
+                            GetRowCharacterId(
+                                rolloverDefinition.LimitType,
+                                sameDayCharacterId),
+                            rolloverNpcId,
+                            rolloverItemId,
+                            rolloverDefinition.LimitType,
+                            1) == rolloverDefinition.LimitCount,
+                        ref failures);
+                }
+
+                if (!TryFindLimitedItemByResetType(
+                        catalog,
+                        1,
+                        out var expiredShopItemId,
+                        out var expiredShopNpcId,
+                        out var expiredShopDefinition))
+                {
+                    Check("找到商店在售的 reset_type=1 限购物品", false, ref failures);
+                }
+                else
+                {
+                    const int expiredShopAccountId = 56001;
+                    const int expiredShopCharacterId = 56002;
+                    SeedAccount(database, expiredShopAccountId, "item-limit-expired-shop-a");
+                    SeedCharacter(
+                        database,
+                        expiredShopCharacterId,
+                        expiredShopAccountId,
+                        "item-limit-expired-shop-c");
+                    var expiredShopInventory = LoadInventory(
+                        database,
+                        expiredShopCharacterId,
+                        expiredShopAccountId);
+                    var expiredShopRowCharacterId = GetRowCharacterId(
+                        expiredShopDefinition.LimitType,
+                        expiredShopCharacterId);
+
+                    InsertPurchaseLimitRow(
+                        database,
+                        expiredShopAccountId,
+                        expiredShopRowCharacterId,
+                        expiredShopNpcId,
+                        expiredShopItemId,
+                        expiredShopDefinition.LimitCount,
+                        expiredShopDefinition.LimitType,
+                        1,
+                        dayId: staleDayId);
+                    var expiredCounts = ItemPurchaseLimitService.LoadNpcPurchaseCounts(
+                        expiredShopInventory,
+                        expiredShopNpcId);
+                    Check(
+                        "过期 day_id 的限购行不出现在商店下发列表",
+                        !expiredCounts.Any(entry => entry.ItemId == expiredShopItemId),
+                        ref failures);
+
+                    const int currentShopAccountId = 57001;
+                    const int currentShopCharacterId = 57002;
+                    SeedAccount(database, currentShopAccountId, "item-limit-current-shop-a");
+                    SeedCharacter(
+                        database,
+                        currentShopCharacterId,
+                        currentShopAccountId,
+                        "item-limit-current-shop-c");
+                    var currentShopInventory = LoadInventory(
+                        database,
+                        currentShopCharacterId,
+                        currentShopAccountId);
+                    var currentShopRowCharacterId = GetRowCharacterId(
+                        expiredShopDefinition.LimitType,
+                        currentShopCharacterId);
+
+                    InsertPurchaseLimitRow(
+                        database,
+                        currentShopAccountId,
+                        currentShopRowCharacterId,
+                        expiredShopNpcId,
+                        expiredShopItemId,
+                        1,
+                        expiredShopDefinition.LimitType,
+                        1,
+                        dayId: today);
+                    var currentCounts = ItemPurchaseLimitService.LoadNpcPurchaseCounts(
+                        currentShopInventory,
+                        expiredShopNpcId);
+                    Check(
+                        "当日限购行仍出现在商店下发列表",
+                        currentCounts.Any(
+                            entry => entry.ItemId == expiredShopItemId
+                                && entry.Value == 1),
+                        ref failures);
+                }
+
+                if (!TryFindLimitedItemByResetType(
+                        catalog,
+                        0,
+                        out var fixedItemId,
+                        out var fixedNpcId,
+                        out var fixedDefinition))
+                {
+                    Check("找到 reset_type=0 的限购物品", false, ref failures);
+                }
+                else
+                {
+                    const int fixedAccountId = 58001;
+                    const int fixedCharacterId = 58002;
+                    SeedAccount(database, fixedAccountId, "item-limit-fixed-a");
+                    SeedCharacter(
+                        database,
+                        fixedCharacterId,
+                        fixedAccountId,
+                        "item-limit-fixed-c");
+                    var fixedInventory = LoadInventory(
+                        database,
+                        fixedCharacterId,
+                        fixedAccountId);
+                    var fixedRowCharacterId = GetRowCharacterId(
+                        fixedDefinition.LimitType,
+                        fixedCharacterId);
+
+                    InsertPurchaseLimitRow(
+                        database,
+                        fixedAccountId,
+                        fixedRowCharacterId,
+                        fixedNpcId,
+                        fixedItemId,
+                        fixedDefinition.LimitCount,
+                        fixedDefinition.LimitType,
+                        0,
+                        dayId: staleDayId);
+                    using (var connection = database.OpenConnection())
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        var outcome = ItemPurchaseLimitService.TryRecordPurchase(
+                            fixedInventory,
+                            fixedNpcId,
+                            fixedItemId,
+                            1,
+                            connection,
+                            transaction);
+                        Check(
+                            "reset_type=0 的限购行不因 day_id 过期而重置",
+                            outcome == PurchaseLimitRecordOutcome.LimitExceeded,
+                            ref failures);
+                        transaction.Rollback();
+                    }
+
+                    Check(
+                        "reset_type=0 的限购行计数与 day_id 不变",
+                        ReadPurchaseCount(
+                            database,
+                            fixedAccountId,
+                            fixedRowCharacterId,
+                            fixedNpcId,
+                            fixedItemId,
+                            fixedDefinition.LimitType,
+                            0) == fixedDefinition.LimitCount
+                        && ReadPurchaseDayId(
+                            database,
+                            fixedAccountId,
+                            fixedRowCharacterId,
+                            fixedNpcId,
+                            fixedItemId,
+                            fixedDefinition.LimitType,
+                            0) == staleDayId,
+                        ref failures);
+                }
             }
             catch (Exception ex)
             {
@@ -669,7 +974,8 @@ VALUES (@cid, @aid, @name, 0);";
             int itemId,
             int buyCount,
             int limitType,
-            int resetType)
+            int resetType,
+            int? dayId = null)
         {
             using (var connection = database.OpenConnection())
             using (var transaction = connection.BeginTransaction())
@@ -678,9 +984,9 @@ VALUES (@cid, @aid, @name, 0);";
                 command.Transaction = transaction;
                 command.CommandText = @"
 INSERT INTO item_purchase_limits (
-    account_id, character_id, npc_id, item_id, buy_count, limit_type, reset_type, updated_at
+    account_id, character_id, npc_id, item_id, buy_count, limit_type, reset_type, day_id, updated_at
 ) VALUES (
-    @aid, @cid, @npcId, @itemId, @buyCount, @limitType, @resetType, CURRENT_TIMESTAMP
+    @aid, @cid, @npcId, @itemId, @buyCount, @limitType, @resetType, @dayId, CURRENT_TIMESTAMP
 );";
                 command.Parameters.AddWithValue("@aid", accountId);
                 command.Parameters.AddWithValue("@cid", characterId);
@@ -689,8 +995,83 @@ INSERT INTO item_purchase_limits (
                 command.Parameters.AddWithValue("@buyCount", buyCount);
                 command.Parameters.AddWithValue("@limitType", limitType);
                 command.Parameters.AddWithValue("@resetType", resetType);
+                command.Parameters.AddWithValue(
+                    "@dayId",
+                    dayId ?? DailyResetService.TodayId());
                 command.ExecuteNonQuery();
                 transaction.Commit();
+            }
+        }
+
+        private static int ReadPurchaseDayId(
+            IGameDatabase database,
+            int accountId,
+            int characterId,
+            int npcId,
+            int itemId,
+            int limitType,
+            int resetType)
+        {
+            using (var connection = database.OpenConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+SELECT day_id
+FROM item_purchase_limits
+WHERE account_id = @aid
+  AND character_id = @cid
+  AND npc_id = @npcId
+  AND item_id = @itemId
+  AND limit_type = @limitType
+  AND reset_type = @resetType;";
+                command.Parameters.AddWithValue("@aid", accountId);
+                command.Parameters.AddWithValue("@cid", characterId);
+                command.Parameters.AddWithValue("@npcId", npcId);
+                command.Parameters.AddWithValue("@itemId", itemId);
+                command.Parameters.AddWithValue("@limitType", limitType);
+                command.Parameters.AddWithValue("@resetType", resetType);
+                var value = command.ExecuteScalar();
+                return value == null || value == DBNull.Value
+                    ? 0
+                    : Convert.ToInt32(value, CultureInfo.InvariantCulture);
+            }
+        }
+
+        private static bool HasTableColumn(
+            IGameDatabase database,
+            string tableName,
+            string columnName)
+        {
+            using (var connection = database.OpenConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = $"PRAGMA table_info({tableName});";
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        if (!reader.IsDBNull(1)
+                            && string.Equals(
+                                reader.GetString(1),
+                                columnName,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static int ReadUserVersion(IGameDatabase database)
+        {
+            using (var connection = database.OpenConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "PRAGMA user_version;";
+                return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
             }
         }
 
@@ -793,6 +1174,48 @@ WHERE account_id = @aid
                 if (entry.Shop.GetItemIds(true).Contains(itemId))
                 {
                     npcId = entry.NpcId;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryFindLimitedItemByResetType(
+            ItemShopCatalog catalog,
+            int resetType,
+            out int itemId,
+            out int npcId,
+            out ItemPurchaseLimitDefinition definition)
+        {
+            itemId = 0;
+            npcId = 0;
+            definition = null;
+            if (catalog == null)
+                return false;
+
+            var seen = new HashSet<int>();
+            foreach (var entry in catalog.Entries)
+            {
+                if (entry?.Shop == null || entry.NpcId <= 0)
+                    continue;
+
+                foreach (var candidate in entry.Shop.GetItemIds(true))
+                {
+                    if (candidate <= 0 || !seen.Add(candidate))
+                        continue;
+
+                    if (!ItemPurchaseLimitService.TryResolveDefinition(
+                            candidate,
+                            out var resolved)
+                        || resolved.ResetType != resetType)
+                    {
+                        continue;
+                    }
+
+                    itemId = candidate;
+                    npcId = entry.NpcId;
+                    definition = resolved;
                     return true;
                 }
             }
