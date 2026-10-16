@@ -45,6 +45,7 @@ namespace DfoServer
             ("--selftest-emblem-collect-item", SelfTests.EmblemCollectItemSelfTest.Run),
             ("--selftest-buy-skill-tp-refund", SelfTests.BuySkillTpRefundSelfTest.Run),
             ("--selftest-compound-item-ack", SelfTests.CompoundItemAckSelfTest.Run),
+            ("--selftest-portable-forge-separate-upgrade", SelfTests.PortableForgeSeparateUpgradeSelfTest.Run),
             ("--selftest-daily-reset-account", SelfTests.DailyResetAccountSelfTest.Run),
             ("--selftest-daily-quest-completion-cycle", SelfTests.DailyQuestCompletionCycleSelfTest.Run),
             ("--selftest-a21-daily-challenge", SelfTests.A21DailyChallengeSelfTest.Run),

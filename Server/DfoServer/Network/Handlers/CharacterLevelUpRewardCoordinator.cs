@@ -87,9 +87,16 @@ namespace DfoServer.Network.Handlers
             {
                 if (_disposed) return;
                 if (!_sessions.TryGet(group.Key, out var session)) continue;
+                byte[] broadcast = null;
                 await _transitions.RunIfCurrentAsync(session, async () =>
                 {
                     if (_disposed || !InventoryContext.TryGetOwnedLease(session.SessionId, group.Key, out _)) return;
+                    // 只根据本次邮件事务实际提交的奖励判断，不能重新读取可能变化的PVF配置。
+                    if (group.Any(d => d.Level == LevelUpRewardBroadcastBuilder.NativeLevel
+                        && d.ItemId == LevelUpRewardBroadcastBuilder.NativeItemId
+                        && d.ItemCount == LevelUpRewardBroadcastBuilder.NativeItemCount)
+                        && LevelUpRewardBroadcastBuilder.TryBuild(session.Player.Name, out var body))
+                        broadcast = GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.SERVER_BROADCAST, body);
                     var alarm = GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.MAILBOX_ALARM,
                         MailboxHandler.BuildMailboxAlarmNotification((ushort)Math.Min(ushort.MaxValue, group.Count())));
                     var message = GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.SERVER_BROADCAST_TIME_MESSAGE,
@@ -99,6 +106,25 @@ namespace DfoServer.Network.Handlers
                         await session.SendPacketAsync(alarm, cancellationToken);
                         await session.SendPacketAsync(message, cancellationToken);
                     }, $"level-up reward cid={group.Key}");
+                });
+                // 先释放发奖者gate，再逐个获取接收者gate，避免跨角色广播形成嵌套锁。
+                if (broadcast != null)
+                    await BroadcastNativeRewardAsync(broadcast);
+            }
+        }
+
+        private async Task BroadcastNativeRewardAsync(byte[] packet)
+        {
+            foreach (var recipient in _sessions.GetAllGameSessions())
+            {
+                if (_disposed) return;
+                if (recipient?.Player?.CharacterId <= 0) continue;
+                await _transitions.RunIfCurrentAsync(recipient, async () =>
+                {
+                    if (_disposed) return;
+                    await SessionDirectory.TrySendBestEffortAsync(
+                        cancellationToken => recipient.SendPacketAsync(packet, cancellationToken),
+                        $"升级奖励播报，接收角色={recipient.Player.CharacterId}");
                 });
             }
         }

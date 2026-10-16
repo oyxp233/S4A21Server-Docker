@@ -157,6 +157,120 @@ namespace DfoServer.Game.Inventory
             return true;
         }
 
+        // 便携式锻造炉：材料槽放的是炉子本身，确认时扣 1 个（与服务端券路径一致），
+        // 跳过强烈的气息材料规则校验与扣除；目标校验与 roll 判定与 TryUpgrade 相同。
+        internal static bool TryUpgradePortable(
+            InventoryService inventory,
+            SeparateUpgradeCommand command,
+            SeparateUpgradeTable table,
+            ItemMetadata metadata,
+            out SeparateUpgradeResult result)
+        {
+            return TryUpgradePortable(
+                inventory, command, table,
+                metadata,
+                () => Infrastructure.ServerRandom.Next(10000),
+                out result);
+        }
+
+        internal static bool TryUpgradePortable(
+            InventoryService inventory,
+            SeparateUpgradeCommand command,
+            SeparateUpgradeTable table,
+            ItemMetadata metadata,
+            Func<int> rollProvider,
+            out SeparateUpgradeResult result)
+        {
+            result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorInvalidTarget);
+            if (inventory == null || command == null || table == null || metadata == null || rollProvider == null
+                || (command.TargetListType != InventoryListType.Main
+                    && command.TargetListType != InventoryListType.Equipment))
+                return false;
+
+            var target = inventory.GetItem(command.TargetListType, command.TargetSlotIndex);
+            if (target == null || target.ItemKind != ItemCore.KindEquipment
+                || target.ItemId != command.TargetItemTemplateId || IsLocked(inventory, target))
+                return false;
+
+            if (!EquipmentTypeInfo.IsWeapon(EquipmentTypeInfo.ParseOrUnknown(metadata.EquipmentType)))
+            {
+                result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorNotWeapon);
+                return false;
+            }
+
+            var forgeItem = inventory.GetItem(InventoryListType.Main, command.MaterialSlotIndex);
+            if (forgeItem == null || forgeItem.Count < 1
+                || !InventoryStackRuleService.IsStackable(forgeItem)
+                || !PortableForgeDefinition.IsPortableForgeItem(forgeItem.ItemId))
+            {
+                result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorInvalidMaterial);
+                return false;
+            }
+
+            if (target.Durability != metadata.Durability)
+            {
+                result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorDurability);
+                return false;
+            }
+
+            var oldLevel = target.GenuineUpgrade;
+            if (oldLevel >= table.MaxLevel)
+            {
+                result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorMaxLevel);
+                return false;
+            }
+            if (!table.TryGetLevel(oldLevel + 1, out var level)
+                || metadata.Rarity < 0 || metadata.Rarity >= table.ItemWeightsByRarity.Count)
+            {
+                result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorUnsupported);
+                return false;
+            }
+
+            var roll = Math.Max(0, Math.Min(9999, rollProvider()));
+            var succeeded = roll < level.SuccessWeight;
+            var updatedTarget = target.Copy();
+            if (succeeded)
+                updatedTarget.GenuineUpgrade = checked((byte)(oldLevel + 1));
+            var forgeItemId = forgeItem.ItemId;
+            var forgeSnapshot = forgeItem.Copy();
+
+            // 炉子与锻造券同语义：无论锻造成败都消耗 1 个。
+            if (!InventoryDeleteService.TryConsumeFromSlot(
+                    inventory,
+                    InventoryListType.Main,
+                    command.MaterialSlotIndex,
+                    forgeItemId,
+                    1,
+                    out var deletion))
+            {
+                result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorMaterialCommit);
+                return false;
+            }
+
+            if (succeeded && !inventory.SetItem(command.TargetListType, command.TargetSlotIndex, updatedTarget))
+            {
+                inventory.SetItem(InventoryListType.Main, command.MaterialSlotIndex, forgeSnapshot);
+                result = SeparateUpgradeResult.Error(command, SeparateUpgradeResult.ErrorMaterialCommit);
+                return false;
+            }
+
+            result = new SeparateUpgradeResult
+            {
+                Command = command,
+                UpgradeSucceeded = succeeded,
+                OldLevel = oldLevel,
+                NewLevel = succeeded ? (byte)(oldLevel + 1) : oldLevel,
+                TargetReinforceLevel = target.Upgrade,
+                SuccessWeight = level.SuccessWeight,
+                MaterialItemTemplateId = forgeItemId,
+                MaterialCost = 1,
+                MaterialRemainingCount = deletion.RemainingCount,
+                NoticeRequired = (succeeded ? oldLevel + 1 : oldLevel) >= NoticeMinimumLevel,
+                TargetItemSnapshot = updatedTarget,
+            };
+            return true;
+        }
+
         internal static bool TryUpgrade(
             InventoryService inventory,
             SeparateUpgradeCommand command,

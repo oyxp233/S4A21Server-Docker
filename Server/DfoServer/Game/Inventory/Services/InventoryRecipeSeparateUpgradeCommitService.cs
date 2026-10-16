@@ -54,16 +54,28 @@ namespace DfoServer.Game.Inventory
                 "separate-upgrade",
                 (connection, transaction) =>
                 {
-                    var ticketItem = lease.Inventory.GetItem(
+                    // 材料槽内容决定路径：锻造券 → 券；便携式锻造炉 → 免材料锻造；
+                    // 其余（含无效槽位）→ 现有 NPC 材料路径。
+                    var materialItem = lease.Inventory.GetItem(
                         InventoryListType.Main,
                         command.MaterialSlotIndex);
-                    if (ticketItem != null
-                        && SeparateUpgradeTicketDefinition.TryLoad(ticketItem.ItemId, out var ticket))
+                    if (materialItem != null
+                        && SeparateUpgradeTicketDefinition.TryLoad(materialItem.ItemId, out var ticket))
                     {
                         applied = InventorySeparateUpgradeService.TryApplyTicket(
                             lease.Inventory,
                             command,
                             ticket,
+                            table,
+                            metadata,
+                            out committedResult);
+                    }
+                    else if (materialItem != null
+                        && PortableForgeDefinition.IsPortableForgeItem(materialItem.ItemId))
+                    {
+                        applied = InventorySeparateUpgradeService.TryUpgradePortable(
+                            lease.Inventory,
+                            command,
                             table,
                             metadata,
                             out committedResult);

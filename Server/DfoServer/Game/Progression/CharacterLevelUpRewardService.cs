@@ -6,7 +6,8 @@ using System.Collections.Generic;
 
 namespace DfoServer.Game.Progression
 {
-    internal sealed record CharacterLevelUpRewardDelivery(int CharacterId, byte Level, long MessageId);
+    internal sealed record CharacterLevelUpRewardDelivery(int CharacterId, byte Level, long MessageId,
+        int ItemId, int ItemCount);
 
     // 只消费已经随升级提交的事实。邮件、永久发放账本与事件消费标记在同一事务提交。
     internal sealed class CharacterLevelUpRewardService
@@ -80,7 +81,8 @@ namespace DfoServer.Game.Progression
                             throw new InvalidOperationException($"level-up mail rejected cid={change.CharacterId} level={level}: {send.Error}");
                         CharacterLevelUpRewardRepository.RecordDelivery(connection, transaction,
                             change.CharacterId, reward, send.MessageId, now);
-                        result.Add(new CharacterLevelUpRewardDelivery(change.CharacterId, (byte)level, send.MessageId));
+                        result.Add(new CharacterLevelUpRewardDelivery(change.CharacterId, (byte)level, send.MessageId,
+                            reward.ItemId, reward.ItemCount));
                     }
                 }
                 CharacterLevelUpEventRepository.Complete(connection, transaction, eventId, now);

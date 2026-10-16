@@ -54,6 +54,9 @@ namespace DfoServer.SelfTests
             Scenario("level-up ticket production path", () => VerifyLevelUpTicket(Check));
             Scenario("schema creation and v33 migration", () => VerifyMigration(Check));
             Scenario("session generation and network projection", () => VerifyNetworkAsync(Check).GetAwaiter().GetResult());
+            Scenario("85级原生奖励播报", () => VerifyNativeRewardBroadcastAsync(Check).GetAwaiter().GetResult());
+            Scenario("播报奖励与已提交奖励一致", () => VerifyNativeRewardBroadcastEligibilityAsync(Check).GetAwaiter().GetResult());
+            Scenario("奖励事务失败及旧会话不播报", () => VerifyNativeRewardBroadcastFailureAsync(Check).GetAwaiter().GetResult());
             Scenario("common packet boundary", () => VerifyPacketBoundaryAsync(Check).GetAwaiter().GetResult());
             Scenario("EXP item preserves existing client refreshes", () => VerifyExperienceItemPacketsAsync(Check).GetAwaiter().GetResult());
             Scenario("skill books preserve unpersisted monster EXP", () => VerifySkillBookExperienceAsync(Check).GetAwaiter().GetResult());
@@ -609,6 +612,91 @@ CREATE TABLE idx_character_level_up_events_pending (invalid_schema INTEGER);");
                 check("queued notification rejects a displaced session generation", peer.Drain().Count == 0 && replacement.Drain().Count == 0);
             }
             check("displaced-session notification cannot undo the already committed mail", fixture.Count("mailbox_messages") == 3);
+        }
+
+        private static async Task VerifyNativeRewardBroadcastAsync(Action<string, bool> check)
+        {
+            using var fixture = new Fixture();
+            var sessions = new SessionDirectory();
+            var transitions = new CharacterTransitionCoordinator(sessions);
+            using var owner = await Peer.Create(sessions, Fixture.CharacterId, "升级测试");
+            using var observer = await Peer.Create(sessions, 62003, "其他频道角色", 10011);
+            fixture.RegisterInventory(owner.Session.SessionId);
+            var rewards = new CharacterLevelUpRewardService(fixture.Database, fixture.Mailbox,
+                () => new Dictionary<byte, CharacterLevelUpReward>
+                {
+                    [85] = new(85, 3330, 500), [86] = new(86, 3330, 80),
+                }, () => fixture.Now);
+            using var coordinator = new CharacterLevelUpRewardCoordinator(rewards, sessions, transitions);
+            fixture.Experience.GrantToLevel(fixture.Player, 86, "原生播报跨级测试");
+            await coordinator.DrainAndNotifyAsync();
+            var packets = owner.Drain();
+            var broadcasts = packets.Where(p => BitConverter.ToUInt16(p, 1) == (ushort)NotiPacketTypeA21.SERVER_BROADCAST).ToList();
+            var observerPackets = observer.Drain();
+            var expectedBody = new byte[] { 6, 8, 0, 0, 0, 0xc9, 0xfd, 0xbc, 0xb6, 0xb2, 0xe2, 0xca, 0xd4 };
+            check("跨过85至86级后，按已提交的85级奖励只发一条NOTI原生播报",
+                packets.Count == 3 && broadcasts.Count == 1 && broadcasts[0][0] == 0
+                    && broadcasts[0].Skip(15).SequenceEqual(expectedBody)
+                    && fixture.Count("mailbox_messages") == 2);
+            check("在线其他频道角色只收到同一角色名播报，不收到发奖者的邮箱和个人提示",
+                observerPackets.Count == 1 && observerPackets[0][0] == 0
+                    && BitConverter.ToUInt16(observerPackets[0], 1) == (ushort)NotiPacketTypeA21.SERVER_BROADCAST
+                    && observerPackets[0].Skip(15).SequenceEqual(expectedBody));
+            await coordinator.DrainAndNotifyAsync();
+            check("重复消费不重复发邮件或播报", owner.Drain().Count == 0 && observer.Drain().Count == 0
+                && fixture.Count("mailbox_messages") == 2);
+        }
+
+        private static async Task VerifyNativeRewardBroadcastEligibilityAsync(Action<string, bool> check)
+        {
+            foreach (var reward in new[] { new CharacterLevelUpReward(84, 3330, 500),
+                new CharacterLevelUpReward(85, 3330, 499), new CharacterLevelUpReward(85, 3331, 500) })
+            {
+                using var fixture = new Fixture();
+                var sessions = new SessionDirectory();
+                using var owner = await Peer.Create(sessions, Fixture.CharacterId, "升级测试");
+                using var observer = await Peer.Create(sessions, 62003, "旁观角色");
+                fixture.RegisterInventory(owner.Session.SessionId);
+                var rewards = new CharacterLevelUpRewardService(fixture.Database, fixture.Mailbox,
+                    () => new Dictionary<byte, CharacterLevelUpReward> { [reward.Level] = reward }, () => fixture.Now);
+                using var coordinator = new CharacterLevelUpRewardCoordinator(rewards, sessions, new CharacterTransitionCoordinator(sessions));
+                fixture.Experience.GrantToLevel(fixture.Player, reward.Level, "播报资格测试");
+                await coordinator.DrainAndNotifyAsync();
+                check($"等级或实际奖励不匹配固定文案时不播报：{reward.Level}/{reward.ItemId}/{reward.ItemCount}",
+                    owner.Drain().Count == 2 && observer.Drain().Count == 0 && fixture.Count("mailbox_messages") == 1);
+            }
+        }
+
+        private static async Task VerifyNativeRewardBroadcastFailureAsync(Action<string, bool> check)
+        {
+            using var fixture = new Fixture();
+            var sessions = new SessionDirectory();
+            var transitions = new CharacterTransitionCoordinator(sessions);
+            using var owner = await Peer.Create(sessions, Fixture.CharacterId, "升级测试");
+            using var observer = await Peer.Create(sessions, 62003, "旁观角色");
+            fixture.RegisterInventory(owner.Session.SessionId);
+            var rewards = new CharacterLevelUpRewardService(fixture.Database, fixture.Mailbox,
+                () => new Dictionary<byte, CharacterLevelUpReward> { [85] = new(85, 3330, 500) }, () => fixture.Now);
+            using var coordinator = new CharacterLevelUpRewardCoordinator(rewards, sessions, transitions);
+            fixture.Execute("CREATE TRIGGER reject_native_reward BEFORE INSERT ON character_level_up_rewards BEGIN SELECT RAISE(FAIL,'测试奖励事务回滚'); END;");
+            fixture.Experience.GrantToLevel(fixture.Player, 85, "播报失败测试");
+            await coordinator.DrainAndNotifyAsync();
+            check("发奖事务失败时不产生邮件或任何个人与全服播报",
+                fixture.Count("mailbox_messages") == 0 && owner.Drain().Count == 0 && observer.Drain().Count == 0);
+            fixture.Execute("DROP TRIGGER reject_native_reward;");
+            fixture.Now = fixture.Now.AddMinutes(2);
+            var delivered = rewards.ProcessPending();
+            using (var gate = await transitions.AcquireAsync(Fixture.CharacterId))
+            {
+                var notify = coordinator.NotifyAsync(delivered);
+                using var replacement = await Peer.Create(sessions, Fixture.CharacterId, "新会话", register: false);
+                await sessions.RegisterReplacingAsync(Fixture.CharacterId, replacement.Session);
+                gate.Dispose();
+                await notify;
+                check("排队的旧发奖会话失效后不向任何角色投影原生播报",
+                    owner.Drain().Count == 0 && observer.Drain().Count == 0 && replacement.Drain().Count == 0
+                        && fixture.Count("mailbox_messages") == 1);
+            }
         }
 
         private static async Task VerifyPacketBoundaryAsync(Action<string, bool> check)

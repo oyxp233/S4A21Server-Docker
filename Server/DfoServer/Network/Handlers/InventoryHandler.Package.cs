@@ -1639,6 +1639,19 @@ namespace DfoServer.Network.Handlers
                 await _refresh.SendEmptyUpdateItemList(session, InventoryListType.Main, result.SourceSlotIndex);
 
             await SendBoosterMainItemUpdates(session, result, result.SourceRemainingStackCount > 0);
+            if (result.IsSeriaLuckValueSource)
+            {
+                var body = BoosterGageBodyBuilder.Build(
+                    result.SeriaLuckValueAfter);
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.BOOSTER_GAGE,
+                    body));
+                FileLogger.Log(
+                    $"[{ProtocolName}] BOOSTER_GAGE seria-luck sync " +
+                    $"cid={session?.Player?.CharacterId ?? 0} " +
+                    $"value={result.SeriaLuckValueAfter} bodyLen={body.Length}");
+            }
             if (wallet != null)
             {
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(

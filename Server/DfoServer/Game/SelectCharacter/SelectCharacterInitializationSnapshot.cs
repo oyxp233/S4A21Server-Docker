@@ -108,6 +108,8 @@ namespace DfoServer.Game.SelectCharacter
         
         public ushort LuckyStar { get; set; }
 
+        public int SeriaLuckValue { get; set; }
+
         
         public ushort FatigueAccelValue { get; set; }
         public byte FatigueAccelState { get; set; }

@@ -382,7 +382,8 @@ PRAGMA user_version=9;";
                     SqliteMigrations.ReadVersion(connection) == SqliteMigrations.CurrentVersion
                     && TableExists(connection, "game_event_state")
                     && TableExists(connection, "event_joust_character_bets")
-                    && TableExists(connection, "event_joust_history"),
+                    && TableExists(connection, "event_joust_history")
+                    && HasSeriaLuckUiEvent(connection),
                     ref failures);
             }
         }
@@ -435,6 +436,15 @@ INSERT INTO event_joust_rules (
             var snapshot = new GameEventRepository(database).LoadEventInfoSnapshot();
             var entry = snapshot.Events.FirstOrDefault(
                 candidate => candidate.EventId == JoustConfig.EventId);
+            var seriaUiEntry = snapshot.Events.FirstOrDefault(
+                candidate => candidate.EventId == 2037);
+            Check(
+                "fresh database seeds enabled Seria luck HUD event 2037",
+                seriaUiEntry != null
+                && seriaUiEntry.StartNotice == "[S4A21]"
+                && seriaUiEntry.EndNotice == "[S4A21]"
+                && !seriaUiEntry.HasDetail,
+                ref failures);
             var start = entry != null
                 ? DateTimeOffset.FromUnixTimeSeconds(entry.StartUnixTime).ToOffset(BeijingOffset)
                 : DateTimeOffset.MinValue;
@@ -586,6 +596,23 @@ SELECT COUNT(*)
 FROM sqlite_master
 WHERE type='table' AND name=@name;";
                 command.Parameters.AddWithValue("@name", table);
+                return Convert.ToInt32(command.ExecuteScalar()) == 1;
+            }
+        }
+
+        private static bool HasSeriaLuckUiEvent(SqliteConnection connection)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+SELECT COUNT(*)
+FROM game_event_state s
+JOIN game_event_info_details d ON d.event_id=s.event_id
+WHERE s.event_id=2037
+  AND s.state=1
+  AND d.start_notice='[S4A21]'
+  AND d.end_notice='[S4A21]'
+  AND d.detail_flag=0;";
                 return Convert.ToInt32(command.ExecuteScalar()) == 1;
             }
         }

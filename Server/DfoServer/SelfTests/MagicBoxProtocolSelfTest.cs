@@ -233,6 +233,68 @@ namespace DfoServer.SelfTests
                 9 + 2 + 13 * 40 + 2 + 2 + 3 * 40 == 655,
                 ref failures);
 
+            var gaugeBody = BoosterGageBodyBuilder.Build(2);
+            Check(
+                "A21 BOOSTER_GAGE maps synchronized 0..8 points to 0..40 gauge units",
+                gaugeBody.Length == 2
+                && gaugeBody[0] == 10
+                && gaugeBody[1] == 10
+                && BoosterGageBodyBuilder.Build(8)[0] == 40
+                && BoosterGageBodyBuilder.Build(8)[1] == 40,
+                ref failures);
+
+            var rolledReward = new PvfLib.BoosterRewardEntry
+            {
+                ItemId = item0,
+                Count = 3,
+            };
+            var doubledGrant = InventorySpecialConsumableService
+                .BuildSeriaLuckRewardsToGrant(
+                    new[] { rolledReward },
+                    new[] { rolledReward });
+            Check(
+                "Seria luck double grants one base copy plus one extra copy",
+                doubledGrant.Sum(reward => reward.Count) == 6,
+                ref failures);
+
+            var state = 0;
+            var triggerCount = 0;
+            var triggerOpen = 0;
+            for (var index = 0; index < 10; index++)
+            {
+                state = InventorySpecialConsumableService.AdvanceSeriaLuckValue(
+                    state,
+                    out var triggered);
+                if (triggered)
+                {
+                    triggerCount++;
+                    triggerOpen = index + 1;
+                }
+            }
+            Check(
+                "ten-open from zero doubles open 9 and ends at one",
+                triggerCount == 1 && triggerOpen == 9 && state == 1,
+                ref failures);
+
+            state = 3;
+            triggerCount = 0;
+            triggerOpen = 0;
+            for (var index = 0; index < 10; index++)
+            {
+                state = InventorySpecialConsumableService.AdvanceSeriaLuckValue(
+                    state,
+                    out var triggered);
+                if (triggered)
+                {
+                    triggerCount++;
+                    triggerOpen = index + 1;
+                }
+            }
+            Check(
+                "ten-open from three doubles open 6 and ends at four",
+                triggerCount == 1 && triggerOpen == 6 && state == 4,
+                ref failures);
+
             Console.WriteLine(failures == 0
                 ? "MAGIC_BOX_PROTOCOL selftest passed."
                 : $"MAGIC_BOX_PROTOCOL selftest failed: {failures}");

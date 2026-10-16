@@ -432,8 +432,8 @@ namespace DfoServer.SelfTests
                     HasTableColumn(database, "item_purchase_limits", "day_id"),
                     ref failures);
                 Check(
-                    "新库 schema 版本为 35",
-                    ReadUserVersion(database) == 35,
+                    "新库 schema 版本为当前版本",
+                    ReadUserVersion(database) == Sqlite.SqliteMigrations.CurrentVersion,
                     ref failures);
 
                 if (!TryFindLimitedItemByResetType(

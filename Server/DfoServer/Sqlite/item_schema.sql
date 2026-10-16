@@ -1261,6 +1261,22 @@ CREATE TABLE IF NOT EXISTS game_event_info_details (
     FOREIGN KEY (event_id) REFERENCES game_event_state(event_id) ON DELETE CASCADE
 );
 
+-- Event 2037 enables the client's native RandomboxBooster HUD host.
+INSERT OR IGNORE INTO game_event_state(event_id, state)
+VALUES(2037, 1);
+
+INSERT OR IGNORE INTO game_event_info_details (
+    event_id, unknown0, start_notice, end_notice, detail_flag,
+    flag_a, flag_b, title, short_name, reserved_or_icon,
+    start_unix_time, end_unix_time, link_key, description,
+    detail_enabled, sort_order, updated_at
+) VALUES (
+    2037, 0, '[S4A21]', '[S4A21]', 0,
+    0, 0, '', '', '',
+    0, 0, '', '',
+    0, 0, CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS game_event_info_extra (
     event_id INTEGER PRIMARY KEY,
     param0 INTEGER NOT NULL DEFAULT 0,

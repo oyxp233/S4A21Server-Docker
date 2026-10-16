@@ -62,6 +62,7 @@ namespace DfoServer.Game.SelectCharacter
             Raw(0x00, (ushort)NotiPacketTypeA21.PVP_RECORD);
             Raw(0x00, (ushort)NotiPacketTypeA21.PVP_TOTAL_MATCH_TEAM_INFO);
             Raw(0x00, 0x006C);
+            Raw(0x00, (ushort)NotiPacketTypeA21.BOOSTER_GAGE);
             Raw(0x00, 0x0187);
             Raw(0x00, 0x01B9);
             Raw(0x00, 0x015F);                      

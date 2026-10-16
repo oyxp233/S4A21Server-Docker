@@ -318,14 +318,16 @@ namespace DfoServer.SelfTests
 
             var initSequence = NewCharacterInitSequence.Build();
             Check(
-                "A21 select-character init sends rental list without legacy lucky-star packets",
+                "A21 select-character init sends event info before Seria booster gauge",
                 initSequence.Exists(packet =>
                     packet.Command == 0
                     && packet.Type == (ushort)NotiPacketTypeA21.EQUIPMENT_RENTAL_LIST)
                 && !initSequence.Exists(packet =>
                     packet.Command == 0 && packet.Type == 0x0357)
-                && !initSequence.Exists(packet =>
-                    packet.Command == 0 && packet.Type == 0x019D),
+                && initSequence.FindIndex(packet =>
+                    packet.Command == 0 && packet.Type == 0x006C)
+                    < initSequence.FindIndex(packet =>
+                        packet.Command == 0 && packet.Type == 0x019D),
                 ref failures);
 
             var enterFirst = EnterSelectDungeonStateBuilder
