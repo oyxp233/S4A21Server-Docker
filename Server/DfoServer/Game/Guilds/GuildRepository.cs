@@ -11,6 +11,7 @@ namespace DfoServer.Game.Guilds
         internal GuildRepository(IGameDatabase database)
             => Database = database ?? throw new ArgumentNullException(nameof(database));
 
+        internal int FindActiveCharacterId(string name) => Database.Read(c => FindActiveCharacterId(c, null, name));
         internal bool NameExists(string name) => Database.Read(c => NameExists(c, null, name));
         internal bool IsMember(int characterId) => GetForMember(characterId) != null;
         internal GuildRecord GetForMember(int characterId) => Database.Read(c => GetForMember(c, null, characterId));
@@ -91,6 +92,33 @@ WHERE self.character_id=@character ORDER BY member.character_id;";
             => Scalar(c, t, "SELECT EXISTS(SELECT 1 FROM guilds WHERE name=@v);", name) != 0;
         internal static bool IsActiveCharacter(SqliteConnection c, SqliteTransaction t, int id)
             => Scalar(c, t, "SELECT EXISTS(SELECT 1 FROM characters WHERE character_id=@v AND delete_flag=0);", id) != 0;
+        internal GuildResult AcceptInvite(int guildId, int inviterId, int characterId) => Database.Write((c, t) =>
+        {
+            if (!IsActiveCharacter(c, t, characterId) || !IsActiveCharacter(c, t, inviterId))
+                return GuildResult.MissingCharacter;
+            if (GetForMember(c, t, characterId) != null) return GuildResult.AlreadyMember;
+            var guild = GetForMember(c, t, inviterId);
+            if (guild == null || guild.Id != guildId) return GuildResult.NotFound;
+            AddMember(c, t, guildId, characterId);
+            return GuildResult.Success;
+        });
+
+        internal static int FindActiveCharacterId(SqliteConnection c, SqliteTransaction t, string name)
+        {
+            if (string.IsNullOrEmpty(name)) return 0;
+            using var cmd = c.CreateCommand();
+            cmd.Transaction = t;
+            cmd.CommandText = "SELECT character_id,name FROM characters WHERE delete_flag=0;";
+            using var reader = cmd.ExecuteReader();
+            int found = 0;
+            while (reader.Read())
+            {
+                if (!string.Equals(ReadCharacterName(reader, 1), name, StringComparison.Ordinal)) continue;
+                if (found != 0) return 0;
+                found = reader.GetInt32(0);
+            }
+            return found;
+        }
         internal static GuildRecord GetForMember(SqliteConnection c, SqliteTransaction t, int characterId)
             => ReadGuild(c, t, @"SELECT g.guild_id,g.name,g.promotion,g.leader_character_id,g.announcement
 FROM guilds g JOIN guild_members m ON m.guild_id=g.guild_id WHERE m.character_id=@v;", characterId);

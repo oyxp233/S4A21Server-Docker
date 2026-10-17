@@ -705,6 +705,7 @@ namespace DfoServer.Infrastructure
                 new GuildJoinHandler(guildRepository,
                     world.CharacterTransitions, world.Sessions, inventoryRefresh, guildPublisher),
                 new GuildManagementHandler(guildRepository, world.CharacterTransitions, guildPublisher),
+                new GuildInviteHandler(guildRepository, world.CharacterTransitions, world.Sessions, guildPublisher),
                 new ItemTradeHandler(world.Sessions, world.CharacterTransitions, core.Database));
         }
 

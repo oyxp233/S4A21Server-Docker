@@ -41,11 +41,34 @@ namespace DfoServer.SelfTests
             appearance.BindSessions(sessions);
             var publisher=new GuildStatePublisher(repository,transitions,sessions,appearance);
             var handler=new GuildManagementHandler(repository,transitions,publisher);
+            var invites=new GuildInviteHandler(repository,transitions,sessions,publisher);
             var message=new GamePacketWriter();message.WriteByte(6);message.WriteUInt16(0);message.WriteUInt32(0);message.WriteClientDstr("公会测试");
             await chat.Handle_SEND_MESSAGE(leader.Session,new GamePacketHeader(),message.ToArray());
             check("guild chat crosses channels and excludes outsiders", leader.Drain().Count==1 && member.Drain().Count==1 && outsider.Drain().Count==0);
             await chat.Handle_SEND_MESSAGE(outsider.Session,new GamePacketHeader(),message.ToArray());
             check("nonmember cannot send guild chat or echo", leader.Drain().Count==0 && member.Drain().Count==0 && outsider.Drain().Count==0);
+            var inviteName=new GamePacketWriter(); inviteName.WriteClientDstr("runtime-outsider");
+            await invites.Handle(outsider.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.CALL_GUILD_INVITE},inviteName.ToArray());
+            check("nonmember invite is rejected", !repository.IsMember(203) && outsider.Drain().Any(p=>p[0]==1 && p[15]==0) && leader.Drain().Count==0);
+            await invites.Handle(leader.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.CALL_GUILD_INVITE},inviteName.ToArray().Concat(new byte[]{0}).ToArray());
+            check("invite rejects trailing bytes", outsider.Drain().Count==0 && leader.Drain().Any(p=>p[0]==1 && p[15]==0));
+            await invites.Handle(leader.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.CALL_GUILD_INVITE},inviteName.ToArray());
+            check("invite reaches the named online character", outsider.Drain().Any(p=>p[0]==0
+                && BitConverter.ToUInt16(p,1)==(ushort)NotiPacketTypeA21.CALL_GUILD_INVITE_TO_INVITED
+                && BitConverter.ToInt32(p,15)=="runtime-guild".Length
+                && BitConverter.ToUInt16(p, 19 + "runtime-guild".Length)==2)
+                && leader.Drain().Any(p=>p[0]==1 && p[15]==1));
+            await invites.Handle(outsider.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.REPLY_GUILD_INVITE},new byte[]{0});
+            check("declined invite does not join", !repository.IsMember(203)
+                && leader.Drain().Any(p=>p[0]==0 && BitConverter.ToUInt16(p,1)==(ushort)NotiPacketTypeA21.REPLY_GUILD_INVITE_TO_CALLER && p[15]==0));
+            outsider.Drain();
+            await invites.Handle(leader.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.CALL_GUILD_INVITE},inviteName.ToArray());
+            leader.Drain(); outsider.Drain(); member.Drain();
+            await invites.Handle(outsider.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.REPLY_GUILD_INVITE},new byte[]{1});
+            check("accepted invite joins the inviter guild", repository.IsMember(203) && repository.GetForMember(203).Id==guild.Id);
+            await handler.Handle(outsider.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.REQ_GUILD_SECEDE},new byte[4]);
+            check("accepted invitee can leave before later guild scenarios", !repository.IsMember(203));
+            leader.Drain(); member.Drain(); outsider.Drain();
 
             var memo=new GamePacketWriter();memo.WriteClientDstr("在线备注");
             await handler.Handle(member.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.WRITE_GUILD_MEMBER_MEMO},memo.ToArray());
