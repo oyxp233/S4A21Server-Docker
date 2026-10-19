@@ -1,3 +1,4 @@
+using DfoServer.Game.Characters;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.Mailbox;
 using DfoServer.Infrastructure;
@@ -30,6 +31,36 @@ namespace DfoServer.SelfTests
                 (ushort)NotiPacketTypeA21.MAILBOX_MAIL_LIST == 0x0061
                 && (ushort)CmdPacketTypeA21.MAILBOX_OPEN == 0x0060
                 && (ushort)CmdPacketTypeA21.MAILBOX_EXTRACT_ITEM == 0x005F,
+                ref failures);
+
+            var test4Recipient = new CharacterRecord
+            {
+                Name = ClientTextEncoding.GetBytes("test4"),
+                Level = 1,
+                Job = 7,
+                GrowType = 0,
+            };
+            var fupderRecipient = new CharacterRecord
+            {
+                Name = ClientTextEncoding.GetBytes("fupder"),
+                Level = 86,
+                Job = 4,
+                GrowType = 33,
+            };
+            Check(
+                "0x0144 recipient ack has reserved byte before level and trailing padding",
+                MailboxHandler.BuildQueryCharacterInfoAck(test4Recipient, "test4").SequenceEqual(new byte[]
+                {
+                    0x01, 0x05, 0x00, 0x00, 0x00,
+                    (byte)'t', (byte)'e', (byte)'s', (byte)'t', (byte)'4',
+                    0x00, 0x01, 0x00, 0x07, 0x00, 0x00, 0x00,
+                })
+                && MailboxHandler.BuildQueryCharacterInfoAck(fupderRecipient, "fupder").SequenceEqual(new byte[]
+                {
+                    0x01, 0x06, 0x00, 0x00, 0x00,
+                    (byte)'f', (byte)'u', (byte)'p', (byte)'d', (byte)'e', (byte)'r',
+                    0x00, 0x56, 0x00, 0x04, 0x21, 0x00, 0x00,
+                }),
                 ref failures);
 
             var empty = MailboxHandler.BuildMailboxListNotification(

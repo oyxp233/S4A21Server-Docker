@@ -780,13 +780,16 @@ namespace DfoServer.Network.Handlers
             return SendSimpleResult(session, ackType, false, errorCode);
         }
 
-        private static byte[] BuildQueryCharacterInfoAck(CharacterRecord character, string fallbackName)
+        internal static byte[] BuildQueryCharacterInfoAck(CharacterRecord character, string fallbackName)
         {
             var nameBytes = GetResponseNameBytes(character, fallbackName);
             var writer = new GamePacketWriter();
             writer.WriteByte(0x01);
             writer.WriteInt32(nameBytes.Length);
             writer.WriteBytes(nameBytes);
+            // 名字后必须保留一个 0 字节，客户端从这里之后读取等级。
+            // 缺少该字节会让 level/job/grow 整体左移一字节（等级变成 job << 8）。
+            writer.WriteByte(0x00);
             writer.WriteUInt16(character.Level);
             // Client sub_CD2A00 unconditionally reads three bytes after level.
             // The first is passed to sub_1195CF0's 0..12 base-job table. Keep
@@ -794,6 +797,7 @@ namespace DfoServer.Network.Handlers
             // two fields; this client UI path reads but does not consume them.
             writer.WriteByte(character.Job);
             writer.WriteByte(character.GrowType);
+            writer.WriteByte(0x00);
             writer.WriteByte(0x00);
             return writer.ToArray();
         }
