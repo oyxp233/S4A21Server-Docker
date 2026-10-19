@@ -59,6 +59,7 @@ namespace DfoServer.Sqlite
                 new MigrationStep(34, "add_character_level_up_events_and_rewards", ApplyCharacterLevelUpRewards),
                 new MigrationStep(35, "add_item_purchase_limit_day_id", ApplyItemPurchaseLimitDayId),
                 new MigrationStep(36, "add_seria_luck_ui_event", ApplySeriaLuckUiEvent),
+                new MigrationStep(37, "add_guild_contribution_agit_and_cargo", ApplyGuildFacilities),
             };
 
         internal static int CurrentVersion =>
@@ -206,6 +207,20 @@ CREATE INDEX IF NOT EXISTS idx_character_npc_favor_daily
     CHECK(owner_character_id <> target_character_id)
 );";
             command.ExecuteNonQuery();
+        }
+
+        private static void ApplyGuildFacilities(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            AddColumnIfMissing(connection, transaction, "guilds", "contribution", "INTEGER NOT NULL DEFAULT 0 CHECK(contribution >= 0)");
+            AddColumnIfMissing(connection, transaction, "guilds", "agit_level", "INTEGER NOT NULL DEFAULT 0 CHECK(agit_level >= 0)");
+            AddColumnIfMissing(connection, transaction, "guilds", "cargo_slot_count", "INTEGER NOT NULL DEFAULT 0 CHECK(cargo_slot_count >= 0)");
+            AddColumnIfMissing(connection, transaction, "guild_members", "contribution", "INTEGER NOT NULL DEFAULT 0 CHECK(contribution >= 0)");
+            ExecuteSql(connection, transaction, @"CREATE TABLE IF NOT EXISTS guild_cargo_items (
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    slot_index INTEGER NOT NULL CHECK(slot_index >= 0),
+    item_core BLOB NOT NULL CHECK(length(item_core) = 99),
+    PRIMARY KEY(guild_id, slot_index)
+);");
         }
 
         private static void ApplyGuildManagement(SqliteConnection connection, SqliteTransaction transaction)

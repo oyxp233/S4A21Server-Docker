@@ -33,7 +33,8 @@ namespace DfoServer.Network.Builders
             int accountId,
             SkillInfoSnapshot skillOverride,
             GameChannelSpawn spawnOverride,
-            InitPacketBuilderRegistry registry = null)
+            InitPacketBuilderRegistry registry = null,
+            IReadOnlyList<byte[]> guildEntranceNotices = null)
             => BuildPacketStream(
                 dataSource,
                 characterId,
@@ -41,7 +42,8 @@ namespace DfoServer.Network.Builders
                 NewCharacterInitSequence.Build(),
                 skillOverride,
                 spawnOverride,
-                registry);
+                registry,
+                guildEntranceNotices);
 
         internal static IEnumerable<byte[]> BuildPacketStream(
             ISelectCharacterDataSource dataSource,
@@ -50,7 +52,8 @@ namespace DfoServer.Network.Builders
             List<SelectCharacterPacketTemplate> templates,
             SkillInfoSnapshot skillOverride = null,
             GameChannelSpawn spawnOverride = null,
-            InitPacketBuilderRegistry registry = null)
+            InitPacketBuilderRegistry registry = null,
+            IReadOnlyList<byte[]> guildEntranceNotices = null)
         {
             registry ??= new InitPacketBuilderRegistry();
             var snapshot = dataSource.Load(characterId, accountId);
@@ -66,9 +69,15 @@ namespace DfoServer.Network.Builders
             var darkKnightComboSent = false;
             var darkKnightComboTemplateExists = HasTemplate(templates, 0x00, 0x01C0);
             var strikerSupportSent = false;
+            var guildEntranceInjected = guildEntranceNotices == null || guildEntranceNotices.Count == 0;
 
             foreach (var template in templates)
             {
+                if (!guildEntranceInjected && IsTownEntryTemplate(template))
+                {
+                    foreach (var notice in DrainGuildEntrance())
+                        yield return notice;
+                }
                 if (template.Kind == SelectCharacterPacketTemplateKind.Raw
                     && template.Command == 0x00
                     && template.Type == KnightShieldDeckBodyBuilder.DeckNotificationType)
@@ -154,6 +163,11 @@ namespace DfoServer.Network.Builders
                         FileLogger.Log($"[SelectCharacterPacketBuilder] OK cmd=0 type=0x01C0(448) occ=0 bodyLen={comboBody.Length}");
                         yield return GamePacketEnvelopeBuilder.Build(0x00, 0x01C0, comboBody);
                     }
+                    if (!guildEntranceInjected && IsFirstUserInfo0(template))
+                    {
+                        foreach (var notice in DrainGuildEntrance())
+                            yield return notice;
+                    }
                     continue;
                 }
 
@@ -195,6 +209,28 @@ namespace DfoServer.Network.Builders
                 FileLogger.Log($"[SelectCharacterPacketBuilder] OK cmd=0 type=0x01C0(448) occ=0 bodyLen={trailingComboBody.Length}");
                 yield return GamePacketEnvelopeBuilder.Build(0x00, 0x01C0, trailingComboBody);
             }
+
+            IEnumerable<byte[]> DrainGuildEntrance()
+            {
+                guildEntranceInjected = true;
+                var emitted = 0;
+                if (guildEntranceNotices != null)
+                {
+                    foreach (var packet in guildEntranceNotices)
+                    {
+                        if (packet == null || packet.Length == 0)
+                            continue;
+                        emitted++;
+                        yield return packet;
+                    }
+                }
+
+                if (emitted > 0)
+                {
+                    FileLogger.Log(
+                        $"[SelectCharacterPacketBuilder] INJECT guild entrance count={emitted}");
+                }
+            }
         }
 
         private static bool TryBuildDarkKnightComboSkillInfo(
@@ -222,6 +258,18 @@ namespace DfoServer.Network.Builders
         {
             return body != null && body.Length > 2;
         }
+
+        private static bool IsFirstUserInfo0(SelectCharacterPacketTemplate template)
+            => template.Kind == SelectCharacterPacketTemplateKind.Raw
+               && template.Command == 0x00
+               && template.Type == (ushort)NotiPacketTypeA21.USERINFO
+               && template.OccurrenceIndex == 0;
+
+        private static bool IsTownEntryTemplate(SelectCharacterPacketTemplate template)
+            => template.Kind == SelectCharacterPacketTemplateKind.Raw
+               && template.Command == 0x00
+               && (template.Type == (ushort)NotiPacketTypeA21.USER_STATE
+                   || template.Type == (ushort)NotiPacketTypeA21.VILLAGE_OBJECT_LIST);
 
         private static bool HasTemplate(List<SelectCharacterPacketTemplate> templates, byte command, ushort type)
         {

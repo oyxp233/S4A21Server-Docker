@@ -34,7 +34,13 @@ namespace DfoServer.Network.Handlers
                 if (command == CmdPacketTypeA21.JOIN_GUILD_INFO)
                 {
                     if (body == null || body.Length == 0)
+                    {
                         await session.SendPacketAsync(GuildManagementPacketBuilder.Pending(_repository.GetPendingApplication(actor)));
+                        var memberGuild = _repository.GetForMember(actor);
+                        if (memberGuild != null)
+                            await session.SendPacketAsync(GuildAgitPacketBuilder.Entrance(
+                                _repository.GetAgitLevel(memberGuild.Id)));
+                    }
                     return;
                 }
                 var roster = _repository.GetRosterForMember(actor);

@@ -1,11 +1,16 @@
+using DfoServer.Game.Characters;
 using DfoServer.Game.Guilds;
 using DfoServer.Game.Inventory;
+using DfoServer.Game.SelectCharacter;
 using DfoServer.Infrastructure;
 using DfoServer.Network;
+using DfoServer.Network.Builders;
 using DfoServer.Network.Builders.Guilds;
+using DfoServer.Network.Handlers;
 using DfoServer.Network.Parsers.Guilds;
 using Microsoft.Data.Sqlite;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -256,14 +261,14 @@ WHEN NEW.character_id=103 BEGIN SELECT RAISE(ABORT,'test guild rollback'); END;"
                     Check("member cannot remove leader or other member", repository.RemoveMember(104, 100) == GuildResult.NotLeader
                         && repository.RemoveMember(100, 100) == GuildResult.LeaderCannotLeave);
                     var roster = repository.GetRosterForMember(104);
-                    var info = GuildInfoPacketBuilder.Build(roster);
+                    var info = GuildInfoPacketBuilder.Build(roster, 104);
                     using (var reader = new BinaryReader(new MemoryStream(info,15,info.Length-15)))
                     {
                         string Text() => ClientTextEncoding.GetString(reader.ReadBytes(reader.ReadInt32()));
                         bool valid=Text()==created.Guild.Name && reader.ReadByte()==1 && reader.ReadByte()==0
                             && reader.ReadUInt16()==2 && reader.ReadByte()==1 && reader.ReadUInt32()==0 && reader.ReadByte()==0
                             && Text()=="";
-                        valid &= reader.ReadBytes(4).SequenceEqual(new byte[]{0,0,0,1}) && reader.ReadUInt32()==0
+                        valid &= reader.ReadBytes(4).SequenceEqual(new byte[]{0,1,0,1}) && reader.ReadUInt32()==0
                             && Text()=="" && Text()=="" && reader.ReadUInt16()==0 && Text()==created.Guild.Promotion;
                         for(int rank=0;rank<6;rank++)
                         {
@@ -310,6 +315,85 @@ WHEN NEW.character_id=103 BEGIN SELECT RAISE(ABORT,'test guild rollback'); END;"
                     }
                     Check("fresh repository restores roster after reconnect", new GuildRepository(database)
                         .GetRosterForMember(100).Members.Count == 2);
+                    var facilities = GuildFacilityService.FromPvf(database);
+                    var agit = GuildFacilityRules.ReadAgitSteps();
+                    var cargo = GuildFacilityRules.ReadCargoSteps();
+                    byte[] noAgit = GuildAgitPacketBuilder.Entrance(0);
+                    byte[] hallAgit = GuildAgitPacketBuilder.Entrance(1);
+                    byte[] upperAgit = GuildAgitPacketBuilder.Entrance(2);
+                    byte[] topAgit = GuildAgitPacketBuilder.Entrance(4);
+                    Check("guild agit entrance notice stores a level below 2 for the Seria hall",
+                        noAgit.Length == 16 && noAgit[0] == 0
+                        && BitConverter.ToUInt16(noAgit, 1) == (ushort)NotiPacketTypeA21.GUILD_AGIT_INFO
+                        && noAgit[15] == 1 && hallAgit[15] == 1
+                        && upperAgit[15] == 2 && topAgit[15] == 4);
+                    CheckLoginEntranceOrder(database, repository, Check);
+                    Check("PVF facility costs match guild settings", facilities.GoldPerPoint == 1000
+                        && agit[0].Level == 1 && agit[0].Gold == 2_000_000 && agit[0].Contribution == 6000
+                        && cargo[0].Slots == 8 && cargo[0].Gold == 1_000_000 && cargo[0].Contribution == 2000
+                        && GuildFacilityRules.ReadCargoSlotLimit() == 56);
+                    Check("partial or nonmember donation does not charge",
+                        facilities.Donate(founder, 999).Status == GuildResult.InvalidAmount
+                        && facilities.Donate(second, 1000).Status == GuildResult.NotFound
+                        && founder.Inventory.GetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart).Count == 300_000
+                        && second.Inventory.GetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart).Count == 600_000);
+                    var donated = facilities.Donate(founder, 1000);
+                    var contributedRoster = repository.GetRosterForMember(100);
+                    byte[] contributed = GuildMemberPacketBuilder.Build(contributedRoster, id => null);
+                    Check("1000 gold adds one guild contribution on the roster progress field",
+                        donated.Status == GuildResult.Success && donated.GoldAfter == 299_000 && donated.Contribution == 1
+                        && contributedRoster.Guild.Contribution == 1
+                        && BitConverter.ToUInt32(contributed, 24 + ClientTextEncoding.GetBytes(contributedRoster.LeaderName).Length) == 1);
+                    byte[] mileageInfo = GuildInfoPacketBuilder.Build(contributedRoster, 100);
+                    using (var reader = new BinaryReader(new MemoryStream(mileageInfo, 15, mileageInfo.Length - 15)))
+                    {
+                        string Text() => ClientTextEncoding.GetString(reader.ReadBytes(reader.ReadInt32()));
+                        Text();
+                        reader.ReadBytes(5);
+                        bool levelSlotClear = reader.ReadUInt32() == 0 && reader.ReadByte() == 0 && Text() == "";
+                        bool agitGate = reader.ReadByte() == 0 && reader.ReadByte() == 1
+                            && reader.ReadByte() == 0 && reader.ReadByte() == 1;
+                        bool modelSlot = reader.ReadUInt32() == 0;
+                        Text(); Text(); reader.ReadUInt16(); Text();
+                        for (int rank = 0; rank < 6; rank++) { reader.ReadUInt32(); reader.ReadBytes(24); }
+                        bool rejectedSlot = reader.ReadByte() == 0 && reader.ReadUInt32() == 0 && reader.ReadByte() == 0;
+                        bool mapped = reader.ReadUInt32() == 1 && reader.ReadByte() == 0
+                            && reader.ReadUInt32() == 0 && reader.ReadByte() == 0
+                            && reader.ReadUInt32() == 1 && reader.ReadUInt32() == 1
+                            && reader.ReadUInt32() == 1 && reader.ReadUInt32() == 1
+                            && reader.ReadUInt32() == 0 && reader.ReadUInt32() == 0
+                            && reader.ReadUInt32() == 0 && reader.ReadUInt32() == 0;
+                        Check("guild info maps guild and viewer contribution to the probed slots",
+                            levelSlotClear && agitGate && modelSlot && rejectedSlot && mapped && reader.BaseStream.Position == reader.BaseStream.Length);
+                    }
+                    database.Write((c, t) =>
+                    {
+                        using var cmd = c.CreateCommand(); cmd.Transaction = t;
+                        cmd.CommandText = "UPDATE guilds SET contribution=6000 WHERE guild_id=@guild;";
+                        cmd.Parameters.AddWithValue("@guild", created.Guild.Id);
+                        cmd.ExecuteNonQuery();
+                    });
+                    var memberLease = Lease(104, 50_000);
+                    founder.Inventory.SetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart, 0, 2_299_000);
+                    Check("member cannot buy the agit and leader purchase spends the PVF gold",
+                        facilities.CreateOrUpgradeAgit(memberLease).Status == GuildResult.NotLeader
+                        && memberLease.Inventory.GetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart).Count == 50_000
+                        && facilities.CreateOrUpgradeAgit(founder).Status == GuildResult.Success
+                        && founder.Inventory.GetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart).Count == 299_000
+                        && database.Read(c => GuildRepository.ReadFacility(c, null, created.Guild.Id)).AgitLevel == 1);
+                    founder.Inventory.SetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart, 0, 19_999);
+                    Check("agit upgrade does not charge when gold is short",
+                        facilities.CreateOrUpgradeAgit(founder).Status == GuildResult.InsufficientGold
+                        && database.Read(c => GuildRepository.ReadFacility(c, null, created.Guild.Id)).AgitLevel == 1
+                        && founder.Inventory.GetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart).Count == 19_999);
+                    founder.Inventory.SetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart, 0, 1_020_000);
+                    Check("cargo opens at the first PVF capacity and the next tier charges its own gold",
+                        facilities.UpgradeCargo(memberLease).Status == GuildResult.NotLeader
+                        && facilities.UpgradeCargo(founder).Status == GuildResult.Success
+                        && founder.Inventory.GetMainVirtualCount(InventoryService.MainVirtualCurrencySlotStart).Count == 20_000
+                        && database.Read(c => GuildRepository.ReadFacility(c, null, created.Guild.Id)).CargoSlots == 8
+                        && facilities.UpgradeCargo(founder).Status == GuildResult.InsufficientGold
+                        && database.Read(c => GuildRepository.ReadFacility(c, null, created.Guild.Id)).CargoSlots == 8);
                     Check("member can leave and leader can approve again and remove", repository.RemoveMember(104, 104) == GuildResult.Success
                         && !repository.IsMember(104) && repository.Apply(created.Guild.Id, 104) == GuildResult.Success
                         && repository.Approve(created.Guild.Id, 100, 104) == GuildResult.Success
@@ -426,6 +510,144 @@ WHEN NEW.character_id=103 BEGIN SELECT RAISE(ABORT,'test guild rollback'); END;"
             }
             Console.WriteLine($"Guild creation and members: {failures} failure(s)");
             return failures == 0 ? 0 : 1;
+        }
+
+        private static void CheckLoginEntranceOrder(
+            IGameDatabase database,
+            GuildRepository repository,
+            Action<string, bool> check)
+        {
+            var notices = GuildStatePublisher.BuildLoginNotices(repository, 100);
+            var absent = GuildStatePublisher.BuildLoginNotices(repository, 102);
+            check("member login entrance is GUILD_INFO then agit level byte 1",
+                notices.Count == 2
+                && PacketType(notices[0]) == (ushort)NotiPacketTypeA21.GUILD_INFO
+                && PacketType(notices[1]) == (ushort)NotiPacketTypeA21.GUILD_AGIT_INFO
+                && notices[1].Length == 16
+                && notices[1][15] == 1);
+            check("nonmember login entrance is empty", absent.Count == 0);
+
+            var sequence = NewCharacterInitSequence.Build();
+            int firstUserInfo = IndexOf(sequence, (ushort)NotiPacketTypeA21.USERINFO, 0);
+            int userState = IndexOf(sequence, (ushort)NotiPacketTypeA21.USER_STATE, null);
+            int village = IndexOf(sequence, (ushort)NotiPacketTypeA21.VILLAGE_OBJECT_LIST, null);
+            check("init sequence reaches town entry only after the first USERINFO0",
+                firstUserInfo >= 0 && userState > firstUserInfo && village > userState);
+
+            var registry = new InitPacketBuilderRegistry(database);
+            var source = new FixedSelectCharacterDataSource(new SelectCharacterDataSnapshot
+            {
+                CharacterRecord = new CharacterRecord
+                {
+                    CharacterId = 0,
+                    Name = new byte[] { (byte)'a' },
+                    Job = 1,
+                    Level = 1,
+                },
+            });
+            var templates = new List<SelectCharacterPacketTemplate>
+            {
+                Template((ushort)NotiPacketTypeA21.USERINFO, 0),
+                Template((ushort)NotiPacketTypeA21.USER_STATE, 0),
+                Template((ushort)NotiPacketTypeA21.VILLAGE_OBJECT_LIST, 0),
+                Template((ushort)NotiPacketTypeA21.USERINFO, 3),
+            };
+            var packets = SelectCharacterPacketBuilder.BuildPacketStream(
+                source, 0, 1, templates, null, null, registry, notices).ToList();
+            int userInfoPacket = packets.FindIndex(IsUserInfo0);
+            int guildInfoPacket = packets.FindIndex(packet => PacketType(packet) == (ushort)NotiPacketTypeA21.GUILD_INFO);
+            int agitPacket = packets.FindIndex(packet => PacketType(packet) == (ushort)NotiPacketTypeA21.GUILD_AGIT_INFO);
+            int userStatePacket = packets.FindIndex(packet => PacketType(packet) == (ushort)NotiPacketTypeA21.USER_STATE);
+            int villagePacket = packets.FindIndex(packet => PacketType(packet) == (ushort)NotiPacketTypeA21.VILLAGE_OBJECT_LIST);
+            int laterUserInfo = -1;
+            for (int i = userInfoPacket + 1; i < packets.Count; i++)
+            {
+                if (IsUserInfo0(packets[i]))
+                {
+                    laterUserInfo = i;
+                    break;
+                }
+            }
+            check("guild entrance follows the first USERINFO0 and precedes town entry",
+                userInfoPacket >= 0
+                && guildInfoPacket == userInfoPacket + 1
+                && agitPacket == userInfoPacket + 2
+                && userStatePacket > agitPacket
+                && villagePacket > userStatePacket
+                && laterUserInfo > villagePacket);
+
+            var townFirst = SelectCharacterPacketBuilder.BuildPacketStream(
+                source,
+                0,
+                1,
+                new List<SelectCharacterPacketTemplate>
+                {
+                    Template((ushort)NotiPacketTypeA21.USER_STATE, 0),
+                    Template((ushort)NotiPacketTypeA21.VILLAGE_OBJECT_LIST, 0),
+                },
+                null,
+                null,
+                registry,
+                notices).ToList();
+            check("missing USERINFO0 still places guild entrance before town entry",
+                townFirst.Count >= 4
+                && PacketType(townFirst[0]) == (ushort)NotiPacketTypeA21.GUILD_INFO
+                && PacketType(townFirst[1]) == (ushort)NotiPacketTypeA21.GUILD_AGIT_INFO
+                && PacketType(townFirst[2]) == (ushort)NotiPacketTypeA21.USER_STATE
+                && PacketType(townFirst[3]) == (ushort)NotiPacketTypeA21.VILLAGE_OBJECT_LIST);
+
+            var withoutGuild = SelectCharacterPacketBuilder.BuildPacketStream(
+                source, 0, 1, templates, null, null, registry, null).ToList();
+            check("select stream without a guild does not emit entrance notices",
+                withoutGuild.All(packet =>
+                    PacketType(packet) != (ushort)NotiPacketTypeA21.GUILD_INFO
+                    && PacketType(packet) != (ushort)NotiPacketTypeA21.GUILD_AGIT_INFO));
+        }
+
+        private static SelectCharacterPacketTemplate Template(ushort type, int occurrence)
+            => new SelectCharacterPacketTemplate
+            {
+                Kind = SelectCharacterPacketTemplateKind.Raw,
+                Command = 0x00,
+                Type = type,
+                OccurrenceIndex = occurrence,
+            };
+
+        private static int IndexOf(List<SelectCharacterPacketTemplate> templates, ushort type, int? occurrence)
+        {
+            for (int i = 0; i < templates.Count; i++)
+            {
+                var template = templates[i];
+                if (template.Command == 0x00 && template.Type == type
+                    && (occurrence == null || template.OccurrenceIndex == occurrence.Value))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static ushort PacketType(byte[] packet)
+            => packet != null && packet.Length >= 3 ? BitConverter.ToUInt16(packet, 1) : (ushort)0;
+
+        private static bool IsUserInfo0(byte[] packet)
+            => PacketType(packet) == (ushort)NotiPacketTypeA21.USERINFO
+               && packet.Length > 15
+               && packet[15] == 0;
+
+        private sealed class FixedSelectCharacterDataSource : ISelectCharacterDataSource
+        {
+            private readonly SelectCharacterDataSnapshot _snapshot;
+
+            internal FixedSelectCharacterDataSource(SelectCharacterDataSnapshot snapshot)
+                => _snapshot = snapshot;
+
+            public SelectCharacterDataSnapshot Load(int characterId, int accountId) => _snapshot;
+
+            public int GetSeedCharacterId() => 0;
+
+            public void InitializeNewCharacter(int characterId, int accountId, byte job)
+            {
+            }
         }
     }
 }

@@ -284,6 +284,18 @@ namespace DfoServer.Network
                     CmdPacketTypeA21.WRITE_GUILD_MEMBER_MEMO, CmdPacketTypeA21.BREAK_GUILD })
                     d[(ushort)command] = _socialHandlers.GuildManagement.Handle;
             });
+            _cmdDispatch.RegisterGroup("guild-facility", d =>
+            {
+                foreach (var command in new[]
+                {
+                    CmdPacketTypeA21.DONATE_GUILD_FUND, CmdPacketTypeA21.CHECK_CREATE_GUILD_AGIT,
+                    CmdPacketTypeA21.CREATE_GUILD_AGIT, CmdPacketTypeA21.UPGRADE_GUILD_AGIT,
+                    CmdPacketTypeA21.UPGRADE_GUILD_CARGO, CmdPacketTypeA21.GUILD_CARGO,
+                    CmdPacketTypeA21.GUILD_CARGO_PUSH_ITEM, CmdPacketTypeA21.GUILD_CARGO_POP_ITEM,
+                    CmdPacketTypeA21.GUILD_CARGO_MOVE_ITEM, CmdPacketTypeA21.GUILD_CARGO_HISTORY
+                })
+                    d[(ushort)command] = _socialHandlers.GuildFacility.Handle;
+            });
             _cmdDispatch.RegisterGroup("guild-invite", d =>
             {
                 d[(ushort)CmdPacketTypeA21.CALL_GUILD_INVITE] = _socialHandlers.GuildInvite.Handle;

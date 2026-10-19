@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -20,6 +21,24 @@ namespace DfoServer.Network.Handlers
         internal GuildStatePublisher(GuildRepository repository, CharacterTransitionCoordinator transitions,
             ISessionDirectory sessions, InventoryRefreshSender appearance)
         { _repository = repository; _transitions = transitions; _sessions = sessions; _appearance = appearance; }
+
+        // 选角进号在第一条 USERINFO0 之后、城镇状态之前发送。GUILD_INFO 插入公会节点，
+        // 紧随的 GUILD_AGIT_INFO 在节点已存在时创建据点子对象并写入等级字节。
+        internal static IReadOnlyList<byte[]> BuildLoginNotices(GuildRepository repository, int characterId)
+        {
+            if (repository == null)
+                throw new ArgumentNullException(nameof(repository));
+
+            var roster = repository.GetRosterForMember(characterId);
+            if (roster?.Guild == null)
+                return Array.Empty<byte[]>();
+
+            return new[]
+            {
+                GuildInfoPacketBuilder.Build(roster, characterId),
+                GuildAgitPacketBuilder.Entrance(repository.GetAgitLevel(roster.Guild.Id)),
+            };
+        }
 
         internal async Task RefreshAsync(IEnumerable<int> characters, bool disbanded = false)
         {
@@ -44,7 +63,9 @@ namespace DfoServer.Network.Handlers
                             return;
                         }
                         await session.SendPacketAsync(GuildJoinPacketBuilder.Rank(roster.Members.Single(m => m.CharacterId == id).Rank), ct);
-                        await session.SendPacketAsync(GuildInfoPacketBuilder.Build(roster), ct);
+                        await session.SendPacketAsync(GuildInfoPacketBuilder.Build(roster, id), ct);
+                        await session.SendPacketAsync(GuildAgitPacketBuilder.Entrance(
+                            _repository.GetAgitLevel(roster.Guild.Id)), ct);
                         await session.SendPacketAsync(GuildMemberPacketBuilder.Build(roster, FindOnlineChannel), ct);
                         }, $"guild refresh cid={id}");
                     });

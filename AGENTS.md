@@ -157,6 +157,7 @@
 5. 修改 ExpertJob、分解、附魔、炼金或控偶时，阅读 `Docs\副职业架构业务接入规范.md`
 6. 新增或修改 timer、在线恢复或周期任务时，阅读 `Docs\ClockService.md`
 7. 阅读目标业务域对应的 SelfTest
+8. 修改公会大厅、赛利亚右侧出口或选角进号包序时，阅读本文件第 11 节，以及 `Docs\服务端业务开发规范.md` 的公会 v37 段落
 
 项目硬规则：
 
@@ -186,3 +187,18 @@
   -> 仅在用户明确要求时提交或推送
   -> 核对最终状态并报告未完成边界
 ```
+
+## 11. 公会大厅入口
+
+2026-10-16 用户在当前客户端实机确认：有公会的角色从赛利亚房间向右走，进入城镇 8 区域 0。字节布局以 `Docs\服务端业务开发规范.md` 为准。
+
+改这条链路时按下面的结论执行：
+
+- 赛利亚房间是各城镇入口 import 的公共登录地图。角色当前在哪个城镇，不决定右侧出口。
+- 右侧出口在地图里的目的地是 `-2 -2`，由地图加载时的对象类型 `0x5D` 改写。据点子对象 `+4` 小于 2 时连接城镇 8 区域 0。该区域使用 `Guildagit/GuildAgit_S.map`。
+- 角色信息可以插入公会节点，但不创建据点子对象。`GUILD_INFO` 在包尾插入节点，紧随其后的 `GUILD_AGIT_INFO` 才创建子对象并写入等级字节。字节 1 在下一次类型 `0x5D` 的加载生效。
+- 选角进号时，已入会角色要在第一条 `USERINFO` occurrence 0 之后、`USER_STATE` 和 `VILLAGE_OBJECT_LIST` 之前，发送 `GuildInfoPacketBuilder.Build`，再发送 `GuildAgitPacketBuilder.Entrance`。等级 0 和 1 编码为 1。
+- 代码入口是 `GuildStatePublisher.BuildLoginNotices`、`SelectCharacterPacketBuilder`、`CharacterSelectHandler`。回归命令是 `--selftest-a21-guild-creation`，并设置当前 `PVF_ARCHIVE_PATH`。
+- 保持线上 `agit_level` 和贡献不变。没有完整消费证据时，不要新造 `CREATE_GUILD_AGIT` 包体，也不要把赛利亚入口改成字节 2 或 4。
+- 左侧城镇 101 的出口属于城镇入口覆盖层，修改右侧入口时保留它。
+- 客户端程序变化后，先重查类型 `0x5D` 和两个公会包的处理顺序，再沿用这里的字节。自测通过不等于用户已经走进大厅。

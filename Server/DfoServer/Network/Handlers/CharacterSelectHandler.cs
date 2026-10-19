@@ -3,6 +3,7 @@ using DfoServer.Game.Appearance;
 using DfoServer.Game.DailyReset;
 using DfoServer.Game.Characters;
 using DfoServer.Game.Friends;
+using DfoServer.Game.Guilds;
 using DfoServer.Game.Inventory;
 using DfoServer.Game.KnightShield;
 using DfoServer.Game.Mercenary;
@@ -529,13 +530,17 @@ namespace DfoServer.Network.Handlers
                 }
             }
 
+            var guildEntranceNotices = GuildStatePublisher.BuildLoginNotices(
+                new GuildRepository(_database),
+                ownerCharId);
             foreach (var packet in SelectCharacterPacketBuilder.BuildPacketStream(
                          _selectCharacterDataSource,
                          ownerCharId,
                          ownerAcctId,
                          pvpSkillOverride,
                          selectedSpawn,
-                         _initPacketBuilders))
+                         _initPacketBuilders,
+                         guildEntranceNotices))
                 await session.SendPacketAsync(packet);
 
             if (InventoryContext.TryGetLease(ownerCharId, out var inventoryLease)
@@ -1199,7 +1204,9 @@ namespace DfoServer.Network.Handlers
             FileLogger.Log($"[{ProtocolName}] CHANGE_CHARAC_SLOT swapped slot {slotA} <-> {slotB} for account_id={accountId}");
 
             await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, 0x0127, CommonPacketBodyBuilder.BuildSuccessAck()));
-            await SendCharacterListAsync(session);
+            // 与 DELETE_CHARACTER 同口径：客户端 ACK Ok 分支已按本地拖拽结果更新角色向量，
+            // 服务端再补发完整列表会把客户端的选中态按服务端快照重建，表现为自动选中某个槽位。
+            // 顺序已持久化，重登时由正常列表包恢复；这里只回 ACK。
         }
 
         public async Task SendCharacterListAsync(EnhancedClientSession session)

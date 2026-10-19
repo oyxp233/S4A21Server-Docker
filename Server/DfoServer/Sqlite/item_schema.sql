@@ -1553,6 +1553,9 @@ CREATE TABLE IF NOT EXISTS guilds (
     promotion TEXT NOT NULL DEFAULT '',
     announcement TEXT NOT NULL DEFAULT '',
     leader_character_id INTEGER NOT NULL UNIQUE REFERENCES characters(character_id),
+    contribution INTEGER NOT NULL DEFAULT 0 CHECK(contribution >= 0),
+    agit_level INTEGER NOT NULL DEFAULT 0 CHECK(agit_level >= 0),
+    cargo_slot_count INTEGER NOT NULL DEFAULT 0 CHECK(cargo_slot_count >= 0),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS guild_members (
@@ -1560,7 +1563,14 @@ CREATE TABLE IF NOT EXISTS guild_members (
     guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
     rank INTEGER NOT NULL DEFAULT 4 CHECK(rank BETWEEN 2 AND 5),
     memo TEXT NOT NULL DEFAULT '',
+    contribution INTEGER NOT NULL DEFAULT 0 CHECK(contribution >= 0),
     joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS guild_cargo_items (
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    slot_index INTEGER NOT NULL CHECK(slot_index >= 0),
+    item_core BLOB NOT NULL CHECK(length(item_core) = 99),
+    PRIMARY KEY(guild_id, slot_index)
 );
 CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members(guild_id);
 CREATE TABLE IF NOT EXISTS guild_applications (

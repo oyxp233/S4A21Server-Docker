@@ -15,7 +15,7 @@ namespace DfoServer.Network.Builders.Guilds
             writer.WriteByte(1);
             writer.WriteInt32(roster.Guild.Id);
             writer.WriteClientDstr(roster.LeaderName);
-            writer.WriteUInt32(0); // Guild progression is not enabled.
+            writer.WriteUInt32(checked((uint)roster.Guild.Contribution)); // Verified progress field, 01130B60.
             writer.WriteUInt16(checked((ushort)roster.Members.Count));
             writer.WriteUInt16(checked((ushort)roster.Members.Count));
             foreach (var member in roster.Members)

@@ -74,7 +74,9 @@ namespace DfoServer.Network.Handlers
                         var roster = _repository.GetRosterForMember(lease.CharacterId);
                         if (roster == null) return;
                         await session.SendPacketAsync(GuildJoinPacketBuilder.Rank(roster.Members.Single(m => m.CharacterId == lease.CharacterId).Rank));
-                        await session.SendPacketAsync(GuildInfoPacketBuilder.Build(roster));
+                        await session.SendPacketAsync(GuildInfoPacketBuilder.Build(roster, lease.CharacterId));
+                        await session.SendPacketAsync(GuildAgitPacketBuilder.Entrance(
+                            _repository.GetAgitLevel(roster.Guild.Id)));
                         break;
                 }
             });
@@ -117,7 +119,7 @@ namespace DfoServer.Network.Handlers
                 GuildIdentityProjection.Apply(guild, applicant.Player.Subtype0Tail);
                 await _refresh.SendNoti2AppearanceUpdate(applicant);
                 await applicant.SendPacketAsync(GuildJoinPacketBuilder.Rank(false));
-                await applicant.SendPacketAsync(GuildInfoPacketBuilder.Build(_repository.GetRosterForMember(target)));
+                await applicant.SendPacketAsync(GuildInfoPacketBuilder.Build(_repository.GetRosterForMember(target), target));
             }
             }
             await _publisher.RefreshAsync(_repository.GetMemberIds(guildId));

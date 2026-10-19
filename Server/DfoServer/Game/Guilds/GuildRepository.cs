@@ -15,6 +15,7 @@ namespace DfoServer.Game.Guilds
         internal bool NameExists(string name) => Database.Read(c => NameExists(c, null, name));
         internal bool IsMember(int characterId) => GetForMember(characterId) != null;
         internal GuildRecord GetForMember(int characterId) => Database.Read(c => GetForMember(c, null, characterId));
+        internal int GetAgitLevel(int guildId) => Database.Read(c => ReadFacility(c, null, guildId).AgitLevel);
         internal GuildRecord Get(int guildId) => Database.Read(c => Get(c, null, guildId));
 
         internal GuildSearchResult FindByName(string name) => Database.Read(c =>
@@ -55,7 +56,7 @@ WHERE g.leader_character_id=@leader ORDER BY a.applied_at,c.character_id;";
             cmd.CommandText = @"SELECT g.guild_id,g.name,g.promotion,g.leader_character_id,
 leader.name,member.character_id,member.account_id,member.name,member.level,member.job,member.grow_type,
 MIN(2147483647,MAX(0,unixepoch('now')-unixepoch(COALESCE(d.last_logout_at,member.updated_at)))),
-g.announcement,m.rank,m.memo
+g.announcement,m.rank,m.memo,g.contribution,m.contribution
 FROM guild_members self JOIN guilds g ON g.guild_id=self.guild_id
 JOIN characters leader ON leader.character_id=g.leader_character_id
 JOIN guild_members m ON m.guild_id=g.guild_id
@@ -69,11 +70,11 @@ WHERE self.character_id=@character ORDER BY member.character_id;";
             var members = new List<GuildMemberRecord>();
             while (reader.Read())
             {
-                guild ??= new GuildRecord(reader.GetInt32(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3), reader.GetString(12));
+                guild ??= new GuildRecord(reader.GetInt32(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3), reader.GetString(12), reader.GetInt32(15));
                 leaderName ??= ReadCharacterName(reader, 4);
                 members.Add(new GuildMemberRecord(reader.GetInt32(5), reader.GetInt32(6), ReadCharacterName(reader, 7),
                     checked((ushort)reader.GetInt32(8)), checked((byte)reader.GetInt32(9)), checked((byte)reader.GetInt32(10)),
-                    reader.GetInt32(5) == guild.LeaderId, checked((uint)reader.GetInt64(11)), checked((byte)reader.GetInt32(13)), reader.GetString(14)));
+                    reader.GetInt32(5) == guild.LeaderId, checked((uint)reader.GetInt64(11)), checked((byte)reader.GetInt32(13)), reader.GetString(14), reader.GetInt32(16)));
             }
             return guild == null ? null : new GuildRoster(guild, leaderName, members);
         });
