@@ -422,7 +422,8 @@ namespace DfoServer.Network.Handlers
 
                     session.Player.AppearanceEntries = record.Appearance ?? Array.Empty<CharacterAppearanceEntry>();
                     if (GameChannelSpawnPolicy.ShouldPersistPosition(
-                            session.ListenerPort))
+                            session.ListenerPort,
+                            session.Player.CurTownId))
                     {
                         _characterRepository.UpdatePosition(
                             session.Player.CharacterId,

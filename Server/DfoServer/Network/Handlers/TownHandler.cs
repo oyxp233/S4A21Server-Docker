@@ -179,7 +179,8 @@ namespace DfoServer.Network.Handlers
                 if (session?.Player == null || session.Player.CharacterId <= 0)
                     return;
                 if (!GameChannelSpawnPolicy.ShouldPersistPosition(
-                        session.ListenerPort))
+                        session.ListenerPort,
+                        session.Player.CurTownId))
                     return;
 
                 var now = DateTime.UtcNow;
@@ -701,7 +702,8 @@ namespace DfoServer.Network.Handlers
             var previousTownId = player.CurTownId;
             var previousAreaId = player.CurAreaId;
             var persistPosition = GameChannelSpawnPolicy.ShouldPersistPosition(
-                session.ListenerPort);
+                session.ListenerPort,
+                ceraRoomInfo.Town);
             if (!TeleportConsumableCommitService.TryCommit(
                     lease,
                     request.ItemTemplateId,

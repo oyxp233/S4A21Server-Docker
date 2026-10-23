@@ -58,6 +58,7 @@ namespace DfoServer.Network
         public const byte RaidTownId = 19;
         public const byte PvpTownId = 10;
         public const byte NormalTownFallbackId = 20;
+        public const byte GuildAgitTownId = 8;
 
         public static GameChannelSpawn Resolve(
             int listenerGamePort,
@@ -160,9 +161,12 @@ namespace DfoServer.Network
             return targetTownId != Channel100TownId && targetTownId != PvpTownId;
         }
 
-        public static bool ShouldPersistPosition(int listenerGamePort)
+        public static bool ShouldPersistPosition(int listenerGamePort, int townId)
         {
-            return !GameNetworkConfig.IsPvpListener(listenerGamePort)
+            // 公会营地(town 8)是赛丽亚右门进入的据点城镇，不持久化位置：
+            // 落库应保持进入营地前所在城镇，重登才能回到该城镇的赛丽亚房间。
+            return townId != GuildAgitTownId
+                   && !GameNetworkConfig.IsPvpListener(listenerGamePort)
                    && !GameNetworkConfig.IsChannel100Listener(listenerGamePort)
                    && !GameNetworkConfig.IsRaidListener(listenerGamePort);
         }

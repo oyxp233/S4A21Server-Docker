@@ -180,14 +180,26 @@ namespace DfoServer.SelfTests
                         && LoginPacketBuilder.BuildLoginSuccess(port)[3] == environment
                         && !LoginHandler.IsListenerAdmissionAllowed(port, false)
                         && LoginHandler.IsListenerAdmissionAllowed(port, true)
-                        && !GameChannelSpawnPolicy.ShouldPersistPosition(port),
+                        && !GameChannelSpawnPolicy.ShouldPersistPosition(port, 2),
                         ref failures);
                 }
                 Check(
                     "A21 disabled PvP removes its listeners without changing normal login",
                     GameNetworkConfig.BuildGameChannels(includeFreeDuel: false).Count == 16
                     && LoginPacketBuilder.BuildLoginSuccess(10011)[3] == GameNetworkConfig.GeneralChannelEnvironment
-                    && GameChannelSpawnPolicy.ShouldPersistPosition(10011),
+                    && GameChannelSpawnPolicy.ShouldPersistPosition(10011, 2),
+                    ref failures);
+                Check(
+                    "guild agit town keeps the pre-agit town persisted on normal channels only",
+                    !GameChannelSpawnPolicy.ShouldPersistPosition(
+                        GameNetworkConfig.NormalGamePort,
+                        GameChannelSpawnPolicy.GuildAgitTownId)
+                    && GameChannelSpawnPolicy.ShouldPersistPosition(
+                        GameNetworkConfig.NormalGamePort,
+                        2)
+                    && !GameChannelSpawnPolicy.ShouldPersistPosition(
+                        GameNetworkConfig.PortForChannel(68),
+                        GameChannelSpawnPolicy.GuildAgitTownId),
                     ref failures);
                 CheckPvpLobbyInitialization(ref failures);
             }

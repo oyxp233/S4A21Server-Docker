@@ -628,7 +628,7 @@ BEGIN SELECT RAISE(ABORT, 'handler commit failure'); END;");
             {
                 var spawn = GameChannelSpawnPolicy.Resolve(port, 1);
                 Require(spawn.TownId == 10 && spawn.AreaId == 0 && spawn.X == 474 && spawn.Y == 234
-                    && spawn.IsTransient && !GameChannelSpawnPolicy.ShouldPersistPosition(port),
+                    && spawn.IsTransient && !GameChannelSpawnPolicy.ShouldPersistPosition(port, 2),
                     $"PvP listener {port} enters the resource-defined town and preserves normal town storage (actual {spawn.TownId}/{spawn.AreaId} {spawn.X},{spawn.Y})");
             }
             Require(!GameChannelSpawnPolicy.CanEnterTown(10011, 10)
