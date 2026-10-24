@@ -58,6 +58,8 @@ namespace DfoServer.Game.Inventory
         public const int GenuineUpgradeOffset = 71;
         public const int EmancipateEquipmentLevelOffset = 72;
         public const int TradeRestrictionOffset = 73;
+        // 龙跃武器专用：+74 是星级进度（客户端 UI 按 /1800 向下取整显示百分比），
+        // +76 是蓄能值（客户端 UI 显示 "N/30"）。非龙跃武器这两个字段保持 0。
         public const int TailUnknown0Offset = 74;
         public const int TailUnknown1Offset = 76;
         public const int TailUnknown2Offset = 77;
@@ -141,8 +143,10 @@ namespace DfoServer.Game.Inventory
 
         public byte TradeRestriction { get; set; }
 
+        // 龙跃武器星级进度（线上 +74，u16）。客户端按 GrowthStageProgressMax 换算成百分比。
         public ushort TailUnknown0 { get; set; }
 
+        // 龙跃武器蓄能值（线上 +76，u8）。客户端 UI 显示为 "N/30"。
         public byte TailUnknown1 { get; set; }
 
         public byte TailUnknown2 { get; set; }

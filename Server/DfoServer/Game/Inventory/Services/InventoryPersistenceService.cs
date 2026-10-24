@@ -146,7 +146,10 @@ namespace DfoServer.Game.Inventory
 
             SaveDirtyItemAudits(connection, transaction, lease, inventory);
             SaveDirtyMainVirtualCountAudits(connection, transaction, lease, inventory);
-            SaveDirtyItems(connection, transaction, inventory);
+            // 跨列表移动会改变 item_uid，落库前先记住旧 uid，落库后再迁移成长值。
+            var growthMigrations = CaptureGrowthMigrationOldUids(connection, transaction, inventory);
+            SaveDirtyItems(connection, transaction, inventory, growthMigrations);
+            ApplyGrowthMigrations(connection, transaction, inventory, growthMigrations);
             SaveDirtyAvatarDetails(connection, transaction, inventory);
             SaveDirtyCreatureDetails(connection, transaction, inventory);
             SaveDirtyTitleBook(connection, transaction, inventory);
@@ -323,11 +326,134 @@ namespace DfoServer.Game.Inventory
         private static void SaveDirtyItems(
             SqliteConnection connection,
             SqliteTransaction transaction,
-            InventoryService inventory)
+            InventoryService inventory,
+            List<(long OldItemUid, InventoryListType FromListType, short FromSlotIndex, InventoryListType ToListType, short ToSlotIndex)> growthMigrations)
         {
+            // 跨列表移动时源槽会被清空，此时成长值属于"待迁移"而非"随物品删除"，
+            // 必须保留原行交给 ApplyGrowthMigrations 搬到新 uid。
+            var migratingSourceSlots = new HashSet<(InventoryListType, short)>();
+            if (growthMigrations != null)
+            {
+                foreach (var migration in growthMigrations)
+                    migratingSourceSlots.Add((migration.FromListType, migration.FromSlotIndex));
+            }
+
             foreach (var pair in CollectDirtyItemSlots(inventory))
                 foreach (var slotIndex in pair.Value)
-                    SaveSlot(connection, transaction, inventory, pair.Key, slotIndex);
+                    SaveSlot(
+                        connection,
+                        transaction,
+                        inventory,
+                        pair.Key,
+                        slotIndex,
+                        migratingSourceSlots.Contains((pair.Key, slotIndex)));
+        }
+
+        // 跨列表移动(背包<->穿戴)后 item_uid 会变。龙跃武器的成长值按
+        // (character_id, item_uid) 关联，必须跟着同一件物品迁移，否则穿戴一次
+        // 就会丢掉已累积的成长值。
+        // 落库前记下旧 uid，落库后查到新 uid 再迁移，整个过程与物品落库同事务。
+        private static List<(long OldItemUid, InventoryListType FromListType, short FromSlotIndex, InventoryListType ToListType, short ToSlotIndex)>
+            CaptureGrowthMigrationOldUids(
+                SqliteConnection connection,
+                SqliteTransaction transaction,
+                InventoryService inventory)
+        {
+            var result = new List<(long, InventoryListType, short, InventoryListType, short)>();
+            var migrations = inventory.PendingGrowthMigrations;
+            if (migrations == null || migrations.Count == 0)
+                return result;
+
+            // 落库前先把"源槽里的物品模板 ID"记下来。交换之后两个槽的 uid 会
+            // 互指，落库后再判断哪条成长值属于哪件物品就分不清了，必须提前记录。
+            foreach (var migration in migrations)
+            {
+                var oldItemUid = InventoryItemRepository.LoadCharacterSlotUid(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    migration.FromListType,
+                    migration.FromSlotIndex);
+                if (oldItemUid <= 0)
+                    continue;
+
+                var record = EquipmentGrowthRepository.LoadGrowth(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    oldItemUid);
+                if (record == null)
+                    continue;
+
+                result.Add((
+                    oldItemUid,
+                    migration.FromListType,
+                    migration.FromSlotIndex,
+                    migration.ToListType,
+                    migration.ToSlotIndex));
+            }
+
+            return result;
+        }
+
+        private static void ApplyGrowthMigrations(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            InventoryService inventory,
+            List<(long OldItemUid, InventoryListType FromListType, short FromSlotIndex, InventoryListType ToListType, short ToSlotIndex)> migrations)
+        {
+            if (migrations == null || migrations.Count == 0)
+                return;
+
+            // 交换时两个方向同时存在，直接逐条 UPDATE OR REPLACE 会互相顶掉
+            // (A->B 之后 B 的行已被占用)。先把待迁移的值读进内存，删掉旧行，
+            // 再按新 uid 写回。
+            // 进入这里的迁移已在 Capture 阶段过滤为"源槽确实挂了成长值"的那些，
+            // 交换中普通装备那一侧不会被收录，所以不会凭空造出成长值。
+            var pending = new Dictionary<long, (int ItemId, int GrowthValue, int Stage)>();
+            var consumedOldUids = new List<long>();
+            foreach (var migration in migrations)
+            {
+                var record = EquipmentGrowthRepository.LoadGrowth(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    migration.OldItemUid);
+                if (record == null)
+                    continue;
+
+                var newItemUid = InventoryItemRepository.LoadCharacterSlotUid(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    migration.ToListType,
+                    migration.ToSlotIndex);
+                if (newItemUid <= 0 || newItemUid == migration.OldItemUid)
+                    continue;
+
+                pending[newItemUid] = (record.ItemId, record.GrowthValue, record.Stage);
+                consumedOldUids.Add(migration.OldItemUid);
+            }
+
+            if (pending.Count == 0)
+                return;
+
+            foreach (var oldItemUid in consumedOldUids)
+                EquipmentGrowthRepository.DeleteForItemUid(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    oldItemUid);
+
+            foreach (var pair in pending)
+                EquipmentGrowthRepository.WriteGrowthSnapshot(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    pair.Key,
+                    pair.Value.ItemId,
+                    pair.Value.GrowthValue,
+                    pair.Value.Stage);
         }
 
         private static void SaveDirtyItemAudits(
@@ -421,7 +547,8 @@ namespace DfoServer.Game.Inventory
             SqliteTransaction transaction,
             InventoryService inventory,
             InventoryListType listType,
-            short slotIndex)
+            short slotIndex,
+            bool growthMigratesOut)
         {
             if (listType == InventoryListType.Main
                 && (InventoryService.IsVirtualMainSlot(slotIndex)
@@ -440,7 +567,14 @@ namespace DfoServer.Game.Inventory
 
             if (core == null)
             {
-                InventoryItemRepository.DeleteCharacterSlot(connection, transaction, inventory.CharacterId, listType, slotIndex);
+                // 该槽的成长值要迁到新槽时不能删，否则迁移无行可搬。
+                DeleteSlotWithGrowth(
+                    connection,
+                    transaction,
+                    inventory,
+                    listType,
+                    slotIndex,
+                    deleteGrowth: !growthMigratesOut);
                 return;
             }
 
@@ -451,6 +585,39 @@ namespace DfoServer.Game.Inventory
                 listType,
                 slotIndex,
                 core);
+        }
+
+        // 物品被删除时连同它的龙跃成长值一起清掉：成长值属于装备实例，
+        // 实例没了就不该留下孤儿行（否则换武器后会残留永远指不到物品的记录）。
+        private static void DeleteSlotWithGrowth(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            InventoryService inventory,
+            InventoryListType listType,
+            short slotIndex,
+            bool deleteGrowth)
+        {
+            var itemUid = InventoryItemRepository.LoadCharacterSlotUid(
+                connection,
+                transaction,
+                inventory.CharacterId,
+                listType,
+                slotIndex);
+            if (deleteGrowth && itemUid > 0)
+            {
+                EquipmentGrowthRepository.DeleteForItemUid(
+                    connection,
+                    transaction,
+                    inventory.CharacterId,
+                    itemUid);
+            }
+
+            InventoryItemRepository.DeleteCharacterSlot(
+                connection,
+                transaction,
+                inventory.CharacterId,
+                listType,
+                slotIndex);
         }
 
         private static void SaveDirtyAvatarDetails(

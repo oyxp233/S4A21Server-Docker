@@ -226,6 +226,8 @@ namespace DfoServer.Game.Dungeon
             internal bool MonsterExperienceApplying;
             internal bool MonsterExperienceApplied;
             internal bool MonsterStatisticsApplied;
+            internal bool MonsterGrowthApplying;
+            internal bool MonsterGrowthApplied;
         }
 
         private sealed class DungeonMonsterDropOutcome
@@ -492,6 +494,34 @@ namespace DfoServer.Game.Dungeon
             finally
             {
                 lock (_syncRoot) entry.MonsterExperienceApplying = false;
+            }
+        }
+
+        // 龙跃武器成长值：与经验一样对同一只怪只累积一次。
+        // 与经验不同，成长值要写库，所以回调在 journal 锁外执行，
+        // 阶段状态沿用同一个 participant effect。
+        internal bool TryApplyMonsterGrowthOnce(
+            DungeonParticipantEffectReservation reservation,
+            Action apply)
+        {
+            if (apply == null) throw new ArgumentNullException(nameof(apply));
+            EffectEntry entry;
+            lock (_syncRoot)
+            {
+                if (!TryGetEntry(reservation, out entry)) return false;
+                if (entry.MonsterGrowthApplied) return true;
+                if (entry.MonsterGrowthApplying) return false;
+                entry.MonsterGrowthApplying = true;
+            }
+            try
+            {
+                apply();
+                lock (_syncRoot) entry.MonsterGrowthApplied = true;
+                return true;
+            }
+            finally
+            {
+                lock (_syncRoot) entry.MonsterGrowthApplying = false;
             }
         }
 

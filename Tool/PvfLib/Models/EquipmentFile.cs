@@ -16,6 +16,20 @@ namespace PvfLib
         public int Type { get; set; } = -1;
         public List<EquipmentEmancipateEntry> Inputs { get; } = new List<EquipmentEmancipateEntry>();
         public List<EquipmentEmancipateEntry> Outputs { get; } = new List<EquipmentEmancipateEntry>();
+
+        // [emancipate] 内部的 [equipment grow]：龙跃武器的成长值规则。
+        public EquipmentGrowInfo Grow { get; set; }
+    }
+
+    // [equipment grow] 描述龙跃武器的成长值规则。
+    // 当前 PVF 里恒为 "1 N"：第一个值是成长值类型，第二个值是该武器的星级上限。
+    public sealed class EquipmentGrowInfo
+    {
+        public int Type { get; set; } = -1;
+
+        public int StageLimit { get; set; }
+
+        public bool HasValue => Type >= 0 && StageLimit > 0;
     }
     
     
@@ -127,6 +141,10 @@ namespace PvfLib
         /// </summary>
         public string ItemCategory { get; set; }
         public EquipmentEmancipateInfo Emancipate { get; set; }
+
+        // 龙跃武器的成长值规则。PVF 里 [equipment grow] 位于 [emancipate] 内部，
+        // 这里直接透出，方便业务方判定该装备是否为龙跃武器。
+        public EquipmentGrowInfo Grow => Emancipate?.Grow;
 
         #endregion
         #region 解析
@@ -268,8 +286,28 @@ namespace PvfLib
             return values != null ? new List<int>(values) : new List<int>();
         }
 
-        private static EquipmentEmancipateInfo ParseEmancipate(ScriptNode node, string content)
+        // [equipment grow] 嵌套在 [emancipate] 内部，数据行形如 "1 N"：
+        // 成长值类型 + 星级上限。缺项或格式非法时返回 null，
+        // 调用方据此判定该装备不是龙跃武器。
+        private static EquipmentGrowInfo ParseEquipmentGrow(string data)
         {
+            var values = ParseIntArray(data);
+            if (values == null || values.Length < 2)
+                return null;
+
+            var type = values[0];
+            var stageLimit = values[1];
+            if (type < 0 || stageLimit <= 0)
+                return null;
+
+            return new EquipmentGrowInfo
+            {
+                Type = type,
+                StageLimit = stageLimit,
+            };
+        }
+
+        private static EquipmentEmancipateInfo ParseEmancipate(ScriptNode node, string content)        {
             var info = new EquipmentEmancipateInfo();
             if (node == null)
                 return info;
@@ -280,6 +318,12 @@ namespace PvfLib
                 {
                     case "emancipate type":
                         info.Type = ParseInt(child.GetFirstDataContent(content));
+                        break;
+                    case "equipment grow":
+                        var growData = child.DataItems.Count > 0
+                            ? child.GetFirstDataContent(content)
+                            : string.Empty;
+                        info.Grow = ParseEquipmentGrow(growData);
                         break;
                     case "input":
                         ParseEmancipateEntries(child, content, info.Inputs);

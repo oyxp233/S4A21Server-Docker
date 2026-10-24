@@ -68,6 +68,10 @@ namespace DfoServer.Game.Inventory
         private readonly HashSet<InventoryListType> _dirtyListParams = new HashSet<InventoryListType>();
         private int _pendingHappyTokenCeraGrant;
 
+        private readonly List<(InventoryListType FromListType, short FromSlotIndex,
+            InventoryListType ToListType, short ToSlotIndex)> _pendingGrowthMigrations
+            = new List<(InventoryListType, short, InventoryListType, short)>();
+
         public InventoryService(int characterId, int accountId)
             : this(characterId, accountId, database: null)
         {
@@ -567,6 +571,7 @@ namespace DfoServer.Game.Inventory
             _dirtyMainVirtualSlots.Clear();
             _dirtyListParams.Clear();
             _pendingHappyTokenCeraGrant = 0;
+            _pendingGrowthMigrations.Clear();
             AvatarDetails.ClearDirtyState();
             CreatureDetails.ClearDirtyState();
             Cargo.ClearDirtyState();
@@ -577,6 +582,23 @@ namespace DfoServer.Game.Inventory
             EpicPieces.ClearDirtyState();
             ItemStates.ClearDirtyState();
         }
+
+        // 跨列表移动(背包<->穿戴)后 item_uid 会变，龙跃武器成长值必须跟着
+        // 同一件物品迁移。移动服务在内存变更时登记映射，持久化落库后由
+        // InventoryPersistenceService 在同一事务内执行迁移。
+        internal void RecordGrowthMigration(
+            InventoryListType fromListType,
+            short fromSlotIndex,
+            InventoryListType toListType,
+            short toSlotIndex)
+        {
+            _pendingGrowthMigrations.Add(
+                (fromListType, fromSlotIndex, toListType, toSlotIndex));
+        }
+
+        internal IReadOnlyList<(InventoryListType FromListType, short FromSlotIndex,
+            InventoryListType ToListType, short ToSlotIndex)> PendingGrowthMigrations
+            => _pendingGrowthMigrations;
 
         public static bool IsVirtualMainSlot(short slotIndex)
         {

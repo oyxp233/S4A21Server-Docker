@@ -1,4 +1,4 @@
-﻿PRAGMA foreign_keys = ON;
+PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS accounts (
     account_id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -503,6 +503,23 @@ CREATE TABLE IF NOT EXISTS character_growth_weapon_stages (
     PRIMARY KEY (character_id, sort_order),
     FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
 );
+
+-- 龙跃武器([equipment grow])每件实例的成长值。
+-- 成长值随武器实例走：跨列表移动(背包<->穿戴)时 item_uid 会变，
+-- 迁移逻辑在 InventoryPersistenceService 的同事务内完成。
+CREATE TABLE IF NOT EXISTS character_equipment_growth (
+    character_id INTEGER NOT NULL,
+    item_uid INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    growth_value INTEGER NOT NULL DEFAULT 0 CHECK(growth_value >= 0),
+    stage INTEGER NOT NULL DEFAULT 1 CHECK(stage >= 1),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (character_id, item_uid),
+    FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_character_equipment_growth_item
+    ON character_equipment_growth(character_id, item_id);
 
 CREATE TABLE IF NOT EXISTS character_pvp_missions (
     character_id INTEGER NOT NULL,

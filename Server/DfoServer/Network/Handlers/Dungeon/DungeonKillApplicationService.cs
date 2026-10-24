@@ -1041,6 +1041,36 @@ namespace DfoServer.Network.Handlers.Dungeon
                     grant = ApplyExperience();
             }
 
+            // 龙跃武器成长值：击杀普通/稀有/精英/领主怪时为角色身上的龙跃武器
+            // 累积成长值（副本难度越高增量越大）。与经验一样走一次性检查，
+            // 避免同一只怪在重放/组队转发时被重复累积。
+            if (allowsExperience)
+            {
+                var growthGain = EquipmentGrowthService.CalculateGrowthGain(
+                    monster.Level,
+                    run.Difficulty,
+                    rewardMonsterType,
+                    run.DungeonId);
+                if (growthGain > 0)
+                {
+                    void ApplyGrowth() => ApplyEquipmentGrowth(session, growthGain);
+
+                    if (participantEffect.IsValid)
+                    {
+                        if (!run.Instance.ParticipantEffects.TryApplyMonsterGrowthOnce(
+                                participantEffect, ApplyGrowth))
+                        {
+                            throw new InvalidOperationException(
+                                "Participant monster growth checkpoint is unavailable.");
+                        }
+                    }
+                    else
+                    {
+                        ApplyGrowth();
+                    }
+                }
+            }
+
             lock (run.SyncRoot)
             {
                 void ApplyStatistics()
@@ -1574,10 +1604,118 @@ namespace DfoServer.Network.Handlers.Dungeon
                         context.SourceUserId)));
         }
 
+        // 为当前角色身上的龙跃武器累积成长值。
+        // 拿不到 owned lease 时静默跳过：成长值是附加收益，不能因为它阻断杀怪主流程。
+        private void ApplyEquipmentGrowth(
+            EnhancedClientSession session,
+            int growthGain)
+        {
+            var characterId = session?.Player?.CharacterId ?? 0;
+            if (characterId <= 0
+                || !InventoryContext.TryGetLease(characterId, out var lease)
+                || !lease.IsOwnedBy(session.SessionId))
+            {
+                return;
+            }
+
+            if (!EquipmentGrowthCommitService.TryAccumulate(lease, growthGain, out var stageUpgraded))
+                return;
+
+            // 成长值改的是 ItemCore 的线上字段（星级进度/模板），客户端不会自己知道。
+            // 装备栏的权威来源是 USERINFO(0x0002) 的 readUserInfoMinimum，
+            // ITEM_LIST(0x000D/0x000E) 只作用于背包列表，改不动装备栏 tooltip。
+            SendEquipmentGrowthRefresh(session, lease, stageUpgraded);
+        }
+
+        // 升星换了模板时重发 USERINFO1，让客户端重建装备栏条目（名称与星级）；
+        // 普通累积只推单槽 ITEM_LIST，足够更新进度。
+        private void SendEquipmentGrowthRefresh(
+            EnhancedClientSession session,
+            InventoryLease lease,
+            bool stageUpgraded)
+        {
+            if (session == null || lease?.Inventory == null)
+                return;
+
+            try
+            {
+                var weaponSlot = (short)DfoServer.Game.ItemUpgrade.EquipmentType.Weapon;
+                var weaponCore = lease.Inventory.GetItem(InventoryListType.Equipment, weaponSlot);
+                if (weaponCore == null)
+                    return;
+
+                if (stageUpgraded)
+                {
+                    FileLogger.Log(
+                        $"[EquipmentGrowth] refresh=USERINFO1 cid={lease.CharacterId} item={weaponCore.ItemId}");
+                    _ = SendUserInfo1RefreshAsync(session);
+                }
+                else
+                {
+                    _ = InventoryRefreshSender.SendOnlineUpdateItemList(
+                        session,
+                        InventoryListType.Equipment,
+                        weaponSlot);
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[EquipmentGrowth] equipment refresh failed cid={lease.CharacterId}: {ex.Message}");
+            }
+        }
+
+        // 重发 USERINFO subtype1：客户端 readUserInfoMinimum 会按它重建装备栏。
+        private async Task SendUserInfo1RefreshAsync(EnhancedClientSession session)
+        {
+            try
+            {
+                var cid = session?.Player?.CharacterId ?? 0;
+                if (cid <= 0)
+                    return;
+
+                var record = _services.CharacterRepository.GetById(cid);
+                if (record == null)
+                    return;
+
+                var addition = _services.Subtype1Repository.Load(cid);
+                if (addition == null)
+                {
+                    FileLogger.Log($"[EquipmentGrowth] USERINFO1 refresh skipped: addition null cid={cid}");
+                    return;
+                }
+
+                var accountId = session.Account?.AccountId ?? record.AccountId;
+                var accountCharacters = _services.CharacterRepository.ListByAccount(accountId);
+                var skills = _services.ProgressNotifications
+                    .LoadSyncedSkillState(cid, record.Level).Skills;
+
+                var body = UserInfoBroadcastService.BuildSubtype1Body(
+                    record,
+                    addition,
+                    accountCharacters,
+                    _services.HonorLevel.LoadSummary(accountId, accountCharacters),
+                    skills);
+
+                if (body == null || body.Length == 0)
+                    return;
+
+                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                    0x00,
+                    (ushort)NotiPacketTypeA21.USERINFO,
+                    body));
+                FileLogger.Log($"[EquipmentGrowth] USERINFO1 refresh sent cid={cid} len={body.Length}");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[EquipmentGrowth] USERINFO1 refresh failed cid={session?.Player?.CharacterId}: {ex.Message}");
+            }
+        }
+
         private static bool IsCurrent(
             DungeonRun run,
-            DungeonEventEnvelope envelope)
-        {
+            DungeonEventEnvelope envelope)        {
             if (run == null
                 || envelope == null
                 || !run.Matches(envelope.RunIdentity))

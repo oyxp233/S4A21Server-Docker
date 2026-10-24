@@ -359,7 +359,7 @@ FROM account_inventory_items
             command.Parameters.AddWithValue("@itemCore", itemCore);
         }
 
-        private static long LoadCharacterSlotUid(
+        internal static long LoadCharacterSlotUid(
             SqliteConnection connection,
             SqliteTransaction transaction,
             int characterId,
@@ -380,6 +380,41 @@ LIMIT 1;";
                 command.Parameters.AddWithValue("@listType", (int)listType);
                 command.Parameters.AddWithValue("@slotIndex", slotIndex);
                 return Convert.ToInt64(command.ExecuteScalar());
+            }
+        }
+
+        // 读取槽位当前持有的物品模板 ID。跨列表交换时两个方向的 uid 互指，
+        // 只有模板 ID 能确认目标槽里是不是同一件物品。
+        // 表里没有独立的 item_id 列，模板 ID 存在 item_core 的 +1 四字节。
+        internal static int LoadCharacterSlotItemId(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            int characterId,
+            InventoryListType listType,
+            short slotIndex)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = @"
+SELECT item_core
+FROM character_inventory_items
+WHERE character_id = @characterId
+  AND list_type = @listType
+  AND slot_index = @slotIndex
+LIMIT 1;";
+                command.Parameters.AddWithValue("@characterId", characterId);
+                command.Parameters.AddWithValue("@listType", (int)listType);
+                command.Parameters.AddWithValue("@slotIndex", slotIndex);
+                var value = command.ExecuteScalar();
+                if (value == null || value == DBNull.Value)
+                    return 0;
+
+                var core = value as byte[];
+                if (core == null || core.Length < 5)
+                    return 0;
+
+                return BitConverter.ToInt32(core, 1);
             }
         }
 

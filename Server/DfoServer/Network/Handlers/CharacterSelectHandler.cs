@@ -235,6 +235,33 @@ namespace DfoServer.Network.Handlers
             }
         }
 
+        // 进号时把已持久化的龙跃武器成长值回填到 ItemCore 线上字段。
+        // 只改内存投影，不写库：成长值本身由 character_equipment_growth 持有。
+        private void ApplyLoginEquipmentGrowthProjection(InventoryLease lease)
+        {
+            if (lease?.Inventory == null)
+                return;
+
+            try
+            {
+                using (var connection = _database.OpenConnection())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    EquipmentGrowthService.ProjectPersistedGrowth(
+                        lease.Inventory,
+                        connection,
+                        transaction);
+                    transaction.Commit();
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log(
+                    $"[{ProtocolName}] equipment growth projection failed " +
+                    $"cid={lease.CharacterId}: {ex.Message}");
+            }
+        }
+
         private void ApplyLoginItemExpirationMaintenance(InventoryLease lease)
         {
             if (lease?.Inventory == null)
@@ -376,6 +403,7 @@ namespace DfoServer.Network.Handlers
                         selectedSpawn);
                     var registeredLease = TryRegisterInventoryLease(session, record, inventory);
                     ApplyLoginItemExpirationMaintenance(registeredLease);
+                    ApplyLoginEquipmentGrowthProjection(registeredLease);
 
                     try
                     {

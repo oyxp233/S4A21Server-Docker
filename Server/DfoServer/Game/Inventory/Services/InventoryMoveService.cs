@@ -48,6 +48,10 @@ namespace DfoServer.Game.Inventory
 
         public int DestinationCount { get; set; }
 
+        // 两个槽都有物品时走 ApplySwap：双方物品互换槽位，成长值迁移方向必须
+        // 由交换本身各自登记，不能套用请求的单一方向。
+        public bool SwappedSlots { get; set; }
+
         public InventoryMutationSet Changes { get; } = new InventoryMutationSet();
     }
 
@@ -72,6 +76,37 @@ namespace DfoServer.Game.Inventory
         private static readonly ItemSlotRange MainQuickSlotRange = new ItemSlotRange(3, 8);
 
         internal static bool TryMove(
+            InventoryService inventory,
+            InventoryMoveRequest request,
+            byte characterJob,
+            int characterGrowType,
+            out InventoryMoveServiceResult result)
+        {
+            var moved = TryMoveCore(
+                inventory,
+                request,
+                characterJob,
+                characterGrowType,
+                out result);
+
+            // 跨列表移动(背包<->穿戴)会改变 item_uid，龙跃武器成长值必须跟着
+            // 同一件物品迁移。这里只登记"空槽落位"的单向移动；两个槽都有物品的
+            // 交换由 ApplySwap 各自登记双方方向，避免把方向登记反。
+            if (moved && inventory != null && request != null
+                && request.SourceListType != request.DestinationListType
+                && !result.SwappedSlots)
+            {
+                inventory.RecordGrowthMigration(
+                    request.SourceListType,
+                    request.SourceSlotIndex,
+                    request.DestinationListType,
+                    request.DestinationSlotIndex);
+            }
+
+            return moved;
+        }
+
+        private static bool TryMoveCore(
             InventoryService inventory,
             InventoryMoveRequest request,
             byte characterJob,
@@ -517,6 +552,20 @@ namespace DfoServer.Game.Inventory
                 InventoryStackRuleService.IsStackable(sourceToDestination) ? sourceToDestination.Count : 0);
             SyncAvatarClearAvatarId(inventory, destinationToSource, sourceListType, sourceSlotIndex, source);
             SyncAvatarClearAvatarId(inventory, sourceToDestination, destinationListType, destinationSlotIndex, destination);
+
+            // 交换是双向的：源物品落到目标槽、目标物品落到源槽，跨列表时两件物品
+            // 的 item_uid 都会变，必须各自登记成长值迁移，否则会跟着错的槽搬走。
+            result.SwappedSlots = true;
+            if (sourceListType != destinationListType)
+            {
+                inventory.RecordGrowthMigration(
+                    sourceListType, sourceSlotIndex,
+                    destinationListType, destinationSlotIndex);
+                inventory.RecordGrowthMigration(
+                    destinationListType, destinationSlotIndex,
+                    sourceListType, sourceSlotIndex);
+            }
+
             return true;
         }
 

@@ -353,6 +353,36 @@ namespace DfoServer.Network.Handlers
             return SendOnlineUpdateItemList(session, itemSpace, new[] { slotIndex });
         }
 
+        // 整栏重发（0x000D）。0x000E 单槽更新不会让客户端重建条目，
+        // 物品模板变化（如龙跃武器自动升星换模板、名称/星级改变）必须用整栏刷新。
+        // 注意：不能先发空更新把槽清掉——客户端收到空更新后会丢弃条目，
+        // 且随后的整栏重建不足以让它重新创建该槽，武器会从 UI 消失。
+        internal static async Task SendOnlineItemListRefresh(
+            EnhancedClientSession session,
+            InventoryListType itemSpace)
+        {
+            if (session == null || !IsNewItemListUpdateSpace(itemSpace))
+                return;
+
+            var (cid, _) = SessionOwnerResolver.Resolve(session);
+            if (cid <= 0 || !InventoryContext.TryGetLease(cid, out var lease))
+                return;
+            if (!lease.IsOwnedBy(session.SessionId))
+                return;
+
+            byte[] body;
+            lock (lease.SyncRoot)
+                body = ItemListPacketBuilder.BuildItemSpaceListBody(lease.Inventory, itemSpace);
+
+            if (body == null || body.Length == 0)
+                return;
+
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+                0x00,
+                0x000D,
+                body));
+        }
+
         internal static async Task SendOnlineUpdateItemList(
             EnhancedClientSession session,
             InventoryListType itemSpace,
