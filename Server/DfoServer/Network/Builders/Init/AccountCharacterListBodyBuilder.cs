@@ -2,6 +2,7 @@ using DfoServer.Game.Accounts;
 using DfoServer.Game.Appearance;
 using DfoServer.Game.Characters;
 using DfoServer.Game.ItemUpgrade;
+using DfoServer.Game.Names;
 using DfoServer.Game.SelectCharacter;
 using DfoServer.Infrastructure;
 using System;
@@ -86,8 +87,11 @@ namespace DfoServer.Network.Builders
 
             writer.WriteUInt16((ushort)wireSlot);
             writer.WriteDstr(character.Name);
-            writer.WriteByte(0);
-            writer.WriteByte(0);
+            // A21 013E5384/026E7883: rename entry + CN card source selector.
+            var rename = database != null && new CharacterRenameRepository(database)
+                .CanRename(character.CharacterId, character.Level, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            writer.WriteByte(rename ? (byte)1 : (byte)0);
+            writer.WriteByte(rename ? (byte)1 : (byte)0);
             writer.WriteByte((byte)(character.Job & 0x0F));
             writer.WriteByte(character.GrowType);
             writer.WriteByte(character.Level);

@@ -69,8 +69,8 @@ namespace DfoServer.Network.Builders
                     if (mode == 0x05)
                     {
                         // A21 A72C80 clears the window, reads u8 count, then
-                        // rebuilds its rows. No character rename/history owner
-                        // exists yet, so the actual history is an empty list.
+                        // rebuilds its rows. Durable rename history is owned by
+                        // CharacterRenameRepository; row wire layout remains unverified.
                         packet = GamePacketEnvelopeBuilder.Build(
                             0x00,
                             (ushort)NotiPacketTypeA21.CHARAC_NAME_CHANGE_LOG,

@@ -165,7 +165,7 @@ addition 后半段的八字节条目表属于账号副本进入次数。`13E1E40
 
 ### 5.4 改名记录查询
 
-`GET_USERINFO mode=5` 是角色改名记录查询，复用现有在线角色和同频道查看权限。响应使用 `NotiPacketTypeA21.CHARAC_NAME_CHANGE_LOG`；A21 `A72C80` 先清旧记录，再读取 u8 条目数并刷新窗口。当前角色业务没有持久化改名事件，返回单字节零条目，不能生成示例姓名、推测过往名称或将 GM 数据修正当作真实改名。后续正式改名功能须由改名事务同时保存历史后再接入查询。
+`GET_USERINFO mode=5` 是角色改名记录查询，复用现有在线角色和同频道查看权限。响应使用 `NotiPacketTypeA21.CHARAC_NAME_CHANGE_LOG`；A21 `A72C80` 先清旧记录，再读取 u8 条目数并刷新窗口。正式改名由 `CharacterRenameCommitService` 在同一事务保存 `character_rename_history`，用于 90 天间隔与旧名 180 天保留。记录行的客户端消费布局尚未验证，查询投影仍返回单字节零条目；不得伪造姓名、推测过往名称或将 GM 数据修正当作真实改名。
 
 ## 6. 预留/未实现部分（客户端解析已确认）
 

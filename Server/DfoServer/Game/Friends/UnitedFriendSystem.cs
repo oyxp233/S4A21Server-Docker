@@ -493,7 +493,8 @@ namespace DfoServer.Game.Friends
         public static async Task HandleCharacterRenamedAsync(
             string oldName,
             string newName,
-            ISessionDirectory dir)
+            ISessionDirectory dir,
+            bool relationsCommitted = false)
         {
             if (string.IsNullOrWhiteSpace(oldName)
                 || string.IsNullOrWhiteSpace(newName)
@@ -528,7 +529,8 @@ namespace DfoServer.Game.Friends
 
                 try
                 {
-                    Repository.RenameAll(oldName, newName);
+                    if (!relationsCommitted)
+                        Repository.RenameAll(oldName, newName);
                     FileLogger.Log(
                         $"[UnitedFriend] HandleCharacterRenamed "
                         + $"\"{oldName}\" → \"{newName}\" 表已更新");
@@ -542,6 +544,10 @@ namespace DfoServer.Game.Friends
             }
 
             await NotifyFriendNameRemovedAsync(oldName, affected, dir);
+            var blacklist = GetBlacklist(dir);
+            if (blacklist != null)
+                foreach (var session in dir.GetAllGameSessions())
+                    await blacklist.PublishAsync(session);
         }
 
         /// <summary>

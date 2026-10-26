@@ -117,6 +117,15 @@ namespace DfoServer.Game.Inventory
 
             var itemTemplateId = product.ItemTemplateId;
             var isSkillTreeExpansion = itemTemplateId == SkillTreeExpansionState.ExpansionItemTemplateId;
+            if (Names.CharacterRenameRepository.IsCard(itemTemplateId)
+                && (buyCount != 1 || product.Count != 1 || !(transactionContext == null
+                    ? new Names.CharacterRenameRepository(inventory.Database).CanPurchase(inventory)
+                    : Names.CharacterRenameRepository.CanPurchase(transactionContext.Connection, transactionContext.Transaction,
+                        inventory, DateTimeOffset.UtcNow.ToUnixTimeSeconds()))))
+            {
+                failure = CeraShopPurchaseFailure.NoEffect;
+                return false;
+            }
             var isNameTag = metadata != null
                 && !string.Equals(product.Section, "avatar", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(metadata.ItemKind, "equipment", StringComparison.Ordinal)
@@ -369,6 +378,12 @@ namespace DfoServer.Game.Inventory
             var itemTemplateId = product.ItemTemplateId;
             try
             {
+                if (Names.CharacterRenameRepository.IsCard(itemTemplateId)
+                    && !new Names.CharacterRenameRepository(inventory.Database).CanPurchase(inventory))
+                {
+                    failure = CeraShopPurchaseFailure.NoEffect;
+                    return false;
+                }
                 if (TryResolvePersonalCargoUpgradeTarget(itemTemplateId, out var personalCargoTarget))
                 {
                     // 购买实际生效档位与扣费商品:

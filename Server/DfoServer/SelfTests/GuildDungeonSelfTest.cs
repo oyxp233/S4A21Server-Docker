@@ -131,7 +131,7 @@ INSERT INTO guild_members(character_id,guild_id,joined_at) VALUES(901,901,CURREN
                 using (var fresh = OpenRaw(source))
                     check("fresh baseline schema contains the three guild tables",
                         SqliteMigrations.ReadVersion(fresh) == SqliteMigrations.CurrentVersion
-                        && SqliteMigrations.CurrentVersion == 40
+                        && SqliteMigrations.CurrentVersion == 41
                         && HasTable(fresh, "guild_dungeon_progress")
                         && HasTable(fresh, "guild_dungeon_clears")
                         && HasTable(fresh, "guild_contents"));
@@ -149,6 +149,7 @@ INSERT INTO guild_members(character_id,guild_id,joined_at) VALUES(901,901,CURREN
 DROP TABLE guild_dungeon_clears;
 DROP TABLE guild_dungeon_progress;
 DROP TABLE character_equipment_growth;
+DROP TABLE character_rename_history;
 UPDATE schema_metadata SET schema_version=37 WHERE singleton_id=1;
 PRAGMA user_version=37;");
             check("v37 baseline has no guild dungeon or content tables",
@@ -157,7 +158,7 @@ PRAGMA user_version=37;");
                 && !HasTable(connection, "guild_dungeon_clears")
                 && !HasTable(connection, "guild_contents"));
             SqliteMigrations.Apply(connection);
-            check("v37 upgrades through v38/v39/v40 and creates the guild tables",
+            check("v37 upgrades through v38/v39/v40/v41 and creates the guild tables",
                 SqliteMigrations.ReadVersion(connection) == SqliteMigrations.CurrentVersion
                 && ReadSchemaVersion(connection) == SqliteMigrations.CurrentVersion
                 && Columns(connection, "guild_dungeon_progress").SequenceEqual(new[]
@@ -174,7 +175,7 @@ PRAGMA user_version=37;");
                 "INSERT INTO guilds(guild_id,name,leader_character_id) VALUES(1,'migration-guild',1);",
                 "INSERT INTO guild_dungeon_progress(guild_id,period_start,style_id,dungeon_id,clear_count) VALUES(1,1,1,1,7);");
             SqliteMigrations.Apply(connection);
-            check("repeated startup keeps v40 and existing dungeon progress",
+            check("repeated startup keeps current schema and existing dungeon progress",
                 SqliteMigrations.ReadVersion(connection) == SqliteMigrations.CurrentVersion
                 && Convert.ToInt32(ExecuteScalar(connection,
                     "SELECT clear_count FROM guild_dungeon_progress WHERE guild_id=1;")) == 7);
@@ -182,7 +183,7 @@ PRAGMA user_version=37;");
 UPDATE schema_metadata SET schema_version=39 WHERE singleton_id=1;
 PRAGMA user_version=39;");
             SqliteMigrations.Apply(connection);
-            check("v39 resumes at v40 without losing the v39 dungeon tables",
+            check("v39 resumes through current schema without losing the v39 dungeon tables",
                 SqliteMigrations.ReadVersion(connection) == SqliteMigrations.CurrentVersion
                 && HasTable(connection, "guild_contents")
                 && Convert.ToInt32(ExecuteScalar(connection,

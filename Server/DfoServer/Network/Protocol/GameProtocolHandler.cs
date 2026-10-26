@@ -26,6 +26,7 @@ namespace DfoServer.Network
     {
         private readonly LoginHandler _loginHandler;
         private readonly CharacterSelectHandler _characterSelectHandler;
+        private readonly CharacterRenameHandler _characterRenameHandler;
         private readonly GrowupChangeHandler _growupChangeHandler;
         private readonly CharacterSessionLifecycleCoordinator
             _characterSessionLifecycle;
@@ -179,6 +180,8 @@ namespace DfoServer.Network
                 inventory.LevelUpRewards, sessionDirectory, _characterTransitions);
             _loginHandler = characterInventoryHandlers.Login;
             _characterSelectHandler = characterInventoryHandlers.CharacterSelect;
+            _characterRenameHandler = new CharacterRenameHandler(database, characterRepository, sessionDirectory,
+                _characterTransitions, socialHandlers.GuildManagement.RefreshAfterRenameAsync);
             _characterSelectHandler.ConfigureGuildContents(_socialHandlers.GuildManagement.RestoreContentEffectsAsync);
             _inventoryRefreshSender = inventory.InventoryRefreshSender;
             _growupChangeHandler = new GrowupChangeHandler(
@@ -405,6 +408,7 @@ namespace DfoServer.Network
                 await _raidHandler.HandleRebindResyncAsync(s);
             };
             d[0x0005] = _characterSelectHandler.Handle_ENUM_CMDPACKET_CREATE_CHARACTER;
+            d[(ushort)CmdPacketTypeA21.CHANGE_CHARAC_NAME] = _characterRenameHandler.Handle;
             d[0x0006] = _characterSelectHandler.Handle_ENUM_CMDPACKET_DELETE_CHARACTER;
             d[0x0007] = _characterSessionLifecycle
                 .HandleReturnSelectCharacterAsync;

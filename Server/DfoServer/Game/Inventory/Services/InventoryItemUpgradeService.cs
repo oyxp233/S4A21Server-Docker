@@ -165,6 +165,9 @@ namespace DfoServer.Game.Inventory
 
             context.EquippedUpgradeProbabilityIncrease =
                 ResolveEquippedUpgradeProbabilityIncrease(inventory);
+            context.SuccessRateAddWeight = (int)Math.Min(WeightScale,
+                (long)context.SuccessRateAddWeight + ItemUpgradePotionBonus.ResolveActiveAddWeight(
+                    inventory, context.Mode, context.Scene, InventoryItemLifecycleService.UtcNowUnixSeconds()));
 
             if (!ValidateMaterial(inventory, command.MaterialSlotIndex, material, context.Cost, out errorCode))
             {

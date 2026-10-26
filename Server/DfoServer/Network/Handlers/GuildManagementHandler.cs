@@ -15,6 +15,11 @@ namespace DfoServer.Network.Handlers
     {
         internal Task RestoreContentEffectsAsync(EnhancedClientSession session) => _publisher.RefreshContentEffectsAsync(session);
         internal void DisposeContentTimers() => _publisher.Dispose();
+        internal Task RefreshAfterRenameAsync(int id)
+        {
+            var guild = _repository.GetForMember(id);
+            return guild == null ? Task.CompletedTask : _publisher.RefreshAsync(_repository.GetMemberIds(guild.Id));
+        }
         private readonly GuildRepository _repository;
         private readonly CharacterTransitionCoordinator _transitions;
         private readonly GuildStatePublisher _publisher;
