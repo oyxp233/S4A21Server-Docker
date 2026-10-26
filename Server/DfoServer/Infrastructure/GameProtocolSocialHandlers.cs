@@ -73,6 +73,7 @@ namespace DfoServer.Infrastructure
                 return;
 
             _disposed = true;
+            GuildManagement.DisposeContentTimers();
             Trade.Dispose();
             Chat.Dispose();
             PvpRoom.Dispose();

@@ -7,6 +7,15 @@ namespace DfoServer.Game.Dungeon
     internal sealed class DungeonInstanceMechanismRuntimeSet
     {
         private readonly object _syncRoot = new object();
+        private Game.Guilds.GuildDungeonAdmission _guildDungeon;
+        internal bool TryAttachGuildDungeon(Game.Guilds.GuildDungeonAdmission admission)
+        {
+            lock (_syncRoot)
+            {
+                _guildDungeon ??= admission;
+                return _guildDungeon == admission;
+            }
+        }
         private TournamentDungeonRuntime _tournament;
         private BloodAltarDungeonRuntime _bloodAltar;
         private DungeonBossRouteRuntime _bossRoute;

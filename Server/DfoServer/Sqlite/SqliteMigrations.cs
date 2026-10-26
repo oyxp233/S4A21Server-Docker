@@ -61,6 +61,8 @@ namespace DfoServer.Sqlite
                 new MigrationStep(36, "add_seria_luck_ui_event", ApplySeriaLuckUiEvent),
                 new MigrationStep(37, "add_guild_contribution_agit_and_cargo", ApplyGuildFacilities),
                 new MigrationStep(38, "add_character_equipment_growth", ApplyCharacterEquipmentGrowth),
+                new MigrationStep(39, "add_guild_dungeon_progress", ApplyGuildDungeonProgress),
+                new MigrationStep(40, "add_guild_contents", ApplyGuildContents),
             };
 
         internal static int CurrentVersion =>
@@ -241,6 +243,43 @@ CREATE INDEX IF NOT EXISTS idx_character_equipment_growth_item
     slot_index INTEGER NOT NULL CHECK(slot_index >= 0),
     item_core BLOB NOT NULL CHECK(length(item_core) = 99),
     PRIMARY KEY(guild_id, slot_index)
+);");
+        }
+
+        // v39: 公会地下城周期进度与结算台账。表结构与 item_schema.sql 一一对应,
+        // 运行时只由本迁移创建。
+        private static void ApplyGuildDungeonProgress(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            ExecuteSql(connection, transaction, @"CREATE TABLE IF NOT EXISTS guild_dungeon_progress (
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    period_start INTEGER NOT NULL,
+    style_id INTEGER NOT NULL,
+    dungeon_id INTEGER NOT NULL,
+    clear_count INTEGER NOT NULL CHECK(clear_count >= 0),
+    PRIMARY KEY(guild_id, period_start, style_id, dungeon_id)
+);");
+            ExecuteSql(connection, transaction, @"CREATE TABLE IF NOT EXISTS guild_dungeon_clears (
+    event_id TEXT NOT NULL,
+    character_id INTEGER NOT NULL REFERENCES characters(character_id) ON DELETE CASCADE,
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    period_start INTEGER NOT NULL,
+    dungeon_id INTEGER NOT NULL,
+    mail_id INTEGER NOT NULL,
+    clear_count INTEGER NOT NULL,
+    PRIMARY KEY(event_id, character_id)
+);");
+        }
+
+        // v40: 公会购买内容(属性/经验加成)与绝对到期时间。
+        private static void ApplyGuildContents(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            ExecuteSql(connection, transaction, @"CREATE TABLE IF NOT EXISTS guild_contents (
+    guild_id INTEGER NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    content_type INTEGER NOT NULL,
+    content_id INTEGER NOT NULL,
+    content_value INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL CHECK(expires_at >= 0),
+    PRIMARY KEY(guild_id, content_type)
 );");
         }
 

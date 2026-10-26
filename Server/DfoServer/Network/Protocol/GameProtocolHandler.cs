@@ -179,6 +179,7 @@ namespace DfoServer.Network
                 inventory.LevelUpRewards, sessionDirectory, _characterTransitions);
             _loginHandler = characterInventoryHandlers.Login;
             _characterSelectHandler = characterInventoryHandlers.CharacterSelect;
+            _characterSelectHandler.ConfigureGuildContents(_socialHandlers.GuildManagement.RestoreContentEffectsAsync);
             _inventoryRefreshSender = inventory.InventoryRefreshSender;
             _growupChangeHandler = new GrowupChangeHandler(
                 new GrowupChangeApplicationService(),
@@ -259,7 +260,10 @@ namespace DfoServer.Network
                 d => d[0x00CF] = _shopCoinEventHandler.HandleShopCoinEvent);
             _cmdDispatch.RegisterGroup("friend", RegisterFriendHandlers);
             _cmdDispatch.RegisterGroup("guild-members", d =>
-                d[(ushort)CmdPacketTypeA21.GUILD_MEMER_LIST] = _socialHandlers.GuildMembers.Handle);
+            {
+                d[(ushort)CmdPacketTypeA21.GUILD_MEMER_LIST] = _socialHandlers.GuildMembers.Handle;
+                d[(ushort)CmdPacketTypeA21.GUILD_ALL_MEMBER_LIST] = _socialHandlers.GuildMembers.Handle;
+            });
             _cmdDispatch.RegisterGroup("guild-join", d =>
             {
                 d[(ushort)CmdPacketTypeA21.REQ_GUILD_SERCH_FOR_JOIN] = _socialHandlers.GuildJoin.Handle;
@@ -281,7 +285,8 @@ namespace DfoServer.Network
                 foreach (var command in new[] { CmdPacketTypeA21.CANCEL_JOIN_GUILD, CmdPacketTypeA21.DENY_JOIN_GUILD,
                     CmdPacketTypeA21.JOIN_GUILD_INFO, CmdPacketTypeA21.REQ_GUILD_SECEDE, CmdPacketTypeA21.SET_SUB_GUILD_MASTER,
                     CmdPacketTypeA21.NOTIFY_MESSAGE_TO_GUILD, CmdPacketTypeA21.MODIFY_GUILD_PROMOTE_MSG,
-                    CmdPacketTypeA21.WRITE_GUILD_MEMBER_MEMO, CmdPacketTypeA21.BREAK_GUILD })
+                    CmdPacketTypeA21.WRITE_GUILD_MEMBER_MEMO, CmdPacketTypeA21.BREAK_GUILD,
+                    CmdPacketTypeA21.BUY_GUILD_CONTENTS })
                     d[(ushort)command] = _socialHandlers.GuildManagement.Handle;
             });
             _cmdDispatch.RegisterGroup("guild-facility", d =>

@@ -76,7 +76,9 @@ WHERE self.character_id=@character ORDER BY member.character_id;";
                     checked((ushort)reader.GetInt32(8)), checked((byte)reader.GetInt32(9)), checked((byte)reader.GetInt32(10)),
                     reader.GetInt32(5) == guild.LeaderId, checked((uint)reader.GetInt64(11)), checked((byte)reader.GetInt32(13)), reader.GetString(14), reader.GetInt32(16)));
             }
-            return guild == null ? null : new GuildRoster(guild, leaderName, members);
+            reader.Close();
+            return guild == null ? null : new GuildRoster(guild, leaderName, members)
+                { Contents = ReadContents(c, null, characterId, DateTimeOffset.UtcNow.ToUnixTimeSeconds()) };
         });
 
         // characters.name is normally a GBK BLOB; legacy/tool-created TEXT is

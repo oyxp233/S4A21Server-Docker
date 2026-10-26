@@ -22,7 +22,7 @@ namespace DfoServer.Game.Guilds
         // Client 025A2580 checks bit 10 before adding the member-removal
         // entry, and also requires the actor's rank to outrank the target.
         internal static uint Permissions(int rank) => rank == 1
-            ? (1u << 1) | (1u << 2) | (1u << 4) | (1u << 5) | (1u << 10) | (1u << 11) : 0;
+            ? (1u << 1) | (1u << 2) | (1u << 4) | (1u << 5) | (1u << 8) | (1u << 10) | (1u << 11) : 0;
         internal static string RankName(int rank) => rank switch
         {
             1 => "会长", 2 => "副会长", 3 => "优秀成员", 4 => "普通成员", 5 => "精英成员", _ => ""

@@ -36,6 +36,11 @@ namespace DfoServer.Network.Handlers
                 return;
             }
 
+            if (request.Mode == ServerMegaphoneMode)
+            {
+                await SendServerMegaphoneAsync(session, request, linkBytes);
+                return;
+            }
             if (request.Mode == GuildMessageMode)
             {
                 int members = await SendGuildHyperlinkMessageAsync(session, request, linkBytes);

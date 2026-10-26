@@ -7,7 +7,8 @@ namespace DfoServer.Network.Builders.Guilds
     {
         // Current DNF.exe 1F8244D3...B20B00DD, reader 01130B60.
         // No pagination cursor on GUILD_MEMER_LIST (unlike ALL_MEMBER_LIST).
-        internal static byte[] Build(GuildRoster roster, Func<int, byte?> findOnlineChannel)
+        internal static byte[] Build(GuildRoster roster, Func<int, byte?> findOnlineChannel,
+            bool allMembers = false)
         {
             ArgumentNullException.ThrowIfNull(roster);
             ArgumentNullException.ThrowIfNull(findOnlineChannel);
@@ -38,7 +39,12 @@ namespace DfoServer.Network.Builders.Guilds
                 writer.WriteByte(0); // No representative-character designation.
                 writer.WriteClientDstr(""); // No account display alias (+164).
             }
-            return GamePacketEnvelopeBuilder.Build(1, (ushort)CmdPacketTypeA21.GUILD_MEMER_LIST, writer.ToArray());
+            // 01134670 delegates ALL_MEMBER_LIST to 01130B60. That reader
+            // consumes one extra UInt32 after all rows (01130FD6..01130FDD).
+            // One complete snapshot is returned; there is no continuation page.
+            if (allMembers) writer.WriteUInt32(0);
+            return GamePacketEnvelopeBuilder.Build(1, (ushort)(allMembers
+                ? CmdPacketTypeA21.GUILD_ALL_MEMBER_LIST : CmdPacketTypeA21.GUILD_MEMER_LIST), writer.ToArray());
         }
     }
 }

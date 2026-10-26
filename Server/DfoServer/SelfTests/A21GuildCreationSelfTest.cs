@@ -274,7 +274,7 @@ WHEN NEW.character_id=103 BEGIN SELECT RAISE(ABORT,'test guild rollback'); END;"
                         {
                             // Includes bit 10, required by the current client's
                             // member-removal menu at 025A2580..025A25F2.
-                            valid &= reader.ReadUInt32()==(rank==1 ? 0xC36u : 0u);
+                            valid &= reader.ReadUInt32()==(rank==1 ? 0xD36u : 0u);
                             byte[] label=reader.ReadBytes(24);
                             valid &= label.Length==24 && label[23]==0;
                         }
@@ -499,6 +499,7 @@ WHEN NEW.character_id=103 BEGIN SELECT RAISE(ABORT,'test guild rollback'); END;"
                 {
                     foreach (var lease in leases) InventoryContext.Unregister(lease.SessionId);
                 }
+                GuildContentSelfTest.Run(database, Check);
                 GuildRuntimeSelfTest.RunAsync(database, Check).GetAwaiter().GetResult();
             }
             catch (Exception ex) { Console.WriteLine(ex); failures++; }
@@ -520,12 +521,20 @@ WHEN NEW.character_id=103 BEGIN SELECT RAISE(ABORT,'test guild rollback'); END;"
             var notices = GuildStatePublisher.BuildLoginNotices(repository, 100);
             var absent = GuildStatePublisher.BuildLoginNotices(repository, 102);
             check("member login entrance is GUILD_INFO then agit level byte 1",
-                notices.Count == 2
+                notices.Count == 4
                 && PacketType(notices[0]) == (ushort)NotiPacketTypeA21.GUILD_INFO
                 && PacketType(notices[1]) == (ushort)NotiPacketTypeA21.GUILD_AGIT_INFO
                 && notices[1].Length == 16
                 && notices[1][15] == 1);
-            check("nonmember login entrance is empty", absent.Count == 0);
+            check("leader login publishes own grade independently of stored member rank",
+                PacketType(notices[2]) == (ushort)NotiPacketTypeA21.GUILD_MEMBER_INFO
+                && notices[2].Length == 16 && notices[2][15] == 1);
+            check("nonmember login clears stale actor grade and guild dungeon state", absent.Count == 2
+                && PacketType(absent[0]) == (ushort)NotiPacketTypeA21.GUILD_MEMBER_INFO && absent[0][15] == 0
+                && PacketType(absent[1]) == (ushort)NotiPacketTypeA21.GUILD_DUNGEON_INFO && absent[1][15] == 0);
+            var ordinary = GuildStatePublisher.BuildLoginNotices(repository, 104);
+            check("member login cannot inherit leader management rights", ordinary.Count == 4
+                && PacketType(ordinary[2]) == (ushort)NotiPacketTypeA21.GUILD_MEMBER_INFO && ordinary[2][15] == 4);
 
             var sequence = NewCharacterInitSequence.Build();
             int firstUserInfo = IndexOf(sequence, (ushort)NotiPacketTypeA21.USERINFO, 0);
@@ -590,11 +599,13 @@ WHEN NEW.character_id=103 BEGIN SELECT RAISE(ABORT,'test guild rollback'); END;"
                 registry,
                 notices).ToList();
             check("missing USERINFO0 still places guild entrance before town entry",
-                townFirst.Count >= 4
+                townFirst.Count >= 6
                 && PacketType(townFirst[0]) == (ushort)NotiPacketTypeA21.GUILD_INFO
                 && PacketType(townFirst[1]) == (ushort)NotiPacketTypeA21.GUILD_AGIT_INFO
-                && PacketType(townFirst[2]) == (ushort)NotiPacketTypeA21.USER_STATE
-                && PacketType(townFirst[3]) == (ushort)NotiPacketTypeA21.VILLAGE_OBJECT_LIST);
+                && PacketType(townFirst[2]) == (ushort)NotiPacketTypeA21.GUILD_MEMBER_INFO
+                && PacketType(townFirst[3]) == (ushort)NotiPacketTypeA21.GUILD_DUNGEON_INFO
+                && PacketType(townFirst[4]) == (ushort)NotiPacketTypeA21.USER_STATE
+                && PacketType(townFirst[5]) == (ushort)NotiPacketTypeA21.VILLAGE_OBJECT_LIST);
 
             var withoutGuild = SelectCharacterPacketBuilder.BuildPacketStream(
                 source, 0, 1, templates, null, null, registry, null).ToList();

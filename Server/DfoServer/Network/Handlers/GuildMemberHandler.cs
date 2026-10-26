@@ -3,6 +3,7 @@ using DfoServer.Game.Inventory;
 using DfoServer.Game.Session;
 using DfoServer.Network.Builders.Guilds;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace DfoServer.Network.Handlers
@@ -24,18 +25,28 @@ namespace DfoServer.Network.Handlers
             => _transitions.RunIfCurrentAsync(session, async () =>
             {
                 if (!InventoryContext.TryGetOwnedLease(session.SessionId, session.Player.CharacterId, out var lease)) return;
-                if (body != null && body.Length != 0)
+                var command = (CmdPacketTypeA21)header.type;
+                bool allMembers = command == CmdPacketTypeA21.GUILD_ALL_MEMBER_LIST;
+                // Current client sends 4 zero bytes when switching to all members.
+                // Only the initial full-snapshot request is supported, not a guessed cursor.
+                bool valid = allMembers ? body?.Length == 4 && BitConverter.ToUInt32(body, 0) == 0
+                    : command == CmdPacketTypeA21.GUILD_MEMER_LIST && (body == null || body.Length == 0);
+                if (!valid)
                 {
-                    await session.SendPacketAsync(GuildCreationPacketBuilder.Failure(CmdPacketTypeA21.GUILD_MEMER_LIST));
+                    await session.SendPacketAsync(GuildCreationPacketBuilder.Failure(command));
                     return;
                 }
                 var roster = _repository.GetRosterForMember(lease.CharacterId);
                 if (roster == null)
                 {
-                    await session.SendPacketAsync(GuildCreationPacketBuilder.Failure(CmdPacketTypeA21.GUILD_MEMER_LIST));
+                    await session.SendPacketAsync(GuildCreationPacketBuilder.Failure(command));
                     return;
                 }
-                var packet = GuildMemberPacketBuilder.Build(roster, FindOnlineChannel);
+                var packet = GuildMemberPacketBuilder.Build(roster, FindOnlineChannel, allMembers);
+                // Opening the panel must also repair an actor grade left over
+                // from character switching; roster rows do not update that field.
+                await session.SendPacketAsync(GuildJoinPacketBuilder.Rank(
+                    roster.Members.Single(m => m.CharacterId == lease.CharacterId).Rank));
                 await session.SendPacketAsync(packet);
                 FileLogger.Log($"[Guild] members cid={lease.CharacterId} guild={roster.Guild.Id} count={roster.Members.Count}");
             });

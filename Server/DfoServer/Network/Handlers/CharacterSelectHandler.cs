@@ -29,6 +29,8 @@ namespace DfoServer.Network.Handlers
 {
     public sealed class CharacterSelectHandler
     {
+        private Func<EnhancedClientSession, Task> _restoreGuildContents;
+        internal void ConfigureGuildContents(Func<EnhancedClientSession, Task> restore) => _restoreGuildContents = restore;
         internal const byte A21MaxCreateJob = 13;
 
         internal static bool IsSupportedA21CreateJob(byte job)
@@ -572,6 +574,7 @@ namespace DfoServer.Network.Handlers
                          guildEntranceNotices))
                 await session.SendPacketAsync(packet);
 
+            if (_restoreGuildContents != null) await _restoreGuildContents(session);
             if (InventoryContext.TryGetLease(ownerCharId, out var inventoryLease)
                 && inventoryLease.IsOwnedBy(session.SessionId))
             {

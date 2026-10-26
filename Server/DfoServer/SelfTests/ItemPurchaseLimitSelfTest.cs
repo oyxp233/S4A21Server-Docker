@@ -1124,6 +1124,7 @@ WHERE account_id = @aid
             if (catalog == null)
                 return false;
 
+            var grantProbe = new InventoryService(characterId: 51002, accountId: 51001);
             var seen = new HashSet<int>();
             foreach (var entry in catalog.Entries)
             {
@@ -1135,8 +1136,11 @@ WHERE account_id = @aid
                     if (itemId <= 0 || !seen.Add(itemId))
                         continue;
 
-                    if (!ItemPurchaseLimitService.TryResolveDefinition(itemId, out var definition))
+                    if (!ItemPurchaseLimitService.TryResolveDefinition(itemId, out var definition)
+                        || !CanGrantToShopBuyer(grantProbe, itemId))
+                    {
                         continue;
+                    }
 
                     if (definition.LimitType == 0 && accountItemId <= 0)
                     {
@@ -1155,6 +1159,17 @@ WHERE account_id = @aid
             }
 
             return accountItemId > 0 && charItemId > 0;
+        }
+
+        private static bool CanGrantToShopBuyer(InventoryService inventory, int itemId)
+        {
+            var requests = new[]
+            {
+                InventoryRewardGrantRequest.Create(itemId, 1, ItemCreateReason.NpcShopPurchase),
+            };
+            return InventoryRewardGrantService.TryPlanBatch(inventory, requests, out var plan)
+                && plan != null
+                && plan.Success;
         }
 
         private static bool TryFindNpcForItem(

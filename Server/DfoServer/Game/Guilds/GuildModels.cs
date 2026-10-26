@@ -5,7 +5,7 @@ namespace DfoServer.Game.Guilds
         Success, InvalidName, InvalidPromotion, DuplicateName, AlreadyMember,
         MissingCharacter, InsufficientGold, NotFound, NotLeader, NotApplicant,
         LeaderCannotLeave, StaleSession, PersistenceFailed, InvalidRank,
-        InvalidAmount, InsufficientContribution
+        InvalidAmount, InsufficientContribution, UnsupportedContent, ContentAlreadyActive
     }
     internal sealed record GuildRecord(int Id, string Name, string Promotion, int LeaderId, string Announcement = "", int Contribution = 0);
     internal sealed record GuildFacilityResult(GuildResult Status, int GoldAfter = 0, int Contribution = 0, int Level = 0, int Slots = 0, int MemberContribution = 0);
@@ -16,7 +16,10 @@ namespace DfoServer.Game.Guilds
         internal byte Rank => IsLeader ? (byte)1 : MemberRank;
     }
     internal sealed record GuildRoster(GuildRecord Guild, string LeaderName,
-        System.Collections.Generic.IReadOnlyList<GuildMemberRecord> Members);
+        System.Collections.Generic.IReadOnlyList<GuildMemberRecord> Members)
+    {
+        internal System.Collections.Generic.IReadOnlyList<GuildContent> Contents { get; init; } = System.Array.Empty<GuildContent>();
+    }
     internal sealed record GuildSearchResult(GuildRecord Guild, ushort MemberCount);
     internal sealed record GuildApplication(int CharacterId, string Name, byte Job, byte GrowType,
         byte Level, string Message, uint ElapsedSeconds);

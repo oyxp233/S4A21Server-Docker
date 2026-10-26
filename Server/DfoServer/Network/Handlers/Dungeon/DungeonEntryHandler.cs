@@ -788,6 +788,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                     await session.SendPacketAsync(packet);
                 }
                 await _svc.PersistentMechanisms.RestoreBeforeSelectionAsync(session);
+                await session.SendPacketAsync(Builders.Guilds.GuildDungeonPacketBuilder.Build(
+                    _svc.GuildDungeons.Read(session.Player.CharacterId)));
                 if (!isA21TutorialEntry)
                 {
                     await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
@@ -2766,6 +2768,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             ConfigureLinkedDungeonRunState(req.DungeonId, run);
             EntryCostResult entryValidation = null;
             if (!TryGetOwnedInventoryLease(session, out var entryLease)
+                || !TryPrepareGuildDungeon(session.Player.CharacterId, run, out entryValidation)
                 || !_svc.EntryAdmission.TryPrepareRun(
                     entryLease,
                     run,
@@ -3929,6 +3932,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             }
             if (maze == null
                 || !TryGetOwnedInventoryLease(session, out lease)
+                || !TryPrepareGuildDungeon(session.Player.CharacterId, run, out validation)
                 || !_svc.EntryAdmission.TryPrepareRun(
                     lease,
                     run,
@@ -3949,6 +3953,22 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return false;
             }
             return true;
+        }
+
+        private bool TryPrepareGuildDungeon(int characterId, DungeonRun run, out EntryCostResult validation)
+        {
+            validation = null;
+            try
+            {
+                if (_svc.GuildDungeons.TryAdmit(characterId, run, out var reason)) return true;
+                validation = new EntryCostResult().Fail(reason, EntryCostFailureKind.MissingPermission);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Log($"[GuildDungeon] admission unavailable cid={characterId}: {ex.Message}");
+                validation = new EntryCostResult().Fail("guild dungeon state unavailable", EntryCostFailureKind.Unavailable);
+            }
+            return false;
         }
 
         private bool TryEvaluateAntonAwakeningEntry(

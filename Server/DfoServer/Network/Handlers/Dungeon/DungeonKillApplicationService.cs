@@ -868,11 +868,27 @@ namespace DfoServer.Network.Handlers.Dungeon
                         equipmentBonusPercent);
                 }
             }
-            var awardedExp = CharacterExperienceService.AddSaturating(
-                CharacterExperienceService.AddSaturating(
+            // 公会经验加成每局首次有效杀怪读取一次，并冻结在本 participant 的
+            // run 台账里；本局后续杀怪以及本局内的购买/离会/到期都不再查询。
+            uint guildBonus;
+            lock (run.SyncRoot)
+            {
+                int guildPercent = run.Combat.Experience
+                    .ResolveGuildMonsterExperiencePercent(
+                        allowsExperience,
+                        monsterAwardBaseExp,
+                        () => ReadGuildMonsterBonusPercent(session));
+                guildBonus = run.Combat.Experience.ApplyGuildBonusRate(
                     monsterAwardBaseExp,
-                    growthContractBonus),
-                equipmentBonus);
+                    guildPercent);
+            }
+            var awardedExp = CharacterExperienceService.AddSaturating(
+                guildBonus,
+                CharacterExperienceService.AddSaturating(
+                    CharacterExperienceService.AddSaturating(
+                        monsterAwardBaseExp,
+                        growthContractBonus),
+                    equipmentBonus));
 
             var dungeonBasisLevel = (int)monster.Level;
             var dungeonMinimumLevel = (int)monster.Level;
@@ -1099,7 +1115,8 @@ namespace DfoServer.Network.Handlers.Dungeon
                         isSuperChampion,
                         isNamed,
                         actorSequenceId: sequenceId,
-                        equipmentBonusExperience: equipmentBonus);
+                        equipmentBonusExperience: equipmentBonus,
+                        guildBonusExperience: guildBonus);
                 }
                 if (participantEffect.IsValid)
                 {
@@ -1864,6 +1881,16 @@ namespace DfoServer.Network.Handlers.Dungeon
                 IsAbyssMonsterScript = monster.IsHellMonsterScript,
                 CharacterId = characterId,
             };
+        }
+
+        // 每局首次有效杀怪结算时调用一次，结果冻结局内；数据库仍是公会成员
+        // 关系和期限的真源。读取异常照常上抛，由现有杀怪路径处理。
+        private int ReadGuildMonsterBonusPercent(EnhancedClientSession session)
+        {
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var contents = new Game.Guilds.GuildRepository(_services.Database)
+                .GetContents(session.Player.CharacterId, now);
+            return Game.Guilds.GuildContentRules.ExperiencePercent(contents, now);
         }
 
         private uint CalculateGrowthContractMonsterBonus(

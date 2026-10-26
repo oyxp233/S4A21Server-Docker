@@ -109,6 +109,7 @@ namespace DfoServer.Game.Dungeon
 
     internal sealed class DungeonRunSelectionState
     {
+        internal Game.Guilds.GuildDungeonAdmission GuildDungeon { get; set; }
         internal bool IsA21TutorialEntry { get; set; }
         internal bool AnotherAradActive { get; set; }
         internal int AnotherAradWrapperDungeonId { get; set; }

@@ -6,7 +6,7 @@ namespace DfoServer.Network.Builders.Guilds
     internal static class GuildInfoPacketBuilder
     {
         // DNF.exe 1F8244D3...B20B00DD, 011959B0..0119681B. Optional systems
-        // (alliance, purchased content, attendance/rewards) remain empty/disabled.
+        // (alliance, attendance/rewards) remain empty/disabled.
         // 2026-10-16 panel probe: 102 is 公会积分, 104/105 are guild cumulative and
         // monthly, 106/107 are the viewer's cumulative and monthly.
         internal static byte[] Build(GuildRoster roster, int viewerCharacterId)
@@ -42,7 +42,14 @@ namespace DfoServer.Network.Builders.Guilds
                 var name = ClientTextEncoding.GetBytes(GuildManagementRules.RankName(rank));
                 w.WriteBytes(name); w.WriteZeroBytes(24 - name.Length);
             }
-            w.WriteByte(0); // Purchased-content count, 011962A1.
+            w.WriteByte(checked((byte)roster.Contents.Count));
+            foreach (var content in roster.Contents)
+            {
+                // 011962D0: type, absolute expiry, usage mode, value.
+                // 0078E360 renders mode 1 as charges, mode 0 as expiry.
+                w.WriteByte(content.Type); w.WriteUInt32(content.ClientExpiresAt);
+                w.WriteByte(0); w.WriteInt32(content.Value);
+            }
             w.WriteUInt32(0); // Live panel stayed 0 when this carried contribution.
             w.WriteByte(0); // Alliance count, 01196350.
             w.WriteUInt32(guild); w.WriteByte(0); // 公会积分 (GM).

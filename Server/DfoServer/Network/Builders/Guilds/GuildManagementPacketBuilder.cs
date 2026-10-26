@@ -4,6 +4,15 @@ namespace DfoServer.Network.Builders.Guilds
 {
     internal static class GuildManagementPacketBuilder
     {
+        // 0118ED10 reads one DSTR and 0118EDD8 updates the guild panel's
+        // announcement via 019E9E50. The edit ACK only displays a result dialog.
+        internal static byte[] Announcement(string text)
+        {
+            var w = new GamePacketWriter(); w.WriteClientDstr(text ?? "");
+            return GamePacketEnvelopeBuilder.Build(0,
+                (ushort)NotiPacketTypeA21.GUILD_MESSAGE_TO_GUILD_MEMBER, w.ToArray());
+        }
+
         // 0118AC80: present:u8; if present: id,u32 + name,msg DSTR + two u32.
         internal static byte[] Pending(GuildPendingApplication pending)
         {

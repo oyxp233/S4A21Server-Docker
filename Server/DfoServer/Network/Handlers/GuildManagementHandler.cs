@@ -13,6 +13,8 @@ namespace DfoServer.Network.Handlers
 {
     internal sealed class GuildManagementHandler
     {
+        internal Task RestoreContentEffectsAsync(EnhancedClientSession session) => _publisher.RefreshContentEffectsAsync(session);
+        internal void DisposeContentTimers() => _publisher.Dispose();
         private readonly GuildRepository _repository;
         private readonly CharacterTransitionCoordinator _transitions;
         private readonly GuildStatePublisher _publisher;
@@ -52,6 +54,13 @@ namespace DfoServer.Network.Handlers
                 {
                     switch (command)
                     {
+                        case CmdPacketTypeA21.BUY_GUILD_CONTENTS:
+                            if (TryId(body, out int contentId))
+                            {
+                                GuildContentRules.Current.TryGetValue(contentId, out var definition);
+                                result = _repository.PurchaseContent(actor, definition, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                            }
+                            break;
                         case CmdPacketTypeA21.CANCEL_JOIN_GUILD:
                             if (TryId(body, out int guildId) && guildId > 0)
                                 result = _repository.CancelApplication(actor, guildId);
@@ -113,8 +122,23 @@ namespace DfoServer.Network.Handlers
                 // A disconnected initiator must not prevent committed state
                 // from being published to the other online members/applicants.
                 await SessionDirectory.TrySendBestEffortAsync(ct => session.SendPacketAsync(
-                    result == GuildResult.Success ? success : GuildCreationPacketBuilder.Ack(command, 0x22), ct),
+                    result == GuildResult.Success ? success : command == CmdPacketTypeA21.BUY_GUILD_CONTENTS
+                        ? GuildCreationPacketBuilder.Failure(command) : GuildCreationPacketBuilder.Ack(command, 0x22), ct),
                     $"guild management ack cid={actor}");
+                if (command == CmdPacketTypeA21.BUY_GUILD_CONTENTS && result != GuildResult.Success)
+                {
+                    string reason = result switch
+                    {
+                        GuildResult.NotLeader => "只有公会会长可以购买公会加成。",
+                        GuildResult.InsufficientContribution => "公会积分不足，未扣除积分。",
+                        GuildResult.ContentAlreadyActive => "同类公会加成仍在生效，无需重复购买，未扣除积分。",
+                        GuildResult.UnsupportedContent => "当前已开放公会属性值和经验值加成；此项目尚未开放，未扣除积分。",
+                        _ => "公会加成购买失败，未扣除积分。"
+                    };
+                    await SessionDirectory.TrySendBestEffortAsync(ct => session.SendPacketAsync(
+                        GamePacketEnvelopeBuilder.Build(0, (ushort)NotiPacketTypeA21.SERVER_NOTICE_MESSAGE,
+                            Network.Builders.ServerNoticeMessageBuilder.Build(reason)), ct), "guild contents failure");
+                }
                 if (result == GuildResult.Success)
                 {
                     refresh.Add(actor);
@@ -124,7 +148,8 @@ namespace DfoServer.Network.Handlers
                 FileLogger.Log($"[Guild] management cid={actor} command={command} target={target} result={result}");
             }
             finally { for (int i = gates.Count - 1; i >= 0; i--) gates[i].Dispose(); }
-            await _publisher.RefreshAsync(refresh.Where(id => id > 0), command == CmdPacketTypeA21.BREAK_GUILD);
+            await _publisher.RefreshAsync(refresh.Where(id => id > 0), command == CmdPacketTypeA21.BREAK_GUILD,
+                publishAnnouncement: command == CmdPacketTypeA21.NOTIFY_MESSAGE_TO_GUILD);
         }
 
         private async Task<List<IDisposable>> AcquireAffectedAsync(int actor)

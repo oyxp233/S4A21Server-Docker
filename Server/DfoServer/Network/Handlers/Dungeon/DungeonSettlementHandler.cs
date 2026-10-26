@@ -1050,6 +1050,24 @@ namespace DfoServer.Network.Handlers.Dungeon
                     return false;
                 }
 
+                if (run.Selection.GuildDungeon != null
+                    && !await ExecuteSettlementEffectAsync(session, run, identity, "guild-dungeon-clear", async () =>
+                    {
+                        var result = _svc.GuildDungeons.ApplyClear(session.Player.CharacterId, run);
+                        await session.SendPacketAsync(Builders.Guilds.GuildDungeonPacketBuilder.Build(
+                            _svc.GuildDungeons.Read(session.Player.CharacterId)));
+                        if (result.MailId > 0)
+                            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0,
+                                (ushort)NotiPacketTypeA21.MAILBOX_ALARM,
+                                MailboxHandler.BuildMailboxAlarmNotification(1)));
+                        FileLogger.Log($"[GuildDungeon] clear cid={session.Player.CharacterId} dungeon={run.DungeonId} "
+                            + $"applied={result.Applied} clears={result.ClearCount} mail={result.MailId}");
+                    }))
+                {
+                    run.Effects.TryFail(authoritativeReservation);
+                    return false;
+                }
+
                 if (_svc.LicensedDungeons.IsLicensedDungeon(run.DungeonId)
                     && !await ExecuteSettlementEffectAsync(
                         session,

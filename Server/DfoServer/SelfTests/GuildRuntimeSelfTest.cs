@@ -13,6 +13,7 @@ using DfoServer.Game.Session;
 using DfoServer.Infrastructure;
 using DfoServer.Network;
 using DfoServer.Network.Handlers;
+using DfoServer.Network.Builders.Guilds;
 
 namespace DfoServer.SelfTests
 {
@@ -29,6 +30,10 @@ namespace DfoServer.SelfTests
             var repository=new GuildRepository(database);
             var guild=database.Write((c,t)=>GuildRepository.Insert(c,t,201,"runtime-guild",""));
             repository.Apply(guild.Id,202); repository.Approve(guild.Id,201,202);
+            database.Write((c,t)=>{using var cmd=c.CreateCommand();cmd.Transaction=t;
+                cmd.CommandText="INSERT INTO characters(character_id,account_id,name,created_at,updated_at) VALUES(204,100,'runtime-offline',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);";
+                cmd.ExecuteNonQuery();});
+            repository.Apply(guild.Id,204); repository.Approve(guild.Id,201,204);
             var sessions=new SessionDirectory();
             var transitions=new CharacterTransitionCoordinator(sessions);
             using var leader=await Peer.Create(database,sessions,201,10010);
@@ -39,9 +44,24 @@ namespace DfoServer.SelfTests
             var characters=new SqliteCharacterRepository(database);
             var appearance=new InventoryRefreshSender(new SqliteSelectCharacterDataSource(database,characters),characters,database);
             appearance.BindSessions(sessions);
-            var publisher=new GuildStatePublisher(repository,transitions,sessions,appearance);
+            using var publisher=new GuildStatePublisher(repository,transitions,sessions,appearance);
             var handler=new GuildManagementHandler(repository,transitions,publisher);
             var invites=new GuildInviteHandler(repository,transitions,sessions,publisher);
+            var members=new GuildMemberHandler(repository,transitions,sessions);
+            await members.Handle(leader.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.GUILD_ALL_MEMBER_LIST},new byte[4]);
+            var allMemberPackets=leader.Drain();
+            var expectedAll=GuildMemberPacketBuilder.Build(repository.GetRosterForMember(201), id =>
+                id!=204 && GameNetworkConfig.TryResolveGameChannel(id==201 ? 10010 : 10011, out var channel)
+                    ? checked((byte)channel.ChannelId) : null, allMembers:true);
+            check("all-member request returns complete snapshot with its own opcode and trailer",
+                allMemberPackets.Count==2 && allMemberPackets[1].SequenceEqual(expectedAll)
+                && BitConverter.ToUInt32(allMemberPackets[1],allMemberPackets[1].Length-4)==0
+                && allMemberPackets[0].SequenceEqual(GuildJoinPacketBuilder.Rank((byte)1)));
+            await members.Handle(leader.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.GUILD_ALL_MEMBER_LIST},BitConverter.GetBytes(1));
+            check("unsupported all-member cursor fails without changing membership",
+                leader.Drain().Single()[15]==0 && repository.GetRosterForMember(201).Members.Count==3);
+            await members.Handle(outsider.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.GUILD_ALL_MEMBER_LIST},new byte[4]);
+            check("outsider cannot read all-member snapshot", outsider.Drain().Single()[15]==0);
             var message=new GamePacketWriter();message.WriteByte(6);message.WriteUInt16(0);message.WriteUInt32(0);message.WriteClientDstr("公会测试");
             await chat.Handle_SEND_MESSAGE(leader.Session,new GamePacketHeader(),message.ToArray());
             check("guild chat crosses channels and excludes outsiders", leader.Drain().Count==1 && member.Drain().Count==1 && outsider.Drain().Count==0);
@@ -138,15 +158,52 @@ namespace DfoServer.SelfTests
             replacement.Drain(); member.Drain();
             var announcement=new GamePacketWriter();announcement.WriteClientDstr("欢迎加入");
             await handler.Handle(replacement.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.NOTIFY_MESSAGE_TO_GUILD},announcement.ToArray());
-            check("announcement persists and refreshes online members", new GuildRepository(database).Get(guild.Id).Announcement=="欢迎加入"
-                && member.Drain().Any(p=>p[0]==0 && BitConverter.ToUInt16(p,1)==(ushort)NotiPacketTypeA21.GUILD_INFO));
-            replacement.Drain();
+            var announcementPackets=member.Drain();
+            var announcementNotice=GuildManagementPacketBuilder.Announcement("欢迎加入");
+            check("announcement persists and uses dedicated text notification for all online members",
+                new GuildRepository(database).Get(guild.Id).Announcement=="欢迎加入"
+                && announcementPackets.Any(p=>p[0]==0 && BitConverter.ToUInt16(p,1)==(ushort)NotiPacketTypeA21.GUILD_INFO)
+                && announcementPackets.Any(p=>p.SequenceEqual(announcementNotice))
+                && replacement.Drain().Any(p=>p.SequenceEqual(announcementNotice))
+                && announcementNotice.AsSpan(15).SequenceEqual(announcement.ToArray()));
             await handler.Handle(member.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.NOTIFY_MESSAGE_TO_GUILD},memo.ToArray());
             check("member cannot overwrite announcement", repository.Get(guild.Id).Announcement=="欢迎加入"
-                && member.Drain().Any(p=>p[0]==1 && p[15]==0));
+                && member.Drain().All(p=>p[0]==1 && p[15]==0) && replacement.Drain().Count==0);
             await handler.Handle(replacement.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.MODIFY_GUILD_PROMOTE_MSG},announcement.ToArray());
             check("promotion update is visible in subsequent guild search", repository.FindByName("runtime-guild").Guild.Promotion=="欢迎加入");
             replacement.Drain(); member.Drain();
+            database.Write((c,t)=>{using var cmd=c.CreateCommand();cmd.Transaction=t;
+                cmd.CommandText="UPDATE guilds SET contribution=500 WHERE guild_id=@guild;";cmd.Parameters.AddWithValue("@guild",guild.Id);cmd.ExecuteNonQuery();});
+            var buyHeader=new GamePacketHeader{type=(ushort)CmdPacketTypeA21.BUY_GUILD_CONTENTS};
+            await handler.Handle(member.Session,buyHeader,BitConverter.GetBytes(2));
+            check("purchase handler rejects nonleader without changing balance",repoBalance()==500
+                && member.Drain().Any(p=>p[0]==1 && p[15]==0) && replacement.Drain().Count==0);
+            await handler.Handle(replacement.Session,buyHeader,BitConverter.GetBytes(2).Concat(new byte[]{0}).ToArray());
+            check("purchase rejects trailing request bytes",repoBalance()==500 && replacement.Drain().Any(p=>p[0]==1 && p[15]==0));
+            await handler.Handle(replacement.Session,buyHeader,BitConverter.GetBytes(2));
+            check("successful purchase broadcasts active guild content and debits exactly PVF price",repoBalance()==300
+                && repository.GetContents(202).Single().Type==3
+                && replacement.Drain().Any(p=>p[0]==1 && BitConverter.ToUInt16(p,1)==(ushort)CmdPacketTypeA21.BUY_GUILD_CONTENTS && p[15]==1)
+                && member.Drain().Any(p=>p[0]==0 && BitConverter.ToUInt16(p,1)==(ushort)NotiPacketTypeA21.GUILD_INFO));
+            await handler.Handle(replacement.Session,buyHeader,BitConverter.GetBytes(13));
+            check("unimplemented guild services return failure without charge",repoBalance()==300
+                && replacement.Drain().Any(p=>p[0]==1 && p[15]==0) && member.Drain().Count==0);
+            int repoBalance()=>repository.GetRosterForMember(201).Guild.Contribution;
+            database.Write((c,t)=>{using var cmd=c.CreateCommand();cmd.Transaction=t;
+                cmd.CommandText="UPDATE guild_contents SET expires_at=@expiry WHERE guild_id=@guild;";
+                cmd.Parameters.AddWithValue("@expiry",DateTimeOffset.UtcNow.ToUnixTimeSeconds()+1);
+                cmd.Parameters.AddWithValue("@guild",guild.Id);cmd.ExecuteNonQuery();});
+            await publisher.RefreshAsync(new[]{201,202}); replacement.Drain(); member.Drain(); leader.Drain();
+            await Task.Delay(1500);
+            ClockService.Instance.CheckOnce(DateTime.UtcNow);
+            await Task.Delay(100);
+            var expiredPackets=member.Drain();
+            check("online expiry removes guild buff and never reaches displaced session",
+                repository.GetContents(202).Count==0
+                && expiredPackets.Any(p=>p[0]==0 && BitConverter.ToUInt16(p,1)==(ushort)NotiPacketTypeA21.CHARACTER_DEL_BUFF)
+                && !expiredPackets.Any(p=>p[0]==0 && BitConverter.ToUInt16(p,1)==(ushort)NotiPacketTypeA21.CHARACTER_ADD_BUFF)
+                && leader.Drain().Count==0);
+            replacement.Drain();
             var transfer=new GamePacketWriter();transfer.WriteClientDstr("runtime-member");transfer.WriteByte(1);
             await handler.Handle(replacement.Session,new GamePacketHeader{type=(ushort)CmdPacketTypeA21.SET_SUB_GUILD_MASTER},transfer.ToArray());
             check("rank request cannot activate excluded leadership transfer", repository.Get(guild.Id).LeaderId==201

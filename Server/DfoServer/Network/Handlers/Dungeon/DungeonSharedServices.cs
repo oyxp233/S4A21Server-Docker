@@ -58,6 +58,7 @@ namespace DfoServer.Network.Handlers.Dungeon
         internal Game.Dungeon.DungeonEntryAdmissionApplicationService
             EntryAdmission { get; }
         internal Game.Dungeon.DungeonEntryLimitService EntryLimits { get; }
+        internal Game.Guilds.GuildDungeonService GuildDungeons { get; }
         internal DungeonAdmissionRejectSender AdmissionRejects { get; }
         internal DungeonProgressNotificationProjector ProgressNotifications { get; }
         internal DungeonTownReturnCoordinator TownReturn { get; }
@@ -106,6 +107,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             CharacterRepository = characterRepository
                 ?? throw new ArgumentNullException(nameof(characterRepository));
             Database = database ?? GameDatabase.CreateDefault();
+            GuildDungeons = new Game.Guilds.GuildDungeonService(Database);
             var dailyReset = dailyResetService
                 ?? new Game.DailyReset.DailyResetService(Database);
             ConnectionString = !string.IsNullOrWhiteSpace(connectionString)
