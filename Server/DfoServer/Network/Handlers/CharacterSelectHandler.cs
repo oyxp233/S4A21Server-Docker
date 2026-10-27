@@ -404,6 +404,7 @@ namespace DfoServer.Network.Handlers
                         record,
                         selectedSpawn);
                     var registeredLease = TryRegisterInventoryLease(session, record, inventory);
+                    if (registeredLease == null) { session.Close(); return; }
                     ApplyLoginItemExpirationMaintenance(registeredLease);
                     ApplyLoginEquipmentGrowthProjection(registeredLease);
 

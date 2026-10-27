@@ -16,6 +16,31 @@ namespace DfoServer
         // 自测注册表: A21 协议自测; 单跑参数与 --selftest-all 都会覆盖到。
         private static readonly (string Arg, Func<int> Run)[] SelfTestRegistry =
         {
+            ("--selftest-auction-database", SelfTests.AuctionDatabaseSelfTest.Run),
+            ("--selftest-auction-trade-history", SelfTests.AuctionTradeHistorySelfTest.Run),
+            ("--selftest-auction-catalog", SelfTests.AuctionCatalogSelfTest.Run),
+            ("--selftest-auction-item-codec", SelfTests.AuctionItemCodecSelfTest.Run),
+            ("--selftest-auction-operation-journal", SelfTests.AuctionOperationJournalSelfTest.Run),
+            ("--selftest-auction-asset-commit", SelfTests.AuctionAssetCommitSelfTest.Run),
+            ("--selftest-auction-protocol", SelfTests.AuctionProtocolSelfTest.Run),
+            ("--selftest-auction-economy-policy", SelfTests.AuctionEconomyPolicySelfTest.Run),
+            ("--selftest-auction-order-store", SelfTests.AuctionOrderStoreSelfTest.Run),
+            ("--selftest-auction-market", SelfTests.AuctionMarketSelfTest.Run),
+            ("--selftest-auction-listing-eligibility", SelfTests.AuctionListingEligibilitySelfTest.Run),
+            ("--selftest-auction-rollback-fence", SelfTests.AuctionRollbackFenceSelfTest.Run),
+            ("--selftest-auction-detail-transfer", SelfTests.AuctionDetailTransferSelfTest.Run),
+            ("--selftest-auction-query", SelfTests.AuctionQuerySelfTest.Run),
+            ("--selftest-auction-native-display", SelfTests.AuctionNativeDisplayProjectionSelfTest.Run),
+            ("--selftest-auction-native-mutation", SelfTests.AuctionNativeMutationAdapterSelfTest.Run),
+            ("--selftest-auction-native-observations", SelfTests.AuctionNativeObservationsSelfTest.Run),
+            ("--selftest-auction-read-reply", SelfTests.AuctionReadReplySelfTest.Run),
+            ("--selftest-auction-native-category", SelfTests.AuctionNativeCategorySelfTest.Run),
+            ("--selftest-auction-runtime", SelfTests.AuctionRuntimeSelfTest.Run),
+            ("--selftest-auction-native-entry", SelfTests.AuctionNativeEntrySelfTest.Run),
+            ("--selftest-auction-indexed-catalog", SelfTests.AuctionIndexedCatalogSelfTest.Run),
+            ("--selftest-auction-runtime-catalog", SelfTests.AuctionRuntimeCatalogSelfTest.Run),
+            ("--selftest-auction-packagable", SelfTests.AuctionPackagableSelfTest.Run),
+            ("--selftest-auction-native-material", SelfTests.AuctionNativeMaterialEligibilitySelfTest.Run),
             ("--selftest-a21-startup-protocol", SelfTests.A21StartupProtocolSelfTest.Run),
             ("--selftest-a21-raid-protocol", SelfTests.A21RaidProtocolSelfTest.Run),
             ("--selftest-raid-persistence", SelfTests.RaidPersistenceSelfTest.Run),
@@ -312,6 +337,7 @@ namespace DfoServer
 
             using var udpRelay = CreatePartyUdpRelay("party");
             using var pvpUdpRelay = CreatePartyUdpRelay("pvp");
+            runtimeBuilder.ConfigureAuctionRuntime();
             using var gameProtocolHandler = runtimeBuilder.BuildGameProtocolHandler(
                 sessionDirectory,
                 packet => Task.WhenAll(

@@ -5,23 +5,24 @@ namespace DfoServer.Game.Inventory
 {
     internal static class InventoryRollbackRecoveryService
     {
-        internal static void ReloadOnlineInventory(
+        internal static bool ReloadOnlineInventory(
             string connectionString,
             InventoryLease lease)
         {
             if (string.IsNullOrWhiteSpace(connectionString) || lease?.Inventory == null)
-                return;
+                return false;
 
             lock (lease.SyncRoot)
-            using (var connection = new SqliteConnection(connectionString))
             {
+                lease.Inventory.MarkPersistenceUntrusted("RollbackReload");
+                using var connection = new SqliteConnection(connectionString);
                 connection.Open();
                 var reloaded = InventoryService.LoadFromDb(
                     connection,
                     lease.CharacterId,
                     lease.AccountId,
                     lease.Inventory.Database);
-                InventoryContext.TryReplaceCurrentLease(
+                return InventoryContext.TryReplaceCurrentLease(
                     lease,
                     reloaded,
                     out _);

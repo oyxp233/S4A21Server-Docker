@@ -90,8 +90,8 @@ namespace DfoServer.Game.Inventory
             Database = database;
             Cargo = new CargoModel(characterId, accountId);
             AccountCargo = new AccountCargoModel(accountId);
-            AvatarDetails = new AvatarDetailManager(database);
-            CreatureDetails = new CreatureDetailManager(database);
+            AvatarDetails = new AvatarDetailManager(database, () => InventoryContext.CanPersistModel(this), () => PersistenceSyncRoot);
+            CreatureDetails = new CreatureDetailManager(database, () => InventoryContext.CanPersistModel(this), () => PersistenceSyncRoot);
             CreatureDetails.BindCharacter(characterId);
             InitEmptySlots();
             InitDefaultMainVirtualCounts();
@@ -103,6 +103,22 @@ namespace DfoServer.Game.Inventory
         public int AccountId { get; }
 
         internal IGameDatabase Database { get; }
+
+        // A failed/unknown transaction may leave this object ahead of the DB.
+        // This latch is permanent: recovery installs a different loaded model.
+        private int _persistenceUntrusted;
+        private int _wasContextManaged;
+        internal bool WasContextManaged => System.Threading.Volatile.Read(ref _wasContextManaged) != 0;
+        internal void MarkContextManaged() => System.Threading.Interlocked.Exchange(ref _wasContextManaged, 1);
+        private object _persistenceSyncRoot = new object();
+        internal object PersistenceSyncRoot => System.Threading.Volatile.Read(ref _persistenceSyncRoot);
+        internal void BindPersistenceSyncRoot(object syncRoot)
+            => System.Threading.Volatile.Write(ref _persistenceSyncRoot, syncRoot ?? throw new ArgumentNullException(nameof(syncRoot)));
+        internal bool IsPersistenceTrusted => System.Threading.Volatile.Read(ref _persistenceUntrusted) == 0;
+        internal void MarkPersistenceUntrusted(string reason)
+        {
+            lock (PersistenceSyncRoot) System.Threading.Interlocked.Exchange(ref _persistenceUntrusted, 1);
+        }
 
         public CargoModel Cargo { get; }
 

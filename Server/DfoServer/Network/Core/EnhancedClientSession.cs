@@ -88,9 +88,7 @@ namespace DfoServer.Network
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                PacketFileLogger.Log("SEND", data);
-                await Stream.WriteAsync(
-                    data, 0, data.Length, cancellationToken);
+                await SendFrameAsync(data, cancellationToken);
             }
             finally
             {
@@ -98,30 +96,44 @@ namespace DfoServer.Network
             }
         }
 
-        internal Task SendPreparedPacketBatchAsync(Func<IReadOnlyList<byte[]>> prepare)
+        // Caller already owns _sendLock. This never changes the native body.
+        private async Task SendFrameAsync(byte[] frame, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PacketFileLogger.Log("SEND", frame);
+            await Stream.WriteAsync(frame, 0, frame.Length, cancellationToken);
+        }
+
+        internal Task SendPreparedPacketBatchAsync(Func<IReadOnlyList<byte[]>> prepare,
+            CancellationToken cancellationToken = default, Action onSent = null)
         {
             return SendPreparedPacketBatchCoreAsync(_sendLock, prepare, packet =>
             {
-                PacketFileLogger.Log("SEND", packet);
-                return Stream.WriteAsync(packet, 0, packet.Length);
-            });
+                return SendFrameAsync(packet, cancellationToken);
+            },cancellationToken,onSent);
         }
 
         internal static async Task SendPreparedPacketBatchCoreAsync(
             SemaphoreSlim sendLock,
             Func<IReadOnlyList<byte[]>> prepare,
-            Func<byte[], Task> writePacket)
+            Func<byte[], Task> writePacket,
+            CancellationToken cancellationToken = default, Action onSent = null)
         {
             ArgumentNullException.ThrowIfNull(sendLock);
             ArgumentNullException.ThrowIfNull(prepare);
             ArgumentNullException.ThrowIfNull(writePacket);
-            await sendLock.WaitAsync();
+            await sendLock.WaitAsync(cancellationToken);
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var packets = prepare()
                     ?? throw new InvalidOperationException("Packet batch preparation returned null");
                 foreach (var packet in packets)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await writePacket(packet);
+                }
+                onSent?.Invoke();
             }
             finally
             {
@@ -157,9 +169,7 @@ namespace DfoServer.Network
                 // held. Once accepted, finish the small protocol frame without
                 // cancellation so a timeout cannot create a partial packet.
                 // Any newer projection/cleanup packet queues behind this write.
-                PacketFileLogger.Log("SEND", data);
-                await Stream.WriteAsync(
-                    data, 0, data.Length, CancellationToken.None);
+                await SendFrameAsync(data, CancellationToken.None);
                 onSent?.Invoke();
                 return true;
             }

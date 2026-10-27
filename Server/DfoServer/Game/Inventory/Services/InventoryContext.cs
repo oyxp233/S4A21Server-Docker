@@ -14,6 +14,10 @@ namespace DfoServer.Game.Inventory
         {
             if (inventory == null)
                 throw new ArgumentNullException(nameof(inventory));
+            if (!inventory.IsPersistenceTrusted)
+                throw new InvalidOperationException("An untrusted inventory model cannot be registered.");
+            if (!CanAdmitModel(sessionId, inventory))
+                throw new InvalidOperationException("A retired inventory model cannot be registered again.");
 
             return Register(sessionId, inventory.CharacterId, inventory);
         }
@@ -28,6 +32,10 @@ namespace DfoServer.Game.Inventory
                 throw new ArgumentNullException(nameof(inventory));
             if (inventory.CharacterId > 0 && inventory.CharacterId != characterId)
                 throw new ArgumentException("注册在线背包时，参数角色 ID 与背包角色 ID 不一致。", nameof(characterId));
+            if (!inventory.IsPersistenceTrusted)
+                throw new InvalidOperationException("An untrusted inventory model cannot be registered.");
+            if (!CanAdmitModel(sessionId, inventory))
+                throw new InvalidOperationException("A retired inventory model cannot be registered again.");
 
             InventoryLease existingForSession;
             InventoryLease existingForCharacter;
@@ -90,7 +98,11 @@ namespace DfoServer.Game.Inventory
                     characterId,
                     existingForCharacter);
 
-                lease = new InventoryLease(sessionId, characterId, inventory, ++_nextVersion);
+                if (!inventory.IsPersistenceTrusted)
+                    throw new InvalidOperationException("Inventory model became untrusted during registration.");
+                if (!CanAdmitModel(sessionId, inventory))
+                    throw new InvalidOperationException("Inventory model authority changed during registration.");
+                lease = new InventoryLease(sessionId, characterId, inventory, ++_nextVersion, contextManaged: true);
                 SessionOwnership[sessionId] = characterId;
                 CharacterLeases[characterId] = lease;
             }
@@ -175,7 +187,7 @@ namespace DfoServer.Game.Inventory
 
             lock (SyncRoot)
             {
-                if (!CharacterLeases.TryGetValue(characterId, out var lease))
+                if (!CharacterLeases.TryGetValue(characterId, out var lease) || !lease.Inventory.IsPersistenceTrusted)
                     return false;
 
                 inventory = lease.Inventory;
@@ -191,7 +203,10 @@ namespace DfoServer.Game.Inventory
 
             lock (SyncRoot)
             {
-                return CharacterLeases.TryGetValue(characterId, out lease);
+                if (!CharacterLeases.TryGetValue(characterId, out var current) || !current.Inventory.IsPersistenceTrusted)
+                    return false;
+                lease = current;
+                return true;
             }
         }
 
@@ -201,7 +216,7 @@ namespace DfoServer.Game.Inventory
             out InventoryLease lease)
         {
             lease = null;
-            if (expected == null || replacement == null)
+            if (expected == null || replacement == null || !replacement.IsPersistenceTrusted)
             {
                 return false;
             }
@@ -239,7 +254,7 @@ namespace DfoServer.Game.Inventory
                 if (!SessionOwnership.TryGetValue(sessionId, out var ownedCharacterId)
                     || ownedCharacterId != characterId
                     || !CharacterLeases.TryGetValue(characterId, out var current)
-                    || !current.IsOwnedBy(sessionId))
+                    || !current.IsOwnedBy(sessionId) || !current.Inventory.IsPersistenceTrusted)
                 {
                     return false;
                 }
@@ -255,6 +270,7 @@ namespace DfoServer.Game.Inventory
             int characterId)
         {
             if (lease == null
+                || !lease.Inventory.IsPersistenceTrusted
                 || sessionId == Guid.Empty
                 || characterId <= 0
                 || lease.CharacterId != characterId
@@ -296,7 +312,7 @@ namespace DfoServer.Game.Inventory
                     || ownedCharacterId != characterId)
                     return false;
                 if (!CharacterLeases.TryGetValue(characterId, out var lease)
-                    || !lease.IsOwnedBy(sessionId))
+                    || !lease.IsOwnedBy(sessionId) || !lease.Inventory.IsPersistenceTrusted)
                     return false;
 
                 inventory = lease.Inventory;
@@ -393,6 +409,20 @@ namespace DfoServer.Game.Inventory
             if (lease == null)
                 return true;
 
+            if (!lease.Inventory.IsPersistenceTrusted)
+            {
+                try
+                {
+                    if (!InventoryRollbackRecoveryService.ReloadOnlineInventory(lease.Inventory.Database?.ConnectionString, lease))
+                        return false;
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Log($"[InventoryContext] recovery required cid={lease.CharacterId}: {ex.GetType().Name}");
+                    return false;
+                }
+            }
+
             var saved = InventoryPersistenceService.SaveDirty(lease);
             if (!saved)
             {
@@ -404,6 +434,47 @@ namespace DfoServer.Game.Inventory
             }
 
             return saved;
+        }
+
+        // Only recovery/lifecycle may inspect an owner whose gameplay admission
+        // is fenced. DB work always happens after releasing this global lock.
+        internal static bool TryGetLeaseForRecovery(int characterId, out InventoryLease lease)
+        {
+            lock (SyncRoot) return CharacterLeases.TryGetValue(characterId, out lease);
+        }
+
+        internal static bool CanPersistLease(InventoryLease lease)
+        {
+            if (lease?.Inventory == null || !lease.Inventory.IsPersistenceTrusted
+                || lease.Inventory.CharacterId != lease.CharacterId || lease.AccountId <= 0) return false;
+            lock (SyncRoot)
+            {
+                if (CharacterLeases.TryGetValue(lease.CharacterId, out var current))
+                    return ReferenceEquals(current, lease) && current.Inventory.IsPersistenceTrusted
+                        && SessionOwnership.TryGetValue(lease.SessionId, out var cid) && cid == lease.CharacterId;
+                // Existing durable dungeon effects use explicit offline leases.
+                // A retired online lease never becomes an offline write permit.
+                return !lease.WasContextManaged && !lease.Inventory.WasContextManaged && !SessionOwnership.ContainsKey(lease.SessionId);
+            }
+        }
+
+        internal static bool CanPersistModel(InventoryService inventory)
+        {
+            if (inventory == null || !inventory.IsPersistenceTrusted) return false;
+            lock (SyncRoot)
+            {
+                if (CharacterLeases.TryGetValue(inventory.CharacterId, out var current))
+                    return ReferenceEquals(current.Inventory, inventory) && current.Inventory.IsPersistenceTrusted;
+                return !inventory.WasContextManaged;
+            }
+        }
+
+        private static bool CanAdmitModel(Guid sessionId, InventoryService inventory)
+        {
+            if (inventory == null || !inventory.IsPersistenceTrusted) return false;
+            lock (SyncRoot)
+                return !inventory.WasContextManaged || (CharacterLeases.TryGetValue(inventory.CharacterId, out var current)
+                    && current.IsOwnedBy(sessionId) && ReferenceEquals(current.Inventory, inventory));
         }
     }
 }

@@ -18,7 +18,16 @@ namespace DfoServer.Game.Inventory
         internal static bool TryCommit(
             InventoryLease lease,
             string operation,
-            Func<SqliteConnection, SqliteTransaction, bool> apply)
+            Func<SqliteConnection, SqliteTransaction, bool> apply,
+            bool immediate = false)
+        {
+            if (lease == null) return false;
+            lock (lease.SyncRoot)
+                return TryCommitLocked(lease, operation, apply, immediate);
+        }
+
+        private static bool TryCommitLocked(InventoryLease lease, string operation,
+            Func<SqliteConnection, SqliteTransaction, bool> apply, bool immediate)
         {
             if (lease == null
                 || lease.Inventory == null
@@ -31,8 +40,10 @@ namespace DfoServer.Game.Inventory
             }
 
             var connectionString = lease.Inventory.Database?.ConnectionString;
+            var attemptedInventory = lease.Inventory;
             if (string.IsNullOrWhiteSpace(connectionString))
             {
+                attemptedInventory.MarkPersistenceUntrusted("InventoryCommitHasNoDatabase");
                 FileLogger.Log(
                     $"[InventoryMutationCommit] rollback unavailable "
                     + $"operation={operation ?? "unknown"} "
@@ -46,7 +57,9 @@ namespace DfoServer.Game.Inventory
                 using (var connection = database.OpenConnection())
                 {
                     // 让 UID 序列表分配复用同一个库存提交事务，避免同链路里再开写连接。
-                    using (var transaction = connection.BeginTransaction(deferred: true))
+                    // Auction asset receipts must read and write under the same
+                    // reserved writer. Other callers retain deferred behavior.
+                    using (var transaction = connection.BeginTransaction(deferred: !immediate))
                     {
                         using (InventoryUidAllocationContext.Enter(connection, transaction))
                         {
@@ -74,6 +87,9 @@ namespace DfoServer.Game.Inventory
             }
             catch (Exception ex)
             {
+                // Still under the outer lease lock: no periodic/disconnect save
+                // can observe the possibly mutated model before it is fenced.
+                attemptedInventory.MarkPersistenceUntrusted("InventoryCommitFailed");
                 FileLogger.Log(
                     $"[InventoryMutationCommit] commit failed "
                     + $"operation={operation ?? "unknown"} "
@@ -82,9 +98,9 @@ namespace DfoServer.Game.Inventory
 
             try
             {
-                InventoryRollbackRecoveryService.ReloadOnlineInventory(
+                if (!InventoryRollbackRecoveryService.ReloadOnlineInventory(
                     connectionString,
-                    lease);
+                    lease)) return false;
                 FileLogger.Log(
                     $"[InventoryMutationCommit] reloaded after failed commit "
                     + $"operation={operation ?? "unknown"} "

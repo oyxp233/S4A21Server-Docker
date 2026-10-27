@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 using DfoServer.Infrastructure;
 using Microsoft.Data.Sqlite;
 
@@ -10,11 +11,16 @@ namespace DfoServer.Game.Inventory
         private readonly HashSet<int> _dirtyDetailUids = new HashSet<int>();
         private readonly HashSet<int> _deletedDetailUids = new HashSet<int>();
         private readonly IGameDatabase _database;
+        private readonly Func<bool> _ownerTrusted;
+        private readonly Func<object> _ownerSyncRoot;
+        private readonly object _standaloneSyncRoot = new object();
         private int _characterId;
 
-        internal CreatureDetailManager(IGameDatabase database = null)
+        internal CreatureDetailManager(IGameDatabase database = null, Func<bool> ownerTrusted = null, Func<object> ownerSyncRoot = null)
         {
             _database = database;
+            _ownerTrusted = ownerTrusted;
+            _ownerSyncRoot = ownerSyncRoot;
         }
 
         public IReadOnlyCollection<CreatureDetail> Details => _details.Values;
@@ -68,6 +74,12 @@ namespace DfoServer.Game.Inventory
 
         public bool Put(CreatureDetail detail)
         {
+            lock (_ownerSyncRoot?.Invoke() ?? _standaloneSyncRoot) return PutLocked(detail);
+        }
+
+        private bool PutLocked(CreatureDetail detail)
+        {
+            if (_ownerTrusted != null && !_ownerTrusted()) return false;
             Attach(detail);
             var saved = InventoryPersistenceService.SaveCreatureDetailImmediately(
                 _characterId,
@@ -162,6 +174,12 @@ namespace DfoServer.Game.Inventory
 
         public bool Remove(int creatureKey)
         {
+            lock (_ownerSyncRoot?.Invoke() ?? _standaloneSyncRoot) return RemoveLocked(creatureKey);
+        }
+
+        private bool RemoveLocked(int creatureKey)
+        {
+            if (_ownerTrusted != null && !_ownerTrusted()) return false;
             if (creatureKey <= 0)
                 return false;
 

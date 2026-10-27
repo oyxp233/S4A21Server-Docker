@@ -11,6 +11,21 @@ namespace DfoServer.Game.Characters
     public sealed class SqliteCharacterRepository : ICharacterRepository
     {
         private readonly IGameDatabase _database;
+        private Func<int, Action, bool> _deletionGuard;
+
+        internal void ConfigureDeletionGuard(Func<int, Action, bool> guard)
+        {
+            ArgumentNullException.ThrowIfNull(guard);
+            if (_deletionGuard != null) throw new InvalidOperationException("Character deletion guard already configured.");
+            _deletionGuard = guard;
+        }
+
+        private void ExecuteDeletion(int characterId, Action mutation)
+        {
+            if (_deletionGuard == null) mutation();
+            else if (!_deletionGuard(characterId, mutation))
+                throw new InvalidOperationException("Character has unresolved auction assets.");
+        }
 
         public SqliteCharacterRepository(string databasePath, string schemaFilePath)
             : this(new GameDatabase(databasePath, schemaFilePath))
@@ -259,6 +274,9 @@ WHERE character_id = @id;";
         }
 
         public void SoftDelete(int characterId)
+            => ExecuteDeletion(characterId, () => SoftDeleteCore(characterId));
+
+        private void SoftDeleteCore(int characterId)
         {
             using (var conn = Open())
             using (var cmd = conn.CreateCommand())
@@ -271,6 +289,9 @@ WHERE character_id = @id;";
         }
 
         public void SoftDeleteAndCompactSlots(int accountId, int characterId, byte slotIndex)
+            => ExecuteDeletion(characterId, () => SoftDeleteAndCompactSlotsCore(accountId, characterId, slotIndex));
+
+        private void SoftDeleteAndCompactSlotsCore(int accountId, int characterId, byte slotIndex)
         {
             using (var conn = Open())
             using (var tx = conn.BeginTransaction())

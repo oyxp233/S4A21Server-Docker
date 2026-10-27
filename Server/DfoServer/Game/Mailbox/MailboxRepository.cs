@@ -841,7 +841,7 @@ LIMIT 1;";
             {
                 command.Transaction = transaction;
                 command.CommandText = @"
-SELECT m.gold, r.received_gold_flag
+SELECT m.gold, r.received_gold_flag, m.mail_type, m.idempotency_key
 FROM mailbox_recipients r
 JOIN mailbox_messages m ON m.message_id = r.message_id
 WHERE r.character_id = @cid
@@ -861,7 +861,9 @@ LIMIT 1;";
                     return new ClaimMailState
                     {
                         Gold = reader.GetInt32(0),
-                        ReceivedGold = reader.GetInt32(1) != 0
+                        ReceivedGold = reader.GetInt32(1) != 0,
+                        RequireStrictInstanceTransfer = reader.GetInt32(2) != 0 && !reader.IsDBNull(3)
+                            && reader.GetString(3).StartsWith("auction:", StringComparison.Ordinal)
                     };
                 }
             }
@@ -909,7 +911,30 @@ LIMIT 1;";
             var nowUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             foreach (var attachment in attachments)
             {
-                var core = MailboxItemCoreCodec.Decode(attachment);
+                ItemCore core;
+                InventoryCreateOptions strictOptions = null;
+                try
+                {
+                    if (mailState.RequireStrictInstanceTransfer
+                        && attachment.ItemCoreData?.Length != ItemCore.Size)
+                        return MailboxClaimResult.Fail(MailboxSendError.InvalidAttachment);
+                    core = MailboxItemCoreCodec.Decode(attachment);
+                    if (mailState.RequireStrictInstanceTransfer)
+                    {
+                        if (core == null || core.ItemId != attachment.ItemTemplateId
+                            || (InventoryStackRuleService.IsStackable(core) ? core.Count != attachment.ItemCount : attachment.ItemCount != 1)
+                            || (core.ItemKind == ItemCore.KindAvatar && core.AvatarUid != 0)
+                            || (core.ItemKind == ItemCore.KindCreature && core.CreatureUid != 0))
+                            return MailboxClaimResult.Fail(MailboxSendError.InvalidAttachment);
+                        // The durable system-mail origin selects strict decoding.
+                        // Removing/damaging a JSON marker cannot select legacy defaults.
+                        strictOptions = MailboxItemDetailCodec.BuildCreateOptionsStrict(core, attachment.DetailJson);
+                    }
+                }
+                catch (Exception ex) when (mailState.RequireStrictInstanceTransfer
+                    && (ex is InvalidOperationException || ex is ArgumentException || ex is System.Text.Json.JsonException
+                        || ex is FormatException || ex is OverflowException))
+                { return MailboxClaimResult.Fail(MailboxSendError.InvalidAttachment); }
                 if (core == null || core.ItemId <= 0 || attachment.ItemCount <= 0)
                     return MailboxClaimResult.Fail(MailboxSendError.InvalidAttachment);
                 if (core.ExpireTime > 0 && core.ExpireTime <= nowUnixSeconds)
@@ -944,7 +969,7 @@ LIMIT 1;";
                     core,
                     count,
                     ItemCreateReason.MailAttachment,
-                    BuildClaimCreateOptions(attachment, core)));
+                    mailState.RequireStrictInstanceTransfer ? strictOptions : BuildClaimCreateOptions(attachment, core)));
             }
 
             var capacity = LoadClaimCapacity(connection, transaction, inventory);
@@ -2620,6 +2645,7 @@ INSERT INTO mailbox_attachments (
         {
             public int Gold { get; set; }
             public bool ReceivedGold { get; set; }
+            public bool RequireStrictInstanceTransfer { get; set; }
         }
 
         private sealed class ClaimCapacity

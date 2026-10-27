@@ -46,6 +46,7 @@ namespace DfoServer.Game.Inventory
                 ProgressValue32 = record.ProgressValue32,
                 FieldAfterValue32 = record.FieldAfterValue32,
                 TailFlag = record.TailFlag,
+                ExtraJson = record.ExtraJson ?? "{}",
             };
         }
 
@@ -67,7 +68,7 @@ namespace DfoServer.Game.Inventory
                 FieldAfterValue32 = detail.FieldAfterValue32,
                 CreatureText = detail.NameBytes,
                 TailFlag = detail.TailFlag,
-                ExtraJson = string.IsNullOrWhiteSpace(source?.ExtraJson) ? "{}" : source.ExtraJson,
+                ExtraJson = detail.ExtraJson ?? source?.ExtraJson ?? "{}",
             };
         }
 

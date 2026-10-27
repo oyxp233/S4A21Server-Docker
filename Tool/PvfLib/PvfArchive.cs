@@ -996,7 +996,13 @@ namespace PvfLib
             if (preferUnicode && _strAOffsetCache.TryGetValue(value, out offset))
                 return offset;
 
-            if (preferUnicode)
+            // sTrA uses the archive's native codepage (A21: CP936), not UTF8.
+            // Keep existing offsets and ASCII additions; put new non-ASCII text
+            // in sTrW so native clients and the exporter resolve the same value.
+            bool hasNonAscii = false;
+            foreach (char character in value)
+                if (character > 0x7F) { hasNonAscii = true; break; }
+            if (preferUnicode || hasNonAscii)
                 return AppendUnicodeString(value);
             return AppendUtf8String(value);
         }

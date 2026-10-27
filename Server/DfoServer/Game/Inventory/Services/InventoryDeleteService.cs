@@ -496,7 +496,7 @@ namespace DfoServer.Game.Inventory
             if (source.ItemKind == ItemCore.KindAvatar && source.AvatarUid > 0)
                 inventory.AvatarDetails.RemoveDirty(source.AvatarUid);
             else if (source.ItemKind == ItemCore.KindCreature && source.CreatureUid > 0)
-                inventory.CreatureDetails.Remove(source.CreatureUid);
+                inventory.CreatureDetails.RemoveDirty(source.CreatureUid);
         }
 
         private static InventoryDeleteResult CreateResult()

@@ -3,12 +3,28 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 
 namespace DfoServer.GameWorld
 {
     internal static class PvfArchiveAccessor
     {
-        private static readonly Lazy<PvfArchive> Archive = new Lazy<PvfArchive>(() => PvfArchive.Open(GameWorldConfig.PvfArchivePath));
+        private static string _sourceSha256;
+        private static readonly Lazy<PvfArchive> Archive = new Lazy<PvfArchive>(() =>
+        {
+            // Bind provenance to the very bytes parsed by the shared owner,
+            // rather than hashing a possibly replaced path later.
+            var bytes = File.ReadAllBytes(GameWorldConfig.PvfArchivePath);
+            var sourceHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            var archive = PvfArchive.Open(bytes);
+            _sourceSha256 = sourceHash;
+            return archive;
+        });
+
+        internal static string SourceSha256
+        {
+            get { _ = Archive.Value; return _sourceSha256; }
+        }
 
         public static string ReadText(string relativePath)
         {

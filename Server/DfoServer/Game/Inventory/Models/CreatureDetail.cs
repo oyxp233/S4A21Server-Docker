@@ -60,6 +60,15 @@ namespace DfoServer.Game.Inventory
 
         public int ExpireDate { get; set; }
 
+        // Opaque persisted instance state; preserve its exact text on transfer.
+        private string _extraJson;
+        public string ExtraJson
+        {
+            get => _extraJson ?? "{}";
+            set => _extraJson = value ?? "{}";
+        }
+        internal bool HasExplicitExtraJson => _extraJson != null;
+
         public byte TailFlag { get; set; }
 
         public static int GetExpireDate(int itemId)

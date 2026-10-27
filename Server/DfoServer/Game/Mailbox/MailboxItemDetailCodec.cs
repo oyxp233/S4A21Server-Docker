@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace DfoServer.Game.Mailbox
 {
-    internal static class MailboxItemDetailCodec
+    internal static partial class MailboxItemDetailCodec
     {
         internal static string Capture(InventoryService inventory, ItemCore core)
         {
@@ -46,6 +46,7 @@ namespace DfoServer.Game.Mailbox
                         FieldAfterValue32 = creature.FieldAfterValue32,
                         ExpireDate = creature.ExpireDate,
                         TailFlag = creature.TailFlag,
+                        ExtraJson = creature.ExtraJson,
                     }
                 });
             }
@@ -102,6 +103,7 @@ namespace DfoServer.Game.Mailbox
                             ? options.ExpireTime
                             : (template?.ExpireDate ?? 0),
                         TailFlag = template?.TailFlag ?? 0,
+                        ExtraJson = template?.ExtraJson ?? "{}",
                     }
                 });
             }
@@ -164,6 +166,7 @@ namespace DfoServer.Game.Mailbox
                             FieldAfterValue32 = envelope.Creature.FieldAfterValue32,
                             ExpireDate = envelope.Creature.ExpireDate,
                             TailFlag = envelope.Creature.TailFlag,
+                            ExtraJson = envelope.Creature.ExtraJson ?? "{}",
                         }
                     };
                 }
@@ -203,6 +206,7 @@ namespace DfoServer.Game.Mailbox
             public int FieldAfterValue32 { get; set; }
             public int ExpireDate { get; set; }
             public byte TailFlag { get; set; }
+            public string ExtraJson { get; set; } = "{}";
         }
     }
 }

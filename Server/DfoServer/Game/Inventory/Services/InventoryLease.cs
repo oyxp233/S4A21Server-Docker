@@ -4,7 +4,7 @@ namespace DfoServer.Game.Inventory
 {
     internal sealed class InventoryLease
     {
-        public InventoryLease(Guid sessionId, int characterId, InventoryService inventory, long version)
+        public InventoryLease(Guid sessionId, int characterId, InventoryService inventory, long version, bool contextManaged = false)
         {
             if (sessionId == Guid.Empty)
                 throw new ArgumentException("背包租约必须绑定有效的 sessionId。", nameof(sessionId));
@@ -14,7 +14,12 @@ namespace DfoServer.Game.Inventory
             SessionId = sessionId;
             CharacterId = characterId;
             Inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
+            if (inventory.CharacterId != characterId)
+                throw new ArgumentException("Inventory lease model owner does not match its character.", nameof(inventory));
+            SyncRoot = inventory.PersistenceSyncRoot;
             Version = version;
+            WasContextManaged = contextManaged;
+            if (contextManaged) inventory.MarkContextManaged();
         }
 
         public Guid SessionId { get; }
@@ -25,9 +30,10 @@ namespace DfoServer.Game.Inventory
 
         public InventoryService Inventory { get; private set; }
 
-        public object SyncRoot { get; } = new object();
+        public object SyncRoot { get; }
 
         public long Version { get; }
+        internal bool WasContextManaged { get; }
 
         public bool IsOwnedBy(Guid sessionId)
         {
@@ -41,6 +47,8 @@ namespace DfoServer.Game.Inventory
             if (inventory.CharacterId != CharacterId || inventory.AccountId != AccountId)
                 throw new ArgumentException("replacement inventory owner does not match the lease", nameof(inventory));
 
+            inventory.BindPersistenceSyncRoot(SyncRoot);
+            if (WasContextManaged) inventory.MarkContextManaged();
             Inventory = inventory;
         }
     }

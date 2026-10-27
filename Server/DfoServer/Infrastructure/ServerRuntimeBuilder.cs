@@ -1,4 +1,4 @@
-﻿using DfoServer.Game.Accounts;
+using DfoServer.Game.Accounts;
 using DfoServer.Game.CharacterData;
 using DfoServer.Game.Characters;
 using DfoServer.Game.DailyReset;
@@ -31,7 +31,7 @@ namespace DfoServer.Infrastructure
 {
     // 正式运行时组合根。当前首批先统一数据库与协议处理器入口，
     // 后续按业务模块把 GameProtocolHandler 内的对象装配逐步迁到这里。
-    public sealed class ServerRuntimeBuilder : IDisposable
+    public sealed partial class ServerRuntimeBuilder : IDisposable
     {
         private GameProtocolCoreDependencies _gameProtocolCore;
         private GameProtocolInventoryDependencies _gameProtocolInventory;
@@ -132,7 +132,15 @@ namespace DfoServer.Infrastructure
                 townDungeonHandlers,
                 socialHandlers,
                 featureHandlers,
-                characterSessionLifecycle);
+                characterSessionLifecycle,
+                _auctionRuntime);
+            if (_auctionRuntime != null)
+            {
+                // Only network notifications are asynchronous. All DB recovery
+                // and expiry work remains synchronous under the market gate.
+                _auctionRuntime.DeliveriesCommitted += recipients => _ = handler.NotifyAuctionDeliveriesAsync(recipients);
+                _auctionRuntime.Start(ClockService.Instance);
+            }
             _levelUpRewardRecovery = handler.StartLevelUpRewardRecovery(ClockService.Instance);
             _gameProtocolBuilt = true;
             return handler;
@@ -997,6 +1005,7 @@ namespace DfoServer.Infrastructure
                 return;
 
             _disposed = true;
+            _auctionRuntime?.Dispose();
             _levelUpRewardRecovery?.Dispose();
             _gameProtocolSocialHandlers?.Dispose();
             _gameProtocolWorld?.Dispose();

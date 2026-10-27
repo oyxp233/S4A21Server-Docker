@@ -65,7 +65,8 @@ SET field04 = @field04,
     mode1_field0b = @mode1Field0B,
     field_after_value = @fieldAfterValue,
     creature_text = @creatureText,
-    tail_flag = @tailFlag
+    tail_flag = @tailFlag,
+    extra_json = CASE WHEN @hasExtraJson<>0 THEN @extraJson ELSE extra_json END
 WHERE character_id = @characterId
   AND creature_key = @creatureKey;";
                 command.Parameters.AddWithValue("@characterId", characterId);
@@ -78,6 +79,8 @@ WHERE character_id = @characterId
                 command.Parameters.AddWithValue("@fieldAfterValue", detail.FieldAfterValue32);
                 command.Parameters.AddWithValue("@creatureText", detail.NameBytes ?? Array.Empty<byte>());
                 command.Parameters.AddWithValue("@tailFlag", detail.TailFlag);
+                command.Parameters.AddWithValue("@extraJson", detail.ExtraJson ?? "{}");
+                command.Parameters.AddWithValue("@hasExtraJson", detail.HasExplicitExtraJson ? 1 : 0);
                 return command.ExecuteNonQuery() > 0;
             }
         }
@@ -101,7 +104,7 @@ INSERT INTO character_creatures(
     mode1_field0a, mode1_field0b, field_after_value, creature_text, tail_flag, extra_json)
 VALUES(
     @characterId, @sortOrder, @creatureKey, @field04, @modeFlag, @progressValue,
-    @mode1Field0A, @mode1Field0B, @fieldAfterValue, @creatureText, @tailFlag, '{}');";
+    @mode1Field0A, @mode1Field0B, @fieldAfterValue, @creatureText, @tailFlag, @extraJson);";
                 command.Parameters.AddWithValue("@characterId", characterId);
                 command.Parameters.AddWithValue("@sortOrder", sortOrder);
                 command.Parameters.AddWithValue("@creatureKey", detail.Uid);
@@ -113,6 +116,7 @@ VALUES(
                 command.Parameters.AddWithValue("@fieldAfterValue", detail.FieldAfterValue32);
                 command.Parameters.AddWithValue("@creatureText", detail.NameBytes ?? Array.Empty<byte>());
                 command.Parameters.AddWithValue("@tailFlag", detail.TailFlag);
+                command.Parameters.AddWithValue("@extraJson", detail.ExtraJson ?? "{}");
                 return command.ExecuteNonQuery() > 0;
             }
         }

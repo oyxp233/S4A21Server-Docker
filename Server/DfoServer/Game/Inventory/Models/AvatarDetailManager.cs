@@ -11,10 +11,15 @@ namespace DfoServer.Game.Inventory
         private readonly HashSet<long> _dirtyAvatarUids = new HashSet<long>();
         private readonly HashSet<long> _deletedAvatarUids = new HashSet<long>();
         private readonly IGameDatabase _database;
+        private readonly Func<bool> _ownerTrusted;
+        private readonly Func<object> _ownerSyncRoot;
+        private readonly object _standaloneSyncRoot = new object();
 
-        internal AvatarDetailManager(IGameDatabase database = null)
+        internal AvatarDetailManager(IGameDatabase database = null, Func<bool> ownerTrusted = null, Func<object> ownerSyncRoot = null)
         {
             _database = database;
+            _ownerTrusted = ownerTrusted;
+            _ownerSyncRoot = ownerSyncRoot;
         }
 
         public IReadOnlyCollection<AvatarDetail> Details => _details.Values;
@@ -61,6 +66,12 @@ namespace DfoServer.Game.Inventory
 
         public bool Put(AvatarDetail detail)
         {
+            lock (_ownerSyncRoot?.Invoke() ?? _standaloneSyncRoot) return PutLocked(detail);
+        }
+
+        private bool PutLocked(AvatarDetail detail)
+        {
+            if (_ownerTrusted != null && !_ownerTrusted()) return false;
             Attach(detail);
             var saved = InventoryPersistenceService.SaveAvatarDetailImmediately(
                 detail,
@@ -148,6 +159,12 @@ namespace DfoServer.Game.Inventory
 
         public bool Remove(long avatarUid)
         {
+            lock (_ownerSyncRoot?.Invoke() ?? _standaloneSyncRoot) return RemoveLocked(avatarUid);
+        }
+
+        private bool RemoveLocked(long avatarUid)
+        {
+            if (_ownerTrusted != null && !_ownerTrusted()) return false;
             if (avatarUid <= 0)
                 return false;
 

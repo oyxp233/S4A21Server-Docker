@@ -572,7 +572,14 @@ namespace DfoServer.Network.Handlers
             await SendMailboxAlarmIfNeeded(receiverCharacterId, receiverSession);
         }
 
-        private async Task SendMailboxAlarmIfNeeded(int receiverCharacterId, EnhancedClientSession receiverSession)
+        internal Task NotifyCommittedSystemMailAsync(int characterId, CancellationToken cancellationToken = default)
+        {
+            return _sessionDirectory.TryGet(characterId, out var current)
+                ? SendMailboxAlarmIfNeeded(characterId, current, cancellationToken) : Task.CompletedTask;
+        }
+
+        private async Task SendMailboxAlarmIfNeeded(int receiverCharacterId, EnhancedClientSession receiverSession,
+            CancellationToken cancellationToken = default)
         {
             var state = _mailboxAlarmStates.GetValue(receiverSession, _ => new MailboxAlarmState());
             ushort count;
@@ -587,11 +594,16 @@ namespace DfoServer.Network.Handlers
 
             try
             {
-                await receiverSession.SendPacketAsync(
+                bool sent = await receiverSession.TrySendPacketAsync(
                     GamePacketEnvelopeBuilder.Build(
                         0x00,
                         MailboxAlarmNotificationType,
-                        BuildMailboxAlarmNotification(count))).ConfigureAwait(false);
+                        BuildMailboxAlarmNotification(count)), cancellationToken,
+                    () => receiverSession.Player.CharacterId == receiverCharacterId
+                        && _sessionDirectory.TryGet(receiverCharacterId, out var current)
+                        && ReferenceEquals(current, receiverSession)
+                        && InventoryContext.TryGetOwnedLease(receiverSession.SessionId, receiverCharacterId, out _)).ConfigureAwait(false);
+                if (!sent) _mailboxAlarmStates.Remove(receiverSession);
             }
             catch (Exception ex)
             {

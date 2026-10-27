@@ -57,6 +57,7 @@ namespace DfoServer.Game.Inventory
             {
                 lock (lease.SyncRoot)
                 {
+                    if (!InventoryContext.CanPersistLease(lease)) return false;
                     var inventory = lease.Inventory;
                     if (!HasDirtyData(inventory))
                         return true;
@@ -67,7 +68,7 @@ namespace DfoServer.Game.Inventory
                     {
                         using (var transaction = connection.BeginTransaction())
                         {
-                            SaveDirtyInTransaction(connection, transaction, lease);
+                            if (!SaveDirtyInTransaction(connection, transaction, lease)) return false;
                             transaction.Commit();
                         }
                     }
@@ -94,6 +95,7 @@ namespace DfoServer.Game.Inventory
             {
                 lock (lease.SyncRoot)
                 {
+                    if (!InventoryContext.CanPersistLease(lease)) return false;
                     var inventory = lease.Inventory;
                     var hasDirtyData = HasDirtyData(inventory);
                     var database = inventory.Database
@@ -139,6 +141,10 @@ namespace DfoServer.Game.Inventory
                 throw new ArgumentNullException(nameof(transaction));
             if (lease == null || lease.Inventory == null)
                 return false;
+
+            if (!ReferenceEquals(transaction.Connection, connection))
+                throw new ArgumentException("Inventory persistence requires the matching transaction.");
+            if (!InventoryContext.CanPersistLease(lease)) return false;
 
             var inventory = lease.Inventory;
             if (!HasDirtyData(inventory))

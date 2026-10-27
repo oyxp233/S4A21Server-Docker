@@ -284,6 +284,7 @@ namespace DfoServer.Game.Inventory
             target.FieldAfterValue32 = template.FieldAfterValue32;
             target.ExpireDate = template.ExpireDate;
             target.TailFlag = template.TailFlag;
+            target.ExtraJson = template.ExtraJson;
         }
 
         internal static void DetachCreatedDetails(

@@ -14,6 +14,8 @@
 
 修改具体领域时，还要阅读对应专项规范：副本 `Docs/副本架构业务接入规范.md`、背包/GM `Docs/新版背包架构业务接入规范.md` 和 `Docs/GM工具_新背包表结构与ItemCore语义.md`、副职业 `Docs/副职业架构业务接入规范.md`、计时器 `Docs/ClockService.md`。
 
+普通金币拍卖的配置、独立数据库、资产恢复与成交历史见 [拍卖行业务与持久化](Docs/拍卖行业务与持久化.md)。新交易默认关闭，开启前核对文档中的 A21 客户端与 PVF 兼容范围。
+
 ## 社区交流
 
 Discord 社区: https://discord.gg/xdd2HGkQnd (永久邀请链接)

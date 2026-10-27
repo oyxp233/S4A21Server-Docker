@@ -489,8 +489,12 @@ namespace DfoServer.SelfTests
             await pending;
             var canceled = b.Drain(); a.Drain();
             check("lease replacement while sending suppresses stale invitation", canceled.All(p => BitConverter.ToUInt16(p, 1) != (ushort)NotiPacketTypeA21.REQUEST_PEER));
-            // Restore this test's original lease as the current generation for subsequent checks.
-            InventoryContext.Register(b.Session.SessionId, right.Inventory);
+            // Continue with the newly loaded generation. Re-registering the
+            // retired model would bypass the production ownership fence.
+            check("wire race retains the replacement inventory generation", InventoryContext.TryGetOwnedLease(
+                b.Session.SessionId, right.CharacterId, out var wireReplacement)
+                && !ReferenceEquals(wireReplacement, right)
+                && !ReferenceEquals(wireReplacement.Inventory, right.Inventory));
             await handler.Request(a.Session, default, PeerBody(b.Session.Player.UserId)); a.Drain(); b.Drain();
             await handler.Respond(b.Session, default, PeerBody(a.Session.Player.UserId)); a.Drain(); b.Drain();
             await sessions.UnregisterAsync(62002, b.Session);
