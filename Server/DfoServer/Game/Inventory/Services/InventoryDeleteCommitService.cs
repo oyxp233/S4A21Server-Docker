@@ -84,7 +84,7 @@ namespace DfoServer.Game.Inventory
                 slotIndex,
                 expectedItemId);
             mutation = result?.Mutation;
-            return result != null && result.Consumed;
+            return result != null && result.Used;
         }
 
         internal static InventoryStackableUseCommitResult TryCommitStackableUseDetailed(
@@ -112,7 +112,7 @@ namespace DfoServer.Game.Inventory
 
             InventoryMutationResult committedMutation = null;
             InventoryItemLifecycleUsePlan lifecyclePlan = null;
-            var consumed = false;
+            var used = false;
             var expiredDeleted = false;
             var committed = OnlineInventoryMutationCommitCoordinator.TryCommit(
                 lease,
@@ -162,7 +162,7 @@ namespace DfoServer.Game.Inventory
 
                     if (committedMutation != null)
                         committedMutation.UsableCountState = usableCountState;
-                    consumed = true;
+                    used = true;
                     return true;
                 });
 
@@ -172,7 +172,8 @@ namespace DfoServer.Game.Inventory
             return new InventoryStackableUseCommitResult
             {
                 Committed = true,
-                Consumed = consumed,
+                Used = used,
+                Consumed = used && committedMutation.AppliedCount > 0,
                 SourceExpiredDeleted = expiredDeleted,
                 Mutation = committedMutation,
                 LifecycleStatus = lifecyclePlan != null
@@ -187,6 +188,8 @@ namespace DfoServer.Game.Inventory
     internal sealed class InventoryStackableUseCommitResult
     {
         public bool Committed { get; set; }
+
+        public bool Used { get; set; }
 
         public bool Consumed { get; set; }
 

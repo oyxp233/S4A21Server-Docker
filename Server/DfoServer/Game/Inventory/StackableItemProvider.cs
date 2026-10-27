@@ -54,6 +54,10 @@ namespace DfoServer.Game.Inventory
             return TryParsePositiveInt(item?.CooltimeGroup, out var group) ? group : 0;
         }
 
+        internal static bool RetainsSourceOnUse(int itemTemplateId)
+            => string.Equals(NormalizeType(Load(itemTemplateId)?.StackableType),
+                "[unlimited waste]", StringComparison.OrdinalIgnoreCase);
+
         private static bool TryParsePositiveInt(string raw, out int value)
         {
             value = 0;

@@ -312,9 +312,9 @@ namespace DfoServer.Network.Handlers
                 result = stackableUseResult?.Mutation;
             }
 
-            var consumed = stackableUseResult != null && stackableUseResult.Consumed;
-            var responsePlan = BuildUseStackableResponsePlan(consumed, result, listType, slotIndex, instanceValue, itemCode);
-            if (!consumed)
+            var used = stackableUseResult != null && stackableUseResult.Used;
+            var responsePlan = BuildUseStackableResponsePlan(used, result, listType, slotIndex, instanceValue, itemCode);
+            if (!used)
             {
                 await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x01, header.type, responsePlan.AckBody));
                 if (stackableUseResult?.SourceExpiredDeleted == true)
@@ -348,7 +348,7 @@ namespace DfoServer.Network.Handlers
             var petSatietyLog = result.PetSatietyChanged
                 ? $" petSatiety key={result.PetCreatureKey} {result.PetSatietyBefore}->{result.PetSatietyAfter}"
                 : string.Empty;
-            FileLogger.Log($"[{ProtocolName}] USE_STACKABLE: consumed 1x item 0x{itemCode:X8} from slot {slotIndex}, remaining={result.RemainingStackCount}{petSatietyLog}");
+            FileLogger.Log($"[{ProtocolName}] USE_STACKABLE: used item 0x{itemCode:X8} from slot {slotIndex}, consumed={result.AppliedCount} remaining={result.RemainingStackCount}{petSatietyLog}");
         }
 
         private async Task<bool> TryHandleDimensionDungeonEnterTicketAsync(

@@ -270,6 +270,19 @@ namespace DfoServer.Game.Inventory
             int expectedItemId,
             out InventoryMutationResult mutation)
         {
+            mutation = null;
+            if (!CanUseStackableForClient(inventory, listType, slotIndex, expectedItemId, out var itemId))
+                return false;
+
+            // PVF [unlimited waste] applies its action without spending a source.
+            // Explicit discard and material consumption still use the delete paths.
+            if (StackableItemProvider.RetainsSourceOnUse(itemId))
+            {
+                var source = inventory.GetItem(listType, slotIndex);
+                mutation = CreateMutation(listType, slotIndex, source, 1,
+                    new InventoryDeleteResult { Success = true, RemainingCount = source.Count });
+                return true;
+            }
             return TryDeleteForClient(inventory, listType, slotIndex, 1, expectedItemId, out mutation);
         }
 
