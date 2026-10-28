@@ -9,6 +9,7 @@ namespace DfoServer.Game.DeathTower
     {
         Standard = 0,
         Illusion = 1,
+        Boss = 2,
     }
 
     public sealed class DeathTowerRewardConfig
@@ -17,6 +18,7 @@ namespace DfoServer.Game.DeathTower
 
         private static readonly object Sync = new object();
         private static DeathTowerRewardConfig _cached;
+        private static DeathTowerRewardConfig _bossCached;
 
         private readonly float[] _standardExpWeights;
         private readonly int[] _standardRewardCardCounts;
@@ -93,7 +95,28 @@ namespace DfoServer.Game.DeathTower
             }
         }
 
-        internal static DeathTowerRewardConfig Parse(string text)
+        public static DeathTowerRewardConfig Load(DeathTowerRewardProfile profile)
+        {
+            if (profile != DeathTowerRewardProfile.Boss)
+                return Load();
+            lock (Sync)
+            {
+                if (_bossCached != null)
+                    return _bossCached;
+                try
+                {
+                    _bossCached = Parse(PvfArchiveAccessor.ReadText("etc/global_bosstower.etc"), true);
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Log($"[BossTower] reward config load failed: {ex.Message}");
+                    _bossCached = CreateUnavailable();
+                }
+                return _bossCached;
+            }
+        }
+
+        internal static DeathTowerRewardConfig Parse(string text, bool bossTower = false)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return CreateUnavailable();
@@ -108,6 +131,11 @@ namespace DfoServer.Game.DeathTower
                 ReadSection(text, "illusion reward exp weight"));
             var illusionRewardCardCounts = ParseInts(
                 ReadSection(text, "illusion reward card num"));
+            if (bossTower)
+            {
+                illusionExpWeights = standardExpWeights;
+                illusionRewardCardCounts = standardRewardCardCounts;
+            }
 
             if (probabilities.Count < 3
                 || goldWeights.Count == 0
@@ -210,6 +238,7 @@ namespace DfoServer.Game.DeathTower
             switch (profile)
             {
                 case DeathTowerRewardProfile.Standard:
+                case DeathTowerRewardProfile.Boss:
                     return standard ?? Array.Empty<T>();
                 case DeathTowerRewardProfile.Illusion:
                     return illusion ?? Array.Empty<T>();

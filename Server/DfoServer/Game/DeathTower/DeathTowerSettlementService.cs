@@ -99,16 +99,14 @@ namespace DfoServer.Game.DeathTower
             if (tower == null)
                 throw new ArgumentNullException(nameof(tower));
 
-            var rewardConfig = DeathTowerRewardConfig.Load();
+            var rewardConfig = DeathTowerRewardConfig.Load(tower.Config.RewardProfile);
             if (!rewardConfig.IsAvailable)
             {
                 throw new InvalidOperationException(
                     "Death tower reward configuration is unavailable.");
             }
 
-            var clearedFloorCount = Math.Max(
-                1,
-                Math.Min(tower.Config.TotalStages, tower.CurrentStage + 1));
+            var clearedFloorCount = tower.ClearedStageCount;
             var rewardExp = CalculateRewardExperience(
                 context.Level,
                 clearedFloorCount,

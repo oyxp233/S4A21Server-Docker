@@ -48,6 +48,18 @@ namespace PvfLib
         public int MapId { get; set; }
     }
 
+    public sealed class TowerMapCandidate
+    {
+        public int MapId { get; set; }
+        public int Weight { get; set; }
+    }
+
+    public sealed class RandomTowerStage
+    {
+        public int Stage { get; set; }
+        public List<TowerMapCandidate> Maps { get; set; } = new List<TowerMapCandidate>();
+    }
+
     public class TournamentRewardExperience
     {
         public int CompletedRounds { get; set; }
@@ -283,6 +295,8 @@ namespace PvfLib
         public string MonsterDifficultyBonus { get; set; }
         public string TowerDialog { get; set; }
         public string TowerStage { get; set; }
+        public List<RandomTowerStage> RandomTowerStages { get; set; } = new List<RandomTowerStage>();
+        public bool RandomTowerStagesMalformed { get; set; }
         public string TowerRecovery { get; set; }
         public string TowerHighSkillInitialCoolTime { get; set; }
         public string TowerHighSkillInitialCoolTimeRate { get; set; }
@@ -665,7 +679,28 @@ namespace PvfLib
                     case "event monster random map": dgn.EventMonsterRandomMap = data; break;
                     case "monster difficulty bonus": dgn.MonsterDifficultyBonus = data; break;
                     case "tower dialog": dgn.TowerDialog = data; break;
-                    case "tower stage": dgn.TowerStage = data; break;
+                    case "tower stage":
+                        dgn.TowerStage = data;
+                        var stageValues = ParseIntArray(JoinDirectData(node, text));
+                        if (stageValues == null || stageValues.Length < 3
+                            || stageValues.Length % 2 != 1 || stageValues[0] <= 0)
+                        {
+                            dgn.RandomTowerStagesMalformed = true;
+                            break;
+                        }
+                        var randomStage = new RandomTowerStage { Stage = stageValues[0] };
+                        for (var stageValueIndex = 1; stageValueIndex < stageValues.Length; stageValueIndex += 2)
+                        {
+                            if (stageValues[stageValueIndex] <= 0 || stageValues[stageValueIndex + 1] <= 0)
+                                dgn.RandomTowerStagesMalformed = true;
+                            randomStage.Maps.Add(new TowerMapCandidate
+                            {
+                                MapId = stageValues[stageValueIndex],
+                                Weight = stageValues[stageValueIndex + 1],
+                            });
+                        }
+                        dgn.RandomTowerStages.Add(randomStage);
+                        break;
                     case "tower recovery": dgn.TowerRecovery = data; break;
                     case "tower high skill initial cool time": dgn.TowerHighSkillInitialCoolTime = data; break;
                     case "tower high skill initial cool time rate": dgn.TowerHighSkillInitialCoolTimeRate = data; break;

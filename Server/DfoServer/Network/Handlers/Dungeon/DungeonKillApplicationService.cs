@@ -102,6 +102,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 }
 
                 await ProcessCoreAsync(context, run);
+                await _services.DeathTower.TryCompleteBossStageAsync(session, run);
                 return;
             }
 
@@ -758,7 +759,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             DungeonData.MonsterSumInfo monster,
             DungeonDynamicActorPolicy dynamicPolicy = null)
         {
-            var isDeathTowerRun = run.Tower != null;
+            var isDeathTowerRun = run.Tower != null && !run.Tower.Config.IsBossTower;
             IReadOnlyList<DropInfo> towerDrops = null;
             if (isDeathTowerRun)
                 _services.DeathTower.TryGenerateDropsForMonster(

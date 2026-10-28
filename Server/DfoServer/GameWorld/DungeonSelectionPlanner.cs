@@ -6,6 +6,29 @@ namespace DfoServer.GameWorld
 {
     internal static class DungeonSelectionPlanner
     {
+        internal static bool TrySelectMaze(
+            int dungeonId,
+            int difficulty,
+            ICollection<int> activeQuestIds,
+            ICollection<int> clearedQuestIds,
+            out (MazeInfo Maze, int Index) selection,
+            Action<string> diagnosticSink = null)
+        {
+            selection = (null, -1);
+            var dungeon = Dungeon.GetDungeonFile(dungeonId);
+            if (dungeon?.Mazes == null || dungeon.Mazes.Count == 0)
+            {
+                diagnosticSink?.Invoke(
+                    $"dungeon={dungeonId} type={dungeon?.DungeonType ?? "missing"} " +
+                    "reason=no_ordinary_maze");
+                return false;
+            }
+
+            selection = SelectMaze(
+                dungeonId, difficulty, activeQuestIds, clearedQuestIds, diagnosticSink);
+            return true;
+        }
+
         internal static (MazeInfo Maze, int Index) SelectMaze(
             int dungeonId,
             int difficulty,

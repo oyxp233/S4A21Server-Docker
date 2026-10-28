@@ -87,9 +87,13 @@ namespace DfoServer.Network.Handlers.Dungeon
             FileLogger.Log($"[DeathTower] ENTER: cid={session.Player.CharacterId} dungeon={dungeonId} difficulty={difficulty} hasRun={hasRun} stages={tower.Config.TotalStages} basisLv={tower.Config.BasisLevel}");
 
             // NOTI 142 DEATH_TOWER_INFO (8B)
-            var infoBody = DeathTowerPacketBuilder.BuildTowerInfo(dungeonId, (ushort)tower.Config.TotalStages);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x008E, infoBody));
-            FileLogger.Log($"[DeathTower] SENT 0x008E TOWER_INFO: bodyLen={infoBody.Length}");
+            var infoBody = tower.Config.IsBossTower
+                ? BossTowerPacketBuilder.BuildInfo(tower)
+                : DeathTowerPacketBuilder.BuildTowerInfo(dungeonId, (ushort)tower.Config.TotalStages);
+            var infoType = tower.Config.IsBossTower
+                ? NotiPacketTypeA21.BOSS_TOWER_INFO : NotiPacketTypeA21.DEATH_TOWER_INFO;
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, (ushort)infoType, infoBody));
+            FileLogger.Log($"[Tower] SENT 0x{(ushort)infoType:X4} TOWER_INFO: bodyLen={infoBody.Length}");
 
             // NOTI 143 首层
             await SendStageMap(session, tower);
@@ -106,6 +110,12 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (run == null || tower == null)
                 return false;
             var runIdentity = run.CaptureIdentity();
+
+            if (tower.Config.IsBossTower && tower.State != 2)
+            {
+                FileLogger.Log($"[BossTower] MOVE_MAP rejected before clear: cid={session.Player.CharacterId} stage={tower.CurrentStage}");
+                return true;
+            }
 
             var prevState = tower.State;
             if (prevState >= 1)
@@ -204,6 +214,11 @@ namespace DfoServer.Network.Handlers.Dungeon
                     FileLogger.Log($"[DeathTower] STAGE_CMD(1) fight start: cid={session.Player.CharacterId} stage={tower.CurrentStage}");
                     break;
                 case 2:
+                    if (tower.Config.IsBossTower && !IsBossStageCleared(session.Player.CurrentRun))
+                    {
+                        FileLogger.Log($"[BossTower] premature stage clear ignored: cid={session.Player.CharacterId} stage={tower.CurrentStage}");
+                        return;
+                    }
                     tower.SetCleared();
                     FileLogger.Log($"[DeathTower] STAGE_CMD(2) stage clear: cid={session.Player.CharacterId} stage={tower.CurrentStage}/{tower.EndStage} isLast={tower.IsLastStage}");
                     await SyncCurrentStageClearMapAsync(session, tower, "tower_stage_cmd");
@@ -223,6 +238,38 @@ namespace DfoServer.Network.Handlers.Dungeon
         {
             var mapId = tower.GetCurrentMapId();
             return DungeonClearMapQuestSync.SyncAsync(session, 0, mapId, source);
+        }
+
+        internal static bool IsBossStageCleared(GameDungeon.DungeonRun run)
+        {
+            if (run?.Tower?.Config.IsBossTower != true)
+                return false;
+            lock (run.SyncRoot)
+            {
+                var blocking = run.RoomMonsters?.Where(monster => monster.IsBlocking).ToArray();
+                return blocking != null && blocking.Length > 0
+                    && blocking.All(monster => monster.PacketIndex.HasValue
+                        && run.RoomKilledSeqIds.Contains(checked((ushort)monster.PacketIndex.Value)));
+            }
+        }
+
+        internal async Task TryCompleteBossStageAsync(
+            EnhancedClientSession session, GameDungeon.DungeonRun run)
+        {
+            var tower = run?.Tower;
+            if (tower?.Config.IsBossTower != true || tower.State == 2
+                || !IsBossStageCleared(run))
+                return;
+            var identity = run.CaptureIdentity();
+            if (!IsCurrentTowerRun(session, run, identity, tower))
+                return;
+            tower.SetCleared();
+            await SyncCurrentStageClearMapAsync(session, tower, "boss-tower-actors-cleared");
+            if (!IsCurrentTowerRun(session, run, identity, tower))
+                return;
+            FileLogger.Log($"[BossTower] stage cleared: cid={session.Player.CharacterId} stage={tower.CurrentStage + 1}/{tower.Config.TotalStages}");
+            if (tower.IsLastStage)
+                await SendSettlement(session, tower, "boss-tower-final-stage");
         }
 
         // 返城时清除塔状�?由生命周期统一清理路径调用; run 置换后本方法只负责日志与提前摘除)
@@ -434,14 +481,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             }
 
-            var rankingBody = DeathTowerPacketBuilder.BuildRanking(
-                runtime.Plan.DungeonId,
-                runtime.Plan.ClearedFloorCount,
-                runtime.Plan.ClearTimeMilliseconds);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                0x00,
-                0x0090,
-                rankingBody));
+            await ReplayRankingAsync(session, runtime);
             if (!IsCurrentSettlement(
                     session,
                     run,
@@ -452,7 +492,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             }
 
-            var deadlineUtc = DateTime.UtcNow.Add(RankingToRewardDelay);
+            var deadlineUtc = DateTime.UtcNow.Add(tower.Config.IsBossTower ? TimeSpan.Zero : RankingToRewardDelay);
             if (!runtime.TryMarkRankingShown(deadlineUtc))
                 return;
 
@@ -469,7 +509,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 deadlineUtc,
                 ticket);
             FileLogger.Log(
-                $"[DeathTower] SENT 0x0090 ranking: " +
+                $"[Tower] ranking phase boss={tower.Config.IsBossTower}: " +
                 $"cid={session.Player.CharacterId} dungeon={runtime.Plan.DungeonId} " +
                 $"source={source} rewardDeadline={deadlineUtc:O}");
         }
@@ -546,13 +586,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     return;
                 }
 
-                var rewardBody = DeathTowerPacketBuilder.BuildReward(
-                    (int)Math.Min(runtime.Plan.RewardExp, (uint)int.MaxValue),
-                    runtime.Plan.Candidates);
-                await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                    0x00,
-                    0x0091,
-                    rewardBody));
+                await session.SendPacketAsync(BuildRewardPacket(runtime));
                 if (!IsCurrentSettlement(
                         session,
                         run,
@@ -581,7 +615,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     deadlineUtc,
                     nextTicket);
                 FileLogger.Log(
-                    $"[DeathTower] SENT 0x0091 reward: " +
+                    $"[Tower] reward boss={tower.Config.IsBossTower}: " +
                     $"cid={session.Player.CharacterId} exp={runtime.Plan.RewardExp} " +
                     $"candidates={runtime.Plan.Candidates.Count} " +
                     $"eplpDeadline={deadlineUtc:O}");
@@ -737,11 +771,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                         frozenState = runtime.AllMembersHaveEplpItem;
                     }
 
-                    await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                        0x00,
-                        0x0092,
-                        DeathTowerPacketBuilder.BuildEplp(
-                            frozenState ?? false)));
+                    await session.SendPacketAsync(BuildEplpPacket(runtime, frozenState ?? false));
                     if (!IsCurrentSettlement(
                             session,
                             run,
@@ -754,7 +784,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                     }
 
                     FileLogger.Log(
-                        $"[DeathTower] SENT 0x0092 EPLP: " +
+                        $"[Tower] EPLP boss={tower.Config.IsBossTower}: " +
                         $"cid={session.Player.CharacterId} " +
                         $"allActiveMembersHave4183={frozenState ?? false}");
                 }
@@ -1014,7 +1044,12 @@ namespace DfoServer.Network.Handlers.Dungeon
             if (!TryGetOwnedInventory(session, out var lease))
                 return false;
             lock (lease.SyncRoot)
-                return lease.Inventory.CountMainItem(4183) > 0;
+            {
+                var config = session.Player.CurrentRun?.Tower?.Config;
+                return config?.IsBossTower == true
+                    ? config.RequiredEntryItems.All(item => lease.Inventory.CountMainItem(item.ItemId) >= item.Count)
+                    : lease.Inventory.CountMainItem(4183) > 0;
+            }
         }
 
         private void ScheduleDefaultReturn(
@@ -1425,7 +1460,8 @@ namespace DfoServer.Network.Handlers.Dungeon
         private static Task ReplayRankingAsync(
             EnhancedClientSession session,
             DeathTowerSettlementRuntime runtime)
-            => session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
+            => IsBossSettlement(runtime) ? Task.CompletedTask
+                : session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
                 0x00,
                 0x0090,
                 DeathTowerPacketBuilder.BuildRanking(
@@ -1438,14 +1474,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             DeathTowerSettlementRuntime runtime)
         {
             await ReplayRankingAsync(session, runtime);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                0x00,
-                0x0091,
-                DeathTowerPacketBuilder.BuildReward(
-                    (int)Math.Min(
-                        runtime.Plan.RewardExp,
-                        (uint)int.MaxValue),
-                    runtime.Plan.Candidates)));
+            await session.SendPacketAsync(BuildRewardPacket(runtime));
         }
 
         private static async Task ReplayFullSettlementAsync(
@@ -1453,12 +1482,26 @@ namespace DfoServer.Network.Handlers.Dungeon
             DeathTowerSettlementRuntime runtime)
         {
             await ReplayRankingAndRewardAsync(session, runtime);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(
-                0x00,
-                0x0092,
-                DeathTowerPacketBuilder.BuildEplp(
-                    runtime.AllMembersHaveEplpItem ?? false)));
+            await session.SendPacketAsync(BuildEplpPacket(runtime, runtime.AllMembersHaveEplpItem ?? false));
         }
+
+        private static bool IsBossSettlement(DeathTowerSettlementRuntime runtime) =>
+            DeathTowerData.GetConfig(runtime.Plan.DungeonId)?.IsBossTower == true;
+
+        private static byte[] BuildRewardPacket(DeathTowerSettlementRuntime runtime)
+        {
+            var experience = (int)Math.Min(runtime.Plan.RewardExp, (uint)int.MaxValue);
+            var boss = IsBossSettlement(runtime);
+            return GamePacketEnvelopeBuilder.Build(0x00,
+                (ushort)(boss ? NotiPacketTypeA21.BOSS_TOWER_STATE_REWARD : NotiPacketTypeA21.DEATH_TOWER_STATE_REWARD),
+                boss ? BossTowerPacketBuilder.BuildReward(experience, runtime.Plan.Candidates)
+                    : DeathTowerPacketBuilder.BuildReward(experience, runtime.Plan.Candidates));
+        }
+
+        private static byte[] BuildEplpPacket(DeathTowerSettlementRuntime runtime, bool ready) =>
+            GamePacketEnvelopeBuilder.Build(0x00,
+                (ushort)(IsBossSettlement(runtime) ? NotiPacketTypeA21.BOSS_TOWER_STATE_EPLP : NotiPacketTypeA21.DEATH_TOWER_STATE_EPLP),
+                DeathTowerPacketBuilder.BuildEplp(ready));
 
         private void ResumeRankingTimer(
             EnhancedClientSession session,
@@ -1600,9 +1643,13 @@ namespace DfoServer.Network.Handlers.Dungeon
             var stageSeed = (uint)Infrastructure.ServerRandom.Next();
             tower.BeginStage(stageSeed, items);
             SyncCombatStage(session, tower, monsters);
-            var body = DeathTowerPacketBuilder.BuildStageMap(tower, monsters, items, stageSeed);
-            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, 0x008F, body));
-            FileLogger.Log($"[DeathTower] SENT 0x008F STAGE_MAP: stage={tower.CurrentStage} map={mapId} monsters={monsters.Count} items={items.Count} seed={stageSeed} bodyLen={body.Length}");
+            var body = tower.Config.IsBossTower
+                ? BossTowerPacketBuilder.BuildMap(tower, monsters, stageSeed)
+                : DeathTowerPacketBuilder.BuildStageMap(tower, monsters, items, stageSeed);
+            var mapType = tower.Config.IsBossTower
+                ? NotiPacketTypeA21.START_BOSS_TOWER_MAP : NotiPacketTypeA21.START_DEATH_TOWER_MAP;
+            await session.SendPacketAsync(GamePacketEnvelopeBuilder.Build(0x00, (ushort)mapType, body));
+            FileLogger.Log($"[Tower] SENT 0x{(ushort)mapType:X4} STAGE_MAP: stage={tower.CurrentStage} map={mapId} monsters={monsters.Count} items={items.Count} seed={stageSeed} bodyLen={body.Length}");
         }
 
         private static bool TryGetOwnedInventory(
@@ -2072,7 +2119,7 @@ namespace DfoServer.Network.Handlers.Dungeon
             tower = null;
             var player = session?.Player;
             var run = player?.CurrentRun;
-            if (run?.Tower == null)
+            if (run?.Tower == null || run.Tower.Config.IsBossTower)
                 return false;
 
             runIdentity = run.CaptureIdentity();

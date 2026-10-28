@@ -11,6 +11,45 @@ namespace DfoServer.Game.DeathTower
     // The runtime session owns only stage progress, temporary items and combat state.
     public static class DeathTowerData
     {
+        public sealed class StageMapPool
+        {
+            private readonly int[] _mapIds;
+            private readonly int[] _weights;
+            public int TotalWeight { get; }
+            public int FirstMapId => _mapIds[0];
+
+            internal StageMapPool(IReadOnlyList<TowerMapCandidate> maps)
+            {
+                if (maps == null || maps.Count == 0)
+                    throw new ArgumentException("A random tower stage requires maps.", nameof(maps));
+                _mapIds = new int[maps.Count];
+                _weights = new int[maps.Count];
+                var total = 0;
+                for (var index = 0; index < maps.Count; index++)
+                {
+                    if (maps[index].MapId <= 0 || maps[index].Weight <= 0)
+                        throw new ArgumentException("Invalid tower map or weight.", nameof(maps));
+                    _mapIds[index] = maps[index].MapId;
+                    _weights[index] = maps[index].Weight;
+                    total = checked(total + maps[index].Weight);
+                }
+                TotalWeight = total;
+            }
+
+            internal int Select(Func<int, int> next)
+            {
+                var roll = next(TotalWeight);
+                if (roll < 0 || roll >= TotalWeight)
+                    throw new ArgumentOutOfRangeException(nameof(next));
+                for (var index = 0; index < _weights.Length; index++)
+                {
+                    if (roll < _weights[index]) return _mapIds[index];
+                    roll -= _weights[index];
+                }
+                throw new InvalidOperationException("Tower map weights are inconsistent.");
+            }
+        }
+
         private static readonly object Sync = new object();
         private static readonly Dictionary<int, TowerConfig> Cache =
             new Dictionary<int, TowerConfig>();
@@ -41,7 +80,8 @@ namespace DfoServer.Game.DeathTower
                 bool limitsStackableItems,
                 DeathTowerRewardProfile rewardProfile,
                 IReadOnlyList<TowerEntryItem> requiredEntryItems,
-                IReadOnlyList<TowerEntryItem> addedRequiredEntryItems)
+                IReadOnlyList<TowerEntryItem> addedRequiredEntryItems,
+                IReadOnlyList<StageMapPool> randomStages = null)
             {
                 if (dungeonId <= 0)
                     throw new ArgumentOutOfRangeException(nameof(dungeonId));
@@ -62,6 +102,9 @@ namespace DfoServer.Game.DeathTower
                 RewardProfile = rewardProfile;
                 RequiredEntryItems = Freeze(requiredEntryItems);
                 AddedRequiredEntryItems = Freeze(addedRequiredEntryItems);
+                RandomStages = Freeze(randomStages);
+                if (RandomStages.Count != 0 && RandomStages.Count != StageMapIds.Count)
+                    throw new ArgumentException("Random stage count must match tower length.", nameof(randomStages));
             }
 
             public int DungeonId { get; }
@@ -73,6 +116,17 @@ namespace DfoServer.Game.DeathTower
             public bool UsesFpCubePiece { get; }
             public bool LimitsStackableItems { get; }
             public DeathTowerRewardProfile RewardProfile { get; }
+            public bool IsBossTower => RewardProfile == DeathTowerRewardProfile.Boss;
+            public IReadOnlyList<StageMapPool> RandomStages { get; }
+
+            internal IReadOnlyList<int> ResolveStageMaps(Func<int, int> next)
+            {
+                if (RandomStages.Count == 0) return StageMapIds;
+                var selected = new int[RandomStages.Count];
+                for (var index = 0; index < selected.Length; index++)
+                    selected[index] = RandomStages[index].Select(next);
+                return Array.AsReadOnly(selected);
+            }
             public IReadOnlyList<TowerEntryItem> RequiredEntryItems { get; }
             public IReadOnlyList<TowerEntryItem> AddedRequiredEntryItems { get; }
 
@@ -108,6 +162,8 @@ namespace DfoServer.Game.DeathTower
             try
             {
                 var dungeon = DungeonWorld.GetDungeonFile(dungeonId);
+                if (string.Equals(dungeon?.DungeonType, "tower of boss", StringComparison.OrdinalIgnoreCase))
+                    return LoadBossTower(dungeonId, dungeon);
                 if (dungeon == null
                     || !string.Equals(
                         dungeon.DungeonType,
@@ -195,6 +251,32 @@ namespace DfoServer.Game.DeathTower
                     $"[DeathTower] definition load failed for dungeon {dungeonId}: {ex.Message}");
                 return null;
             }
+        }
+
+        private static TowerConfig LoadBossTower(int dungeonId, DungeonFile dungeon)
+        {
+            if (dungeon.RandomTowerStagesMalformed || dungeon.TowerRandomMapIndexes <= 0
+                || dungeon.RandomTowerStages.Count != dungeon.TowerRandomMapIndexes)
+                throw new InvalidOperationException("Boss tower stages are missing or malformed.");
+            var pools = new List<StageMapPool>(dungeon.RandomTowerStages.Count);
+            var firstMaps = new List<int>(dungeon.RandomTowerStages.Count);
+            foreach (var stage in dungeon.RandomTowerStages)
+            {
+                if (stage.Stage != pools.Count + 1)
+                    throw new InvalidOperationException("Boss tower stages must be contiguous and ordered.");
+                var pool = new StageMapPool(stage.Maps);
+                pools.Add(pool);
+                firstMaps.Add(pool.FirstMapId);
+            }
+            return new TowerConfig(
+                dungeonId, firstMaps, dungeon.BasisLevel,
+                Math.Max(0, dungeon.TowerMaxClearItemNum),
+                itemDropsEnabled: false,
+                usesFpCubePiece: dungeon.TowerFpCubepiece == 1,
+                limitsStackableItems: dungeon.TowerLimitOfStackableItem == 1,
+                DeathTowerRewardProfile.Boss,
+                ProjectEntryItems(dungeon.RequiredItems),
+                ProjectEntryItems(dungeon.AddedRequiredItems), pools);
         }
 
         private static IReadOnlyList<TowerEntryItem> ProjectEntryItems(

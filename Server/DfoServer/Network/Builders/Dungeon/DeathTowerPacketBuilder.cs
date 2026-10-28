@@ -111,11 +111,14 @@ namespace DfoServer.Network.Builders
         // u32 summary + 4 * { u8 count + count * { u32 itemId + u32 stackCount } }.
         public static byte[] BuildReward(
             int rewardExp,
-            IReadOnlyList<DeathTowerRewardCandidate> candidates)
+            IReadOnlyList<DeathTowerRewardCandidate> candidates,
+            int participantGroupCount = 4)
         {
+            if (participantGroupCount != 4 && participantGroupCount != 8)
+                throw new ArgumentOutOfRangeException(nameof(participantGroupCount));
             var w = new GamePacketWriter();
             w.WriteInt32(Math.Max(0, rewardExp));
-            for (var groupIndex = 0; groupIndex < 4; groupIndex++)
+            for (var groupIndex = 0; groupIndex < participantGroupCount; groupIndex++)
             {
                 var group = groupIndex == 0 ? candidates : null;
                 var count = Math.Min(byte.MaxValue, group?.Count ?? 0);

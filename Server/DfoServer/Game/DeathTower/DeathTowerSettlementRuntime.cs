@@ -99,7 +99,7 @@ namespace DfoServer.Game.DeathTower
         {
             if (dungeonId <= 0)
                 throw new ArgumentOutOfRangeException(nameof(dungeonId));
-            if (clearedFloorCount <= 0)
+            if (clearedFloorCount < 0)
                 throw new ArgumentOutOfRangeException(nameof(clearedFloorCount));
             if (clearTimeMilliseconds < 0)
                 throw new ArgumentOutOfRangeException(

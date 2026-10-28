@@ -20,6 +20,7 @@ namespace DfoServer.SelfTests
             var failures = 0;
 
             VerifyDeclaredDungeonMapResources(ref failures);
+            VerifySpecialTowerMazeAdmission(ref failures);
             VerifyImplicitDungeonStartRooms(ref failures);
             VerifyScreamTowerMapOwnership(ref failures);
             VerifyDummyBossAlignment(ref failures);
@@ -37,6 +38,33 @@ namespace DfoServer.SelfTests
                 ? "PVF_MAP_MONSTER_PARSING selftest passed"
                 : $"PVF_MAP_MONSTER_PARSING selftest failed: {failures}");
             return failures == 0 ? 0 : 1;
+        }
+
+        private static void VerifySpecialTowerMazeAdmission(ref int failures)
+        {
+            var bossTower = GameWorld.Dungeon.GetDungeonFile(3505);
+            Check("boss tower PVF requires its own route rather than an ordinary maze",
+                bossTower?.DungeonType == "tower of boss" && bossTower.Mazes.Count == 0,
+                ref failures);
+            string diagnostic = null;
+            var accepted = DungeonSelectionPlanner.TrySelectMaze(
+                3505, 0, null, null, out var selection,
+                value => diagnostic = value);
+            Check("boss tower missing maze returns a rejection without throwing or fabricating a map",
+                !accepted && selection.Maze == null && selection.Index == -1
+                && diagnostic?.Contains("reason=no_ordinary_maze") == true,
+                ref failures);
+            Check("ordinary dungeon still resolves its real maze",
+                DungeonSelectionPlanner.TrySelectMaze(1, 0, null, null, out var ordinary)
+                && ordinary.Maze != null && ordinary.Index >= 0,
+                ref failures);
+            Check("boss tower now resolves through its specialized random-stage definition",
+                Game.DeathTower.DeathTowerData.GetConfig(3505)?.TotalStages == 8
+                && Game.DeathTower.DeathTowerData.GetConfig(3505)?.IsBossTower == true,
+                ref failures);
+            Check("death tower remains available through its existing specialized definition",
+                Game.DeathTower.DeathTowerData.GetConfig(11000)?.TotalStages == 45,
+                ref failures);
         }
 
         private static void VerifyQuestAutomaticDropProjection(ref int failures)

@@ -2502,7 +2502,7 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             }
 
-            // 塔类副本分流: dungeonKind==1 走专属流程(NOTI 142+143, 非普通副本的 START_MAP)
+            // Definition-driven towers use their own INFO/MAP protocol rather than ordinary maze selection.
             if (_svc.DeathTower.TryCreateSession(
                 req.DungeonId,
                 (expectedSelection?.PartyCohort?.Participants.Select(member => member.UserId)
@@ -2610,6 +2610,41 @@ namespace DfoServer.Network.Handlers.Dungeon
                 return;
             }
 
+            // Resolve the ordinary route before creating a run or changing inventory,
+            // fatigue, pet timers or entry counters. Special towers have no maze info.
+            string mazeSelectionDiagnostic = preferredCircleDiagnostic;
+            (PvfLib.MazeInfo Maze, int Index) selection;
+            if (licensedDungeonPlan != null)
+            {
+                selection = (
+                    DungeonData.GetDungeonMaze(req.DungeonId, licensedDungeonPlan.MazeIndex),
+                    licensedDungeonPlan.MazeIndex);
+                mazeSelectionDiagnostic =
+                    $"licensed_maze={licensedDungeonPlan.MazeIndex} " +
+                    $"groop={(licensedDungeonPlan.GroupBossPresent ? 1 : 0)}";
+            }
+            else if (preferredCircleSelection.HasValue)
+            {
+                selection = preferredCircleSelection.Value;
+            }
+            else if (!DungeonSelectionPlanner.TrySelectMaze(
+                req.DungeonId,
+                req.Difficulty,
+                anotherAradSelection.HasValue ? null : activeQuestIds,
+                anotherAradSelection.HasValue ? null : clearedQuestIds,
+                out selection,
+                diagnostic => mazeSelectionDiagnostic = diagnostic))
+            {
+                FileLogger.Log(
+                    $"[{DungeonSharedServices.ProtocolLogName}] " +
+                    $"SELECT_DUNGEON route unavailable: cid={session.Player.CharacterId} " +
+                    $"{mazeSelectionDiagnostic}");
+                await RejectSelectionAsync(
+                    session, expectedSelection, header.type,
+                    DungeonAdmissionReject.DungeonUnavailable);
+                return;
+            }
+
             await DungeonMechanismCoordinator.ClearRunEffectsAsync(
                 session,
                 "select_dungeon_replace_run");
@@ -2662,30 +2697,6 @@ namespace DfoServer.Network.Handlers.Dungeon
                 FileLogger.Log($"[{DungeonSharedServices.ProtocolLogName}] SELECT_DUNGEON: manual hell requested dungeon={req.DungeonId} flag1={req.HellPartyRequestFlag} flag2={req.HellPartyDifficultyFlag} tutorial={isA21TutorialEntry} enabled={run.HellMode}");
 
             run.QuestSnapshot = QuestRunSnapshot.Capture(activeQuests);
-            string mazeSelectionDiagnostic = preferredCircleDiagnostic;
-            (PvfLib.MazeInfo Maze, int Index) selection;
-            if (licensedDungeonPlan != null)
-            {
-                selection = (
-                    DungeonData.GetDungeonMaze(
-                        req.DungeonId,
-                        licensedDungeonPlan.MazeIndex),
-                    licensedDungeonPlan.MazeIndex);
-                mazeSelectionDiagnostic =
-                    $"licensed_maze={licensedDungeonPlan.MazeIndex} " +
-                    $"groop={(licensedDungeonPlan.GroupBossPresent ? 1 : 0)}";
-            }
-            else
-            {
-                selection = preferredCircleSelection.HasValue
-                    ? preferredCircleSelection.Value
-                    : DungeonData.SelectDungeonMaze(
-                        req.DungeonId,
-                        req.Difficulty,
-                        anotherAradSelection.HasValue ? null : activeQuestIds,
-                        anotherAradSelection.HasValue ? null : clearedQuestIds,
-                        diagnostic => mazeSelectionDiagnostic = diagnostic);
-            }
             run.MazeIndex = selection.Index;
             run.MazeQuestConnected = !anotherAradSelection.HasValue
                 && DungeonData.IsQuestConnectedSelection(
