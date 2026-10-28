@@ -285,6 +285,9 @@ namespace DfoServer.Network.Handlers
                 $"item=0x{result.TargetItemTemplateId:X8} level={result.NewLevel} mode={result.Mode}");
         }
 
+        internal Task BroadcastCommittedUpgradeNotice(EnhancedClientSession session, ItemUpgradeResult result)
+            => BroadcastItemUpgradeNotice(session, result);
+
         public async Task Handle_EQUIPMENT_SOCKET_OPEN(EnhancedClientSession session, GamePacketHeader header, byte[] body)
         {
             var commandType = (ushort)CmdPacketType.ADD_EQUIPMENT_SOCKET;

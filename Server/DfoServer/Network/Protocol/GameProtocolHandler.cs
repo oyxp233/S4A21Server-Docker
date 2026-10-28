@@ -31,6 +31,7 @@ namespace DfoServer.Network
         private readonly CharacterSessionLifecycleCoordinator
             _characterSessionLifecycle;
         private readonly InventoryHandler _inventoryHandler;
+        private readonly UpgradeBroadcastHandler _upgradeBroadcast;
         private readonly LotteryItemHandler _lotteryItemHandler;
         private readonly KnightShieldHandler _knightShieldHandler;
         private readonly TownHandler _townHandler;
@@ -191,6 +192,8 @@ namespace DfoServer.Network
                 _inventoryRefreshSender);
             _knightShieldHandler = characterInventoryHandlers.KnightShield;
             _inventoryHandler = characterInventoryHandlers.Inventory;
+            _upgradeBroadcast = new UpgradeBroadcastHandler(sessionDirectory, _characterTransitions,
+                inventory.InventoryRefreshSender, _inventoryHandler.BroadcastCommittedUpgradeNotice);
             _lotteryItemHandler = featureHandlers.LotteryItem;
             _petCreatureHandler = featureHandlers.PetCreature;
             // 组队与城镇/副本共享同一个 PartyManager 实例: 跟随退出/副本 fan-out 都要看到同一份队伍状态。
@@ -237,6 +240,7 @@ namespace DfoServer.Network
             _cmdDispatch = new GameCommandRegistry();
             _cmdDispatch.RegisterGroup("login", RegisterLoginHandlers);
             _cmdDispatch.RegisterGroup("character", RegisterCharacterHandlers);
+            _cmdDispatch.RegisterGroup("upgrade-broadcast", _upgradeBroadcast.Register);
             if (_auctionHandler != null)
                 _cmdDispatch.RegisterGroup("auction", d => {
                     foreach (var command in new[] {
@@ -328,6 +332,7 @@ namespace DfoServer.Network
 
         public void Dispose()
         {
+            _upgradeBroadcast.Dispose();
             _levelUpRewards.Dispose();
             _socialHandlers.Dispose();
             if (_ownsWorldDependencies)
@@ -400,6 +405,8 @@ namespace DfoServer.Network
                 try
                 {
                     await _socialHandlers.Trade.CancelBeforeTransition(session, header.type);
+                    if (header.type == (ushort)CmdPacketTypeA21.UPGRADE_ITEM
+                        && await _upgradeBroadcast.TryHandleUpgradeCompletion(session, header, body)) return;
                     if (_cmdDispatch.TryGetValue(header.type, out var handler))
                         await handler(session, header, body);
                     else
@@ -407,6 +414,7 @@ namespace DfoServer.Network
                 }
                 finally
                 {
+                    await _upgradeBroadcast.Reconcile(session);
                     await _levelUpRewards.DrainAndNotifyAsync();
                 }
             }

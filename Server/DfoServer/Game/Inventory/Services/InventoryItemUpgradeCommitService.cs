@@ -1,4 +1,5 @@
 using DfoServer.Game.ItemUpgrade;
+using System;
 
 namespace DfoServer.Game.Inventory
 {
@@ -8,7 +9,8 @@ namespace DfoServer.Game.Inventory
             InventoryLease lease,
             ItemUpgradeCommand command,
             out ItemUpgradeResult result,
-            out bool persistenceFailed)
+            out bool persistenceFailed,
+            ItemCore expectedTarget = null)
         {
             result = null;
             persistenceFailed = false;
@@ -22,6 +24,12 @@ namespace DfoServer.Game.Inventory
                 "upgrade-item",
                 (connection, transaction) =>
                 {
+                    if (expectedTarget != null)
+                    {
+                        var current = lease.Inventory.GetItem(InventoryListType.Main, command.TargetSlotIndex);
+                        if (current == null || !current.ToBytes().AsSpan().SequenceEqual(expectedTarget.ToBytes()))
+                            return false;
+                    }
                     upgradeApplied = InventoryItemUpgradeService.TryUpgradeItem(
                         lease.Inventory,
                         command,
