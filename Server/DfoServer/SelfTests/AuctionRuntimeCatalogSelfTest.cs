@@ -8,6 +8,7 @@ using DfoServer.Game.Inventory;
 using DfoServer.Game.ItemUpgrade;
 using DfoServer.GameWorld;
 using DfoServer.Infrastructure;
+using PvfLib;
 
 namespace DfoServer.SelfTests
 {
@@ -15,8 +16,6 @@ namespace DfoServer.SelfTests
     // Exactly two requested template projections; never enumerate Values.
     public static class AuctionRuntimeCatalogSelfTest
     {
-        private const string ExpectedPvf = "963cd331342a0066c01cb189ec2cd822b8b8206065b109ec63ca664adb3da8d8";
-
         public static int Run()
         {
             int passed = 0, failed = 0;
@@ -36,9 +35,6 @@ namespace DfoServer.SelfTests
                 using (var stream = File.OpenRead(path))
                     diskHash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
                 Console.WriteLine($"AuctionRuntimeCatalog profile: fileSha256={diskHash}; hashElapsedMs={stage.Elapsed.TotalMilliseconds:F1}");
-                Check("actual configured file is the explicitly supported963c profile", diskHash == ExpectedPvf);
-                if (diskHash != ExpectedPvf)
-                    throw new InvalidDataException("Auction runtime catalog test requires the documented963c PVF profile.");
 
                 stage.Restart();
                 // Use the formal composition function, including its injected
@@ -47,8 +43,12 @@ namespace DfoServer.SelfTests
                 Console.WriteLine($"AuctionRuntimeCatalog profile: indexElapsedMs={stage.Elapsed.TotalMilliseconds:F1}; indexedRows={catalog.Templates.Count}");
                 Check("catalog shared archive and current file fingerprints agree", catalog.SourcePvfSha256 == PvfArchiveAccessor.SourceSha256
                     && PvfArchiveAccessor.SourceSha256 == diskHash);
-                Check("indexed Count matches documented two-lst profile", catalog.Templates.Count == 160753);
-                Check("Keys expose every index id without requesting projections", catalog.Templates.Keys.Count() == 160753);
+                var equipmentIndex = ItemMetadataResolver.EquipmentList.Value;
+                var stackableIndex = LstFile.Parse(PvfArchiveAccessor.ReadText("stackable/stackable.lst"));
+                var expectedKeys = equipmentIndex.Entries.Select(entry => entry.Id)
+                    .Concat(stackableIndex.Entries.Select(entry => entry.Id)).ToHashSet();
+                Check("indexed Count matches the configured archive indexes", catalog.Templates.Count == expectedKeys.Count);
+                Check("Keys match both configured indexes without requesting projections", expectedKeys.SetEquals(catalog.Templates.Keys));
                 Check("virtual currency id0 remains in the descriptive index", catalog.Templates.ContainsKey(0));
                 Check("virtual currency id0 is outside ordinary instance kind resolution",
                     !ItemMetadataResolver.TryResolveItemKind(0, out var zeroKind) && zeroKind == ItemCore.KindUnknown);
@@ -56,10 +56,10 @@ namespace DfoServer.SelfTests
                     && virtualId == 0 && InventoryService.MainSlotStart > InventoryService.MainVirtualCurrencySlotEnd);
 
                 stage.Restart();
-                const int weaponId = 27602;
+                int weaponId = equipmentIndex.Entries.First(entry => entry.Id > 0).Id;
                 var weaponEntry = ItemMetadataResolver.EquipmentList.Value.GetById(weaponId);
-                Check("established weapon is present in shared equipment index", weaponEntry != null);
-                if (weaponEntry == null) throw new InvalidDataException("Known weapon27602 missing from the supported profile.");
+                Check("sample equipment is present in shared equipment index", weaponEntry != null);
+                if (weaponEntry == null) throw new InvalidDataException("Sample equipment missing from configured index.");
                 bool knownWeapon = catalog.TryGet(weaponId, out var weapon);
                 Check("known weapon projection is loaded on demand", knownWeapon && weapon.Kind == "equipment");
                 if (!knownWeapon) throw new InvalidDataException("Known weapon projection unavailable.");
@@ -74,7 +74,7 @@ namespace DfoServer.SelfTests
                 Check("weapon general metadata shares kind path and descriptive facts", weaponMetadata.ItemKind == "equipment"
                     && "equipment/" + weaponMetadata.PvfFilePath.Replace('\\', '/') == equipmentResource
                     && weaponMetadata.MinimumLevel == weapon.MinimumLevel && weaponMetadata.Rarity == weapon.Rarity
-                    && EquipmentTypeInfo.ParseOrUnknown(weaponMetadata.EquipmentType) == EquipmentType.Weapon);
+                    && EquipmentTypeInfo.ParseOrUnknown(weaponMetadata.EquipmentType) == EquipmentTypeInfo.ParseOrUnknown(weapon.EquipmentType));
                 Check("repeated weapon lookup retains the same projected instance", catalog.TryGet(weaponId, out var repeatedWeapon)
                     && ReferenceEquals(weapon, repeatedWeapon) && ReferenceEquals(weapon, catalog.Templates[weaponId]));
                 Check("shared equipment model cache remains its sole model owner", ItemMetadataResolver.TryLoadEquipmentFile(weaponId, out var repeatedEquipment)
@@ -113,7 +113,7 @@ namespace DfoServer.SelfTests
                 total.Stop(); process.Refresh();
                 Console.WriteLine($"AuctionRuntimeCatalog diagnostics: elapsedMs={total.Elapsed.TotalMilliseconds:F1}; processPeakWorkingSetBeforeBytes={peakBefore}; processPeakWorkingSetAfterBytes={process.PeakWorkingSet64}; process-wide peaks, not game FPS or exclusive catalog allocation.");
             }
-            Console.WriteLine($"AuctionRuntimeCatalogSelfTest: passed={passed} failed={failed}; read-only963c indexed profile, no server/client or database.");
+            Console.WriteLine($"AuctionRuntimeCatalogSelfTest: passed={passed} failed={failed}; configured archive, no server/client or database.");
             return failed == 0 ? 0 : 1;
         }
     }

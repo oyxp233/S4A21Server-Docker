@@ -9,7 +9,8 @@ namespace DfoServer.Game.Auction.Rules
 {
     internal enum AuctionListingEligibilityStatus { Allowed, Rejected, Unavailable }
     internal enum AuctionNativeProofKind { Unknown, VerifiedA21, Fixture }
-    // DRAFT: serialized value2 requires main's recovery/rollback contract first.
+    // Values retain the existing proof contract. Legacy value1 now covers
+    // validated ordinary carried bags; value2 also rebases Avatar identity.
     internal enum AuctionListingTransferCapability {
         None, PermanentOrdinaryMainOnlyCount, PermanentOrdinaryAvatarUidRebased
     }
@@ -34,6 +35,23 @@ namespace DfoServer.Game.Auction.Rules
     // codec describe an item; neither grants native auction eligibility.
     internal sealed class AuctionListingEligibility
     {
+        // Only carried bags own auction sources; storage/equipped/virtual slots
+        // never become eligible by sharing a numeric slot with a bag.
+        internal static bool IsBagSlot(InventoryListType list, int slot) => list switch {
+            InventoryListType.Main => slot >= InventoryService.MainSlotStart && slot <= InventoryService.MainSlotEnd,
+            InventoryListType.Avatar => slot >= InventoryService.AvatarSlotStart && slot <= InventoryService.AvatarSlotEnd,
+            InventoryListType.Pet => slot >= InventoryService.CreatureSlotStart && slot <= InventoryService.CreatureSlotEnd,
+            InventoryListType.GuildMedal => slot >= InventoryService.GuildMedalSlotStart && slot <= InventoryService.GuildMedalSlotEnd,
+            _ => false
+        };
+
+        internal static bool MatchesBagKind(InventoryListType list, ItemCore item) => list switch {
+            InventoryListType.Avatar => item.ItemKind == ItemCore.KindAvatar,
+            InventoryListType.Pet => item.IsCreatureItem(),
+            InventoryListType.GuildMedal => item.ItemKind is ItemCore.KindGuildMedal or ItemCore.KindGuardianGem,
+            InventoryListType.Main => item.ItemKind != ItemCore.KindAvatar && !item.IsCreatureItem(),
+            _ => false
+        };
         private readonly AuctionTemplateCatalog catalog;
         private readonly AuctionItemCodec codec;
         private readonly Func<AuctionNativeListingContext, AuctionNativeListingProof> nativeResolver;
@@ -61,9 +79,7 @@ namespace DfoServer.Game.Auction.Rules
                 || !InventoryContext.IsCurrentLease(lease, lease.SessionId, lease.CharacterId))
                 return Result(AuctionListingEligibilityStatus.Rejected, "CurrentOwnedLeaseRequired");
             bool avatarSource = list == InventoryListType.Avatar;
-            bool mainSource = list == InventoryListType.Main;
-            if (!(mainSource && slot >= InventoryService.MainSlotStart && slot <= InventoryService.MainSlotEnd)
-                && !(avatarSource && slot >= InventoryService.AvatarSlotStart && slot <= InventoryService.AvatarSlotEnd))
+            if (!IsBagSlot(list, slot))
                 return Result(AuctionListingEligibilityStatus.Unavailable, "NativeSourceSlotUnsupported");
             if (quantity <= 0 || nowUnix < 0 || requestedExpiryUnix <= nowUnix)
                 return Result(AuctionListingEligibilityStatus.Rejected, "InvalidListingQuantityOrTime");
@@ -77,6 +93,8 @@ namespace DfoServer.Game.Auction.Rules
                 var actual = lease.Inventory.GetItem(list, slot);
                 if (actual == null || actual.IsEmpty || actual.ItemId <= 0)
                     return Result(AuctionListingEligibilityStatus.Rejected, "MissingOwnedSource");
+                if (!MatchesBagKind(list, actual))
+                    return Result(AuctionListingEligibilityStatus.Rejected, "SourceBagKindMismatch");
                 if (actual.EquipmentLockId != 0 || actual.SortLockFlag != 0 || actual.TradeRestriction != 0)
                     return Result(AuctionListingEligibilityStatus.Rejected, "LockedOrRestrictedInstance");
                 if (InventoryStackRuleService.IsStackable(actual) ? quantity > actual.Count : quantity != 1)
@@ -101,7 +119,7 @@ namespace DfoServer.Game.Auction.Rules
                     || (template.Kind == "equipment" && EquipmentTypeInfo.TryParse(template.EquipmentType, out var equipmentType)
                         && equipmentType == EquipmentType.Creature))
                     return Result(AuctionListingEligibilityStatus.Unavailable, "TemplateTransferDetailUnsupported");
-                if ((actual.ItemKind is ItemCore.KindEquipment or ItemCore.KindAvatar) != (template.Kind == "equipment"))
+                if (actual.IsEquipmentItem() != (template.Kind == "equipment"))
                     return Result(AuctionListingEligibilityStatus.Unavailable, "TemplateAndInstanceKindMismatch");
                 // Auction expiry/return mail semantics for timed items are not
                 // established by direct-trade or mail's different time policies.
@@ -141,7 +159,8 @@ namespace DfoServer.Game.Auction.Rules
                     source, source.ContentHashHex, quantity, nowUnix, requestedExpiryUnix, premium.IsActive);
                 var proof = nativeResolver(context);
                 if (proof == null || proof.Kind == AuctionNativeProofKind.Unknown)
-                    return Result(AuctionListingEligibilityStatus.Unavailable, "NativeListingRuleUnavailable", source, proof);
+                    return Result(AuctionListingEligibilityStatus.Unavailable,
+                        string.IsNullOrWhiteSpace(proof?.Reason) ? "NativeListingRuleUnavailable" : proof.Reason, source, proof);
                 if (!Enum.IsDefined(proof.Kind) || !Enum.IsDefined(proof.Status)
                     || !Enum.IsDefined(proof.Capability) || proof.TemplateId != actual.ItemId
                     || proof.SourceContentHash != source.ContentHashHex || proof.SourcePvfSha256 != catalog.SourcePvfSha256

@@ -68,8 +68,10 @@ internal sealed class AuctionHandler
                         if (body != null && AuctionRequestParser.TryParse(command, body, out var disabledRequest)
                             && disabledRequest is AuctionRegisterRequest disabledRegister
                             && AuctionNativeRegistrationAdapter.TryResolveSource(disabledRegister, out var disabledList, out _)
-                            && disabledList == InventoryListType.Avatar)
-                            return MutationFailure(session, lease, command, true, includeAvatar: true);
+                            && disabledList != InventoryListType.Main)
+                            return MutationFailure(session, lease, command, true,
+                                includeAvatar: disabledList == InventoryListType.Avatar,
+                                extraList: disabledList == InventoryListType.Avatar ? null : disabledList);
                         return Reply(command, AuctionMutationReplyBuilder.Failure(command, true));
                     }
                     if (body == null || !AuctionRequestParser.TryParse(command, body, out var request))
@@ -97,8 +99,10 @@ internal sealed class AuctionHandler
                     if (body != null && AuctionRequestParser.TryParse(command, body, out var failedRequest)
                         && failedRequest is AuctionRegisterRequest failedRegister
                         && AuctionNativeRegistrationAdapter.TryResolveSource(failedRegister, out var failedList, out _)
-                        && failedList == InventoryListType.Avatar)
-                        return MutationFailure(session, lease, command, true, includeAvatar: true);
+                        && failedList != InventoryListType.Main)
+                        return MutationFailure(session, lease, command, true,
+                            includeAvatar: failedList == InventoryListType.Avatar,
+                            extraList: failedList == InventoryListType.Avatar ? null : failedList);
                     return Reply(command, AuctionMutationReplyBuilder.Failure(command, true));
                 }
             }
@@ -177,6 +181,9 @@ internal sealed class AuctionHandler
         bool refreshAvatar = native is AuctionRegisterRequest sourceRequest
             && AuctionNativeRegistrationAdapter.TryResolveSource(sourceRequest, out var requestedList, out _)
             && requestedList == InventoryListType.Avatar;
+        InventoryListType? extraList = native is AuctionRegisterRequest bagRequest
+            && AuctionNativeRegistrationAdapter.TryResolveSource(bagRequest, out var bagList, out _)
+            && bagList is InventoryListType.Pet or InventoryListType.GuildMedal ? bagList : null;
         AuctionNativeSessionState.Mutation mutation;
         bool resumed = false;
         if (state.TryGetMutation(header, body, out mutation))
@@ -187,7 +194,7 @@ internal sealed class AuctionHandler
             if (mutation.Acknowledged)
             {
                 rejection?.Write(MutationRejectStage.DuplicateAck, "RequestAlreadyAcknowledged");
-                return MutationFailure(session, lease, command, includeAvatar: refreshAvatar);
+                return MutationFailure(session, lease, command, includeAvatar: refreshAvatar, extraList: extraList);
             }
             resumed = true;
             mutation.Result = runtime.Application.Resume(mutation.Request.OperationId);
@@ -197,18 +204,18 @@ internal sealed class AuctionHandler
             if (!state.CanRememberMutation || runtime.Store.HasUnresolvedOperationForCharacter(lease.CharacterId))
             {
                 rejection?.Write(MutationRejectStage.Availability, "RequestBudgetOrUnresolvedOperation");
-                return MutationFailure(session, lease, command, true, includeAvatar: refreshAvatar);
+                return MutationFailure(session, lease, command, true, includeAvatar: refreshAvatar, extraList: extraList);
             }
             if (!ClientTextEncoding.TryGetStringStrict(session.Player.Name, out var actorName))
             {
                 rejection?.Write(MutationRejectStage.Actor, "ActorNameDecodeRejected");
-                return MutationFailure(session, lease, command, includeAvatar: refreshAvatar);
+                return MutationFailure(session, lease, command, includeAvatar: refreshAvatar, extraList: extraList);
             }
             actorName = actorName.TrimEnd('\0');
             if (!AuctionSellerNameTag13.TryEncodeFrozenRoleName(actorName, out _))
             {
                 rejection?.Write(MutationRejectStage.Actor, "ActorNameTagRejected");
-                return MutationFailure(session, lease, command, includeAvatar: refreshAvatar);
+                return MutationFailure(session, lease, command, includeAvatar: refreshAvatar, extraList: extraList);
             }
             var actor = new AuctionParty(lease.CharacterId, lease.AccountId, actorName);
             var operation = Guid.NewGuid();
@@ -221,13 +228,13 @@ internal sealed class AuctionHandler
                     if (!AuctionNativeRegistrationAdapter.TryResolveSource(register, out var sourceList, out var sourceSlot))
                     {
                         rejection?.Write(MutationRejectStage.Source, "SourceSpaceOrSlotRejected");
-                        return MutationFailure(session, lease, command, true, includeAvatar: refreshAvatar);
+                        return MutationFailure(session, lease, command, includeAvatar: refreshAvatar, extraList: extraList);
                     }
                     var source = lease.Inventory.GetItem(sourceList, sourceSlot);
                     if (source == null || !runtime.Catalog.TryGet(source.ItemId, out var template))
                     {
                         rejection?.Write(MutationRejectStage.Source, "SourceOrTemplateUnavailable");
-                        return MutationFailure(session, lease, command, includeAvatar: refreshAvatar);
+                        return MutationFailure(session, lease, command, includeAvatar: refreshAvatar, extraList: extraList);
                     }
                     normalized = AuctionNativeRegistrationAdapter.Normalize(actor, operation, register, source, template);
                 }
@@ -261,7 +268,7 @@ internal sealed class AuctionHandler
             if (!normalized.IsReady)
             {
                 rejection?.Write(MutationRejectStage.Normalize, normalized.Reason, (int)normalized.Status);
-                return MutationFailure(session, lease, command, normalized.Status == AuctionNativeMutationStatus.Unavailable, includeAvatar: refreshAvatar);
+                return MutationFailure(session, lease, command, includeAvatar: refreshAvatar, extraList: extraList);
             }
             rejection?.ReadRequest(normalized.Request);
             mutation = state.RememberMutation(header, body, normalized.Request);
@@ -272,10 +279,10 @@ internal sealed class AuctionHandler
             rejection?.Write(resumed ? MutationRejectStage.Resume : MutationRejectStage.Application,
                 mutation.Result.Reason, (int)mutation.Result.Status, mutation.Result.Order?.Version ?? 0);
             return MutationFailure(session, lease, command, mutation.Result.Status is AuctionMarketStatus.Pending
-                or AuctionMarketStatus.Quarantined or AuctionMarketStatus.Unavailable, includeAvatar: refreshAvatar);
+                or AuctionMarketStatus.Quarantined, includeAvatar: refreshAvatar, extraList: extraList);
         }
         runtime.PublishCommitted(mutation.Result);
-        var refreshes = PrepareMutationItemRefreshes(session, lease, refreshAvatar);
+        var refreshes = PrepareMutationItemRefreshes(session, lease, refreshAvatar, extraList);
         if (refreshes == null)
         {
             rejection?.Write(MutationRejectStage.Reply, "AuthoritativeRefreshUnavailableAfterCommit");
@@ -292,17 +299,18 @@ internal sealed class AuctionHandler
     }
 
     private IReadOnlyList<byte[]> MutationFailure(EnhancedClientSession session, InventoryLease lease,
-        CmdPacketTypeA21 command, bool busy = false, bool includeAvatar = false)
+        CmdPacketTypeA21 command, bool busy = false, bool includeAvatar = false, InventoryListType? extraList = null)
     {
         // Public commit may be durable while private finalization is still
         // Pending. Correct native wallet/source presentation after the error;
         // never manufacture a success ACK or promote an observed order here.
-        var refreshes = PrepareMutationItemRefreshes(session, lease, includeAvatar);
+        var refreshes = PrepareMutationItemRefreshes(session, lease, includeAvatar, extraList);
         if (refreshes == null) { session.Close(); return Array.Empty<byte[]>(); }
         return new[] { Frame(command, AuctionMutationReplyBuilder.Failure(command, busy)) }.Concat(refreshes).ToArray();
     }
 
-    private byte[][] PrepareMutationItemRefreshes(EnhancedClientSession session, InventoryLease lease, bool includeAvatar)
+    private byte[][] PrepareMutationItemRefreshes(EnhancedClientSession session, InventoryLease lease, bool includeAvatar,
+        InventoryListType? extraList = null)
     {
         // The existing outer prepared-send batch remains the sole sending owner.
         try
@@ -314,8 +322,10 @@ internal sealed class AuctionHandler
                 var avatar = includeAvatar ? InventoryRefreshSender.PrepareOwnedItemListRefresh(
                     session, lease, InventoryListType.Avatar, Guard) : null;
                 var main = InventoryRefreshSender.PrepareOwnedItemListRefresh(session, lease, InventoryListType.Main, Guard);
-                if (main == null || (includeAvatar && avatar == null) || !Guard()) return null;
-                return includeAvatar ? new[] { avatar, main } : new[] { main };
+                var extra = extraList.HasValue ? InventoryRefreshSender.PrepareOwnedItemListRefresh(
+                    session, lease, extraList.Value, Guard) : null;
+                if (main == null || (includeAvatar && avatar == null) || (extraList.HasValue && extra == null) || !Guard()) return null;
+                return new[] { avatar, extra, main }.Where(packet => packet != null).ToArray();
             }
         }
         catch (Exception ex) when (ex is IOException || ex is SqliteException
@@ -351,6 +361,8 @@ internal sealed class AuctionHandler
         private ulong wireOrder;
         private long wireAmount = -1, order, offeredGold = -1, expectedVersion = -1, observedVersion = -1;
         private int action;
+        private int sourceSpace = -1, sourceSlot = -1;
+        private uint templateId, quantity;
         internal MutationRejectionTrace(ushort command, long cid, long leaseVersion, int bodyLength)
         { this.command = command; this.cid = cid; this.leaseVersion = leaseVersion; this.bodyLength = bodyLength; }
         internal void ReadOperation(Guid value) => operation = value;
@@ -358,6 +370,9 @@ internal sealed class AuctionHandler
         {
             switch (value)
             {
+                case AuctionRegisterRequest register:
+                    sourceSpace = register.Space; sourceSlot = register.Slot;
+                    templateId = register.ItemKey; quantity = register.Quantity; break;
                 case AuctionCancelRequest cancel: wireOrder = cancel.IdentityBits; break;
                 case AuctionBidRequest bid: wireOrder = bid.IdentityBits; wireAmount = bid.Amount; break;
                 case AuctionBuyApieceRequest piece: wireOrder = piece.IdentityBits; wireAmount = piece.Amount; break;
@@ -384,7 +399,7 @@ internal sealed class AuctionHandler
             try
             {
                 var safeStage = Enum.IsDefined(stage) ? stage.ToString() : "UnknownStage";
-                var line = FormattableString.Invariant($"[AuctionReject] stage={safeStage} reason={SafeReason(reason)} command={command} cid={cid} leaseVersion={leaseVersion} operation={operation:N} wireOrder={wireOrder} wireAmount={wireAmount} order={order} action={action} offeredGold={offeredGold} expectedVersion={expectedVersion} observedVersion={observedVersion} resultVersion={resultVersion} status={status} bodyLength={bodyLength}");
+                var line = FormattableString.Invariant($"[AuctionReject] stage={safeStage} reason={SafeReason(reason)} command={command} cid={cid} leaseVersion={leaseVersion} operation={operation:N} wireOrder={wireOrder} wireAmount={wireAmount} order={order} action={action} offeredGold={offeredGold} expectedVersion={expectedVersion} observedVersion={observedVersion} resultVersion={resultVersion} status={status} bodyLength={bodyLength} sourceSpace={sourceSpace} sourceSlot={sourceSlot} templateId={templateId} quantity={quantity}");
                 if (sink == null) FileLogger.Log(line); else sink(line);
             }
             catch (Exception) { /* Diagnostics cannot change transaction/send behavior. */ }
@@ -408,6 +423,13 @@ internal sealed class AuctionHandler
                 or "InvalidRequestIdentity" or "OperationRequestConflict" or "UnknownOperation"
                 or "BaselineSaveFailed" or "PublicTransactionNotCommitted" or "InventoryRollbackUnconfirmed"
                 or "CommittedReceiptMissing" or "EconomicQuoteUnavailable" or "FixturePolicyNotEnabled"
+                or "MalformedTradeDeclaration" or "TemplateProhibitsAuction" or "TemplateNotTradable"
+                or "LockedOrRestrictedInstance" or "QuantityExceedsOwnedSource" or "SourceBagKindMismatch"
+                or "TemplateAndInstanceKindMismatch" or "TimedAuctionTransferUnverified"
+                or "NativeListingRuleUnavailable" or "NativeClassRequiresActiveAuctionPremium"
+                or "NativePackagableZero" or "PackagableFieldUnavailable" or "TemplateTemporalTagsPresentUnsupported"
+                or "NativeListingDisplayUnavailable" or "RegistrationSourceOrQuantityMismatch"
+                or "RegistrationPriceMismatch" or "RegistrationAggregatePriceOutOfRange"
                 or "SqliteException" or "IOException" or "OverflowException" or "ArgumentException"
                 or "InvalidOperationException" or "Exception" => value,
             "Order is unavailable for the quote." => "OrderUnavailableForQuote",

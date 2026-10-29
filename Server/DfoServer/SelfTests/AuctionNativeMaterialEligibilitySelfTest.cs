@@ -11,7 +11,7 @@ using DfoServer.Network.Parsers.Auction;
 
 namespace DfoServer.SelfTests
 {
-    // Finite M5 support contract. Resources are synthetic; no archive or DB is opened.
+    // Resource-based eligibility and native price regression. No archive/DB writes.
     public static class AuctionNativeMaterialEligibilitySelfTest
     {
         public static int Run()
@@ -86,6 +86,56 @@ namespace DfoServer.SelfTests
                 }
                 foreach (bool indexed in new[] { false, true })
                 {
+                    foreach (var context in new[] {
+                        WeaponContext(indexed, 27599), WeaponContext(indexed, 27674),
+                        WeaponContext(indexed, pvf:new string('b',64)),
+                        WeaponContext(indexed, declaration:"[equipment type]\n`[title name]` 0\n"),
+                        WeaponContext(indexed, declaration:"[equipment type]\n`[coat]` 0\n"),
+                        WeaponContext(indexed, tags:"[impossible contents]\n`gift`\n[/impossible contents]\n"),
+                        WaistAvatarContext(indexed, 53584), WaistAvatarContext(indexed, 53589),
+                        WaistAvatarContext(indexed, pvf:new string('b',64)),
+                        WaistAvatarContext(indexed, relativePath:"avatar/another-resource.equ"),
+                        WaistAvatarContext(indexed, declaration:"[equipment type]\n`[coat avatar]` 0\n"),
+                        WaistAvatarContext(indexed, declaration:"[equipment type]\n`[waist avatar]` 1\n"),
+                        WaistAvatarContext(indexed, tags:"[cash]\n1\n"),
+                        WaistAvatarContext(indexed, tags:"[auction free]\n") })
+                        Check("tradable equipment/Avatar is independent of key path and archive " + context.Template.TemplateId + indexed,
+                            AuctionNativeListingRuleResolver.Resolve(context).Status == AuctionListingEligibilityStatus.Allowed);
+                    foreach (byte kind in new[] { ItemCore.KindConsumable, ItemCore.KindMaterial, ItemCore.KindQuest,
+                        ItemCore.KindCreatureConsumable, ItemCore.KindAvatarEmblem, ItemCore.KindExpertJobMaterial,
+                        ItemCore.KindSpecialMaterial, ItemCore.KindGuardianGem })
+                    {
+                        int id = 80000 + kind;
+                        var context = Context(indexed, id, "new-resource.stk", "[stackable type]\n`[material]` 8\n",
+                            pvf:new string('b',64), kind:kind);
+                        Check("free stack kind has no material/key whitelist " + kind + indexed,
+                            AuctionNativeListingRuleResolver.Resolve(context).Status == AuctionListingEligibilityStatus.Allowed);
+                        var item = codec.DecodeStrict(context.Source);
+                        byte space = kind == ItemCore.KindCreatureConsumable ? (byte)InventoryListType.Pet
+                            : kind == ItemCore.KindGuardianGem ? (byte)InventoryListType.GuildMedal : (byte)InventoryListType.Main;
+                        var request = new AuctionRegisterRequest(space,65,(uint)id,3,10,100,100,24,default,default,default);
+                        AuctionNativeMutationResult Normalize(AuctionRegisterRequest value) => AuctionNativeRegistrationAdapter.Normalize(
+                            new AuctionParty(79304,79304,"fixture"), Guid.NewGuid(), value, item, context.Template);
+                        var unit = Normalize(request); var aggregate = Normalize(request with { Wire12=30, Wire16=300 });
+                        Check("source uses its real carried bag and slot " + kind + indexed,
+                            unit.IsReady && unit.Request.SourceList == (InventoryListType)space && unit.Request.SourceSlot == 65);
+                        Check("both A21 sender branches normalize to identical aggregate terms " + kind + indexed,
+                            unit.IsReady && aggregate.IsReady && unit.Request.OpeningBidGold == 30
+                            && unit.Request.BuyoutGold == 300 && aggregate.Request.OpeningBidGold == 30
+                            && aggregate.Request.BuyoutGold == 300);
+                        Check("inconsistent price relation is rejected " + kind + indexed,
+                            Normalize(request with { Wire16=299 }).Status == AuctionNativeMutationStatus.Rejected);
+                        var fixedPrice = Normalize(request with { Wire12=uint.MaxValue });
+                        Check("piece price is frozen once for every free stack kind " + kind + indexed,
+                            fixedPrice.IsReady && fixedPrice.Request.UnitPriceGold == 100 && fixedPrice.Request.BuyoutGold == 300);
+                        Check("aggregate overflow rejected before assets " + kind + indexed,
+                            Normalize(request with { Wire12=uint.MaxValue,Wire16=int.MaxValue,Wire20=int.MaxValue }).Status
+                                == AuctionNativeMutationStatus.Rejected);
+                    }
+                    foreach (string tag in new[] { "auction", "trade", "all" })
+                        Check("explicit impossible content blocks auction " + tag + indexed,
+                            AuctionNativeListingRuleResolver.Resolve(WeaponContext(indexed,
+                                tags:"[impossible contents]\n`"+tag+"`\n[/impossible contents]\n")).Status == AuctionListingEligibilityStatus.Rejected);
                     foreach (int id in new[] { 53585, 53586, 53587, 53588 })
                     {
                         var context = WaistAvatarContext(indexed, id);
@@ -114,28 +164,18 @@ namespace DfoServer.SelfTests
                             && normalized.Request.OpeningBidGold == 100 && normalized.Request.BuyoutGold == 300
                             && normalized.Request.UnitPriceGold == null);
                         Check("M9 proof cannot cover Q2 or another source hash " + id + indexed,
-                            AuctionNativeListingRuleResolver.Resolve(context with { Quantity = 2 }).Kind == AuctionNativeProofKind.Unknown
+                            AuctionNativeListingRuleResolver.Resolve(context with { Quantity = 2 }).Status == AuctionListingEligibilityStatus.Rejected
                             && AuctionNativeListingRuleResolver.Resolve(context with { SourceContentHash = new string('0',64) }).Kind == AuctionNativeProofKind.Unknown);
                     }
                     var avatarNegatives = new (string Name, AuctionNativeListingContext Context)[] {
-                        ("lower key", WaistAvatarContext(indexed, 53584)),
-                        ("upper key", WaistAvatarContext(indexed, 53589)),
-                        ("PVF", WaistAvatarContext(indexed, pvf:new string('a',64))),
-                        ("wrong path", WaistAvatarContext(indexed, relativePath:"avatar/decoy.equ")),
-                        ("coat not waist", WaistAvatarContext(indexed, declaration:"[equipment type]\n`[coat avatar]` 0\n")),
-                        ("waist argument1", WaistAvatarContext(indexed, declaration:"[equipment type]\n`[waist avatar]` 1\n")),
                         ("missing argument", WaistAvatarContext(indexed, declaration:"[equipment type]\n`[waist avatar]`\n")),
                         ("extra argument", WaistAvatarContext(indexed, declaration:"[equipment type]\n`[waist avatar]` 0 0\n")),
                         ("duplicate type", WaistAvatarContext(indexed, declaration:"[equipment type]\n`[waist avatar]` 0\n[equipment type]\n`[waist avatar]` 0\n")),
                         ("nested type", WaistAvatarContext(indexed, declaration:"[outer]\n[equipment type]\n`[waist avatar]` 0\n[/outer]\n")),
                         ("duplicate attach", WaistAvatarContext(indexed, attach:"[attach type]\n`[free]`\n[attach type]\n`[free]`\n")),
-                        ("trade not free", WaistAvatarContext(indexed, attach:"[attach type]\n`[trade]`\n")),
                         ("usable period", WaistAvatarContext(indexed, tags:"[usable period]\n0\n")),
                         ("expiration", WaistAvatarContext(indexed, tags:"[expiration date]\n0\n")),
                         ("after unsealing", WaistAvatarContext(indexed, tags:"[usable period after unsealing]\n0\n")),
-                        ("impossible", WaistAvatarContext(indexed, tags:"[impossible contents]\n`gift`\n[/impossible contents]\n")),
-                        ("different cash", WaistAvatarContext(indexed, tags:"[cash]\n1\n")),
-                        ("different auction-free profile", WaistAvatarContext(indexed, tags:"[auction free]\n")),
                         ("ordinary equipment core", WaistAvatarContext(indexed, kind:ItemCore.KindEquipment)),
                         ("timed core", WaistAvatarContext(indexed, expiry:1))
                     };
@@ -187,27 +227,21 @@ namespace DfoServer.SelfTests
                         Check("M8 native proof cannot bind another source hash " + id + indexed,
                             AuctionNativeListingRuleResolver.Resolve(context with { SourceContentHash = new string('0',64) }).Kind == AuctionNativeProofKind.Unknown);
                         Check("M8 nonstackQ2 cannot acquire complete proof " + id + indexed,
-                            AuctionNativeListingRuleResolver.Resolve(context with { Quantity = 2 }).Kind == AuctionNativeProofKind.Unknown);
+                            AuctionNativeListingRuleResolver.Resolve(context with { Quantity = 2 }).Status == AuctionListingEligibilityStatus.Rejected);
                     }
                     var weaponNegatives = new (string Name, AuctionNativeListingContext Context)[] {
-                        ("lower unsupported iteminfo boundary", WeaponContext(indexed, 27599)),
-                        ("upper unsupported factory boundary", WeaponContext(indexed, 27674)),
-                        ("other PVF", WeaponContext(indexed, pvf:new string('a',64))),
-                        ("native13 is not native12", WeaponContext(indexed, declaration:"[equipment type]\n`[title name]` 0\n")),
                         ("Avatar is not native12", WeaponContext(indexed, declaration:"[equipment type]\n`[coat avatar]` 0\n")),
                         ("unknown type cannot use weapon path", WeaponContext(indexed, declaration:"[equipment type]\n`[unknown]` 0\n")),
                         ("duplicate weapon declaration", WeaponContext(indexed, declaration:"[equipment type]\n`[weapon]` 20\n[equipment type]\n`[weapon]` 20\n")),
                         ("missing weapon argument", WeaponContext(indexed, declaration:"[equipment type]\n`[weapon]`\n")),
                         ("equipment type overflow", WeaponContext(indexed, declaration:"[equipment type]\n`[weapon]` 2147483648\n")),
                         ("duplicate attach", WeaponContext(indexed, attach:"[attach type]\n`[free]`\n[attach type]\n`[free]`\n")),
-                        ("sealing attach not free", WeaponContext(indexed, attach:"[attach type]\n`[sealing]`\n")),
                         ("usable period0", WeaponContext(indexed, tags:"[usable period]\n0\n")),
                         ("expiration0", WeaponContext(indexed, tags:"[expiration date]\n0\n")),
                         ("after unsealing0", WeaponContext(indexed, tags:"[usable period after unsealing]\n0\n")),
                         ("nested after unsealing", WeaponContext(indexed, tags:"[other]\n[usable period after unsealing]\n0\n[/other]\n")),
                         ("uppercase after unsealing missing", WeaponContext(indexed, tags:"[USABLE PERIOD AFTER UNSEALING]\n")),
                         ("malformed after unsealing", WeaponContext(indexed, tags:"[usable period after unsealing]\ninvalid\n")),
-                        ("impossible contents", WeaponContext(indexed, tags:"[impossible contents]\n`gift`\n[/impossible contents]\n")),
                         ("wrong canonical kind", WeaponContext(indexed, kind:ItemCore.KindMaterial))
                     };
                     foreach (var negative in weaponNegatives)
@@ -237,10 +271,6 @@ namespace DfoServer.SelfTests
                     }
                     const string tuple = "[stackable type]\n`[material]` 1\n";
                     var negatives = new (string Name, int Id, string Path, string Declaration, string Tags, string Hash, byte Kind)[] {
-                        ("different id", 3029, "material/piece_leather.stk", tuple, "", hash, ItemCore.KindMaterial),
-                        ("different path", 3028, "material/other.stk", tuple, "", hash, ItemCore.KindMaterial),
-                        ("different hash", 3028, "material/piece_leather.stk", tuple, "", new string('a',64), ItemCore.KindMaterial),
-                        ("different argument", 3028, "material/piece_leather.stk", "[stackable type]\n`[material]` 8\n", "", hash, ItemCore.KindMaterial),
                         ("duplicate same tuple", 3028, "material/piece_leather.stk", tuple + tuple, "", hash, ItemCore.KindMaterial),
                         ("duplicate other tuple", 3028, "material/piece_leather.stk", tuple + "[stackable type]\n`[quest]` 1\n", "", hash, ItemCore.KindMaterial),
                         ("missing argument", 3028, "material/piece_leather.stk", "[stackable type]\n`[material]`\n", "", hash, ItemCore.KindMaterial),
@@ -251,7 +281,6 @@ namespace DfoServer.SelfTests
                         ("case duplicate", 3028, "material/piece_leather.stk", tuple + "[STACKABLE TYPE]\n`[material]` 1\n", "", hash, ItemCore.KindMaterial),
                         ("usable period0", 3028, "material/piece_leather.stk", tuple, "[usable period]\n0\n[auction free]\n", hash, ItemCore.KindMaterial),
                         ("expiration date0", 3028, "material/piece_leather.stk", tuple, "[expiration date]\n0\n[auction free]\n", hash, ItemCore.KindMaterial),
-                        ("impossible contents", 3028, "material/piece_leather.stk", tuple, "[impossible contents]\n`gift`\n[/impossible contents]\n", hash, ItemCore.KindMaterial),
                         ("wrong instance kind", 3028, "material/piece_leather.stk", tuple, "", hash, ItemCore.KindEquipment)
                     };
                     foreach (var test in negatives)

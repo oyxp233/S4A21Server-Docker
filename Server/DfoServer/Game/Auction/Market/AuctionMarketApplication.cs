@@ -325,7 +325,9 @@ namespace DfoServer.Game.Auction.Market
             var core = codec.DecodeStrict(result.Source);
             return result.Capability switch {
                 AuctionListingTransferCapability.PermanentOrdinaryMainOnlyCount
-                    => result.List == InventoryListType.Main && core.ItemKind != ItemCore.KindAvatar,
+                    => (result.List is InventoryListType.Main or InventoryListType.Pet or InventoryListType.GuildMedal)
+                        && AuctionListingEligibility.IsBagSlot(result.List, result.Slot)
+                        && AuctionListingEligibility.MatchesBagKind(result.List, core) && core.ItemKind != ItemCore.KindAvatar,
                 AuctionListingTransferCapability.PermanentOrdinaryAvatarUidRebased
                     => result.List == InventoryListType.Avatar && result.Quantity == 1 && core.ItemKind == ItemCore.KindAvatar,
                 _ => false

@@ -240,20 +240,20 @@ namespace DfoServer.SelfTests
                 var normalContext = NativeContext(101);
                 var verified = AuctionNativeListingRuleResolver.Resolve(normalContext);
                 Check("coupon component passes known noncash equipment", AuctionNativeListingRuleResolver.EvaluateCoupon(normalContext).Status == AuctionCouponGateStatus.Passed);
-                Check("coupon passage does not invent complete equipment eligibility", verified.Kind == AuctionNativeProofKind.Unknown
-                    && verified.Status == AuctionListingEligibilityStatus.Unavailable && verified.Capability == AuctionListingTransferCapability.None
-                    && verified.Reason == "EquipmentCommonProtectedPredicateUnverified" && verified.SourceContentHash == normalContext.SourceContentHash
+                Check("free equipment uses resource and instance eligibility", verified.Kind == AuctionNativeProofKind.VerifiedA21
+                    && verified.Status == AuctionListingEligibilityStatus.Allowed && verified.Capability == AuctionListingTransferCapability.PermanentOrdinaryMainOnlyCount
+                    && verified.SourceContentHash == normalContext.SourceContentHash
                     && verified.SourcePvfSha256 == hash && verified.EvidenceReference.Contains("VA0232FD90", StringComparison.Ordinal));
-                Check("production base adapter preserves unknown common equipment predicate", nativeEligibility.Evaluate(lease, InventoryListType.Main, 65, 1, now, now + 86400, premium).Status == AuctionListingEligibilityStatus.Unavailable);
+                Check("production adapter accepts owned free equipment outside old whitelist", nativeEligibility.Evaluate(lease, InventoryListType.Main, 65, 1, now, now + 86400, premium).Status == AuctionListingEligibilityStatus.Allowed);
                 var cashContext = NativeContext(103);
                 var cashDenied = AuctionNativeListingRuleResolver.Resolve(cashContext);
                 Check("raw PVF cash equipment requires coupon", cashDenied.Status == AuctionListingEligibilityStatus.Rejected && cashDenied.RequiresPremium);
                 Check("active premium passes cash-equipment coupon component", AuctionNativeListingRuleResolver.EvaluateCoupon(cashContext with { HasActiveAuctionPremium = true }).Status == AuctionCouponGateStatus.Passed);
-                Check("validated premium cannot bypass unknown common predicate", nativeEligibility.Evaluate(lease, InventoryListType.Main, 65, 1, now, now + 86400, new(account, now + 1, now)).Status == AuctionListingEligibilityStatus.Unavailable);
+                Check("validated premium permits owned tradable cash equipment", nativeEligibility.Evaluate(lease, InventoryListType.Main, 65, 1, now, now + 86400, new(account, now + 1, now)).Status == AuctionListingEligibilityStatus.Allowed);
                 var freeCashContext = NativeContext(104);
                 Check("explicit auction-free tag bypasses extra cash coupon gate", freeCashContext.Template.HasAuctionFree
                     && AuctionNativeListingRuleResolver.EvaluateCoupon(freeCashContext).Status == AuctionCouponGateStatus.Passed);
-                Check("auction-free is not a complete equipment permission", AuctionNativeListingRuleResolver.Resolve(freeCashContext).Kind == AuctionNativeProofKind.Unknown);
+                Check("tradable auction-free equipment is accepted", AuctionNativeListingRuleResolver.Resolve(freeCashContext).Status == AuctionListingEligibilityStatus.Allowed);
                 var avatarContext = NativeContext(105);
                 Check("existing avatar type mapping matches native coupon branch", AuctionNativeListingRuleResolver.Resolve(avatarContext).RequiresPremium);
                 Check("coupon never bypasses unsupported avatar template detail", nativeEligibility.Evaluate(lease, InventoryListType.Main, 65, 1, now, now + 86400, new(account, now + 1, now)).Status == AuctionListingEligibilityStatus.Unavailable);
@@ -273,27 +273,26 @@ namespace DfoServer.SelfTests
                 foreach (int id in new[] { 101, 103, 104, 108, 109, 201, 205, 206, 207 })
                 {
                     var unverified = AuctionNativeListingRuleResolver.Resolve(NativeContext(id, true));
-                    Check("coupon pass never creates a complete production capability " + id,
-                        unverified.Kind == AuctionNativeProofKind.Unknown && unverified.Status == AuctionListingEligibilityStatus.Unavailable
-                        && unverified.Capability == AuctionListingTransferCapability.None);
+                    Check("free ordinary resources have a complete production capability " + id,
+                        unverified.Kind == AuctionNativeProofKind.VerifiedA21 && unverified.Status == AuctionListingEligibilityStatus.Allowed
+                        && unverified.Capability == AuctionListingTransferCapability.PermanentOrdinaryMainOnlyCount);
                 }
-                Check("ordinary free stack still needs exact factory proof",
-                    AuctionNativeListingRuleResolver.Resolve(NativeContext(201)).Reason == "StackFactoryPredicateUnverified");
-                Check("unproved stack attach class never falls back to free",
-                    AuctionNativeListingRuleResolver.Resolve(NativeContext(202)).Reason == "StackCommonAttachClassUnverified");
+                Check("ordinary free stack needs no factory key whitelist",
+                    AuctionNativeListingRuleResolver.Resolve(NativeContext(201)).Status == AuctionListingEligibilityStatus.Allowed);
+                Check("restricted stack attach class never falls back to free",
+                    AuctionNativeListingRuleResolver.Resolve(NativeContext(202)).Status == AuctionListingEligibilityStatus.Rejected);
                 foreach (int key in new[] { 3033, 3034, 3035, 3036, 3037, 3262 })
                 {
                     var feature = AuctionNativeListingRuleResolver.Resolve(NativeContext(key, true));
-                    Check("feature-key dependency cannot be bypassed by coupon " + key,
-                        feature.Kind == AuctionNativeProofKind.Unknown && feature.Status == AuctionListingEligibilityStatus.Unavailable
-                        && feature.Reason == "StackFeature10DependencyUnverified" && feature.Capability == AuctionListingTransferCapability.None);
+                    Check("free material cannot be refused solely by its key " + key,
+                        feature.Kind == AuctionNativeProofKind.VerifiedA21 && feature.Status == AuctionListingEligibilityStatus.Allowed
+                        && feature.Capability == AuctionListingTransferCapability.PermanentOrdinaryMainOnlyCount);
                 }
                 foreach (int id in new[] { 114, 213 })
                 {
                     var impossible = AuctionNativeListingRuleResolver.Resolve(NativeContext(id, true));
-                    Check("nonempty impossible contents is conservative unavailable not invented native rejection " + id,
-                        impossible.Status == AuctionListingEligibilityStatus.Unavailable && impossible.Kind == AuctionNativeProofKind.Unknown
-                        && impossible.Reason == "AuctionImpossibleContentsConsumerUnverified");
+                    Check("gift restriction does not prohibit auction " + id,
+                        impossible.Status == AuctionListingEligibilityStatus.Allowed && impossible.Kind == AuctionNativeProofKind.VerifiedA21);
                 }
                 Check("native rule cannot use unrelated source hash", AuctionNativeListingRuleResolver.Resolve(normalContext with { SourceContentHash = new string('0', 64) }).Status == AuctionListingEligibilityStatus.Unavailable);
                 catalog.TryGet(103, out var otherTemplate);

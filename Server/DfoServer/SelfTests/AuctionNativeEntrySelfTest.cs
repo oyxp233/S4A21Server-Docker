@@ -38,6 +38,13 @@ public static class AuctionNativeEntrySelfTest
             CheckRegistration(Check);
             CheckAvatarSource(Check);
             CheckReplies(Check);
+            var trace = new AuctionHandler.MutationRejectionTrace((ushort)CmdPacketTypeA21.AUCTION_REGIST_ITEM, 1, 1, 37);
+            trace.ReadNative(new AuctionRegisterRequest(7, 123, 90001, 3, 10, 100, 100, 24, default, default, default));
+            string line = null;
+            trace.Write(AuctionHandler.MutationRejectStage.Normalize, "RegistrationPriceMismatch", sink:value => line=value);
+            Check("listing refusal retains safe numeric source and precise reason", line != null
+                && line.Contains("sourceSpace=7 sourceSlot=123 templateId=90001 quantity=3", StringComparison.Ordinal)
+                && line.Contains("reason=RegistrationPriceMismatch", StringComparison.Ordinal));
             CheckSessionCache(Check);
         }
         catch (Exception exception)
@@ -96,15 +103,17 @@ public static class AuctionNativeEntrySelfTest
         check("zero buyout is not the absent buyout sentinel", Rejected(request with { Wire16 = 0, Wire20 = 0 }));
         check("bid at or above buyout rejected", Rejected(request with { Wire12 = 300 })
             && Rejected(request with { Wire12 = 301 }));
-        check("unsupported scaled or inconsistent tuple is rejected instead of selecting another native branch", Rejected(request with { Wire16 = 900 })
-            && Rejected(request with { Wire20 = 100 })
-            && Rejected(request with { Wire20 = 299 }) && Rejected(request with { Wire16 = uint.MaxValue, Wire20 = 300, Wire12 = 100 }));
+        check("scaled A21 sender branch normalizes the already multiplied total once",
+            Normalize(request with { Wire16 = 900 }).Request.BuyoutGold == 900
+            && Normalize(request with { Wire20 = 100 }).Request.BuyoutGold == 300);
+        check("inconsistent price tuple remains rejected", Rejected(request with { Wire20 = 299 })
+            && Rejected(request with { Wire16 = uint.MaxValue, Wire20 = 300, Wire12 = 100 }));
         check("unsigned amounts beyond signed gold range rejected", Rejected(request with { Wire16 = 0x80000000, Wire20 = 0x80000000 })
             && Rejected(request with { Wire12 = 0x80000000, Wire16 = uint.MaxValue, Wire20 = 0 }));
         check("valid individual input with overflowing aggregate is rejected", Rejected(request with { Quantity = 2, Wire16 = 0x40000000, Wire20 = 0x40000000 })
             && Rejected(request with { Quantity = 2, Wire12 = 0x40000000, Wire16 = uint.MaxValue, Wire20 = 0 }));
-        check("same material from another PVF cannot select the observed native price profile", Normalize(request,
-            template: FixtureCatalog(new string('a', 64)).Templates[3028]).Status == AuctionNativeMutationStatus.Unavailable);
+        check("same material price normalization is independent of whole PVF hash", Normalize(request,
+            template: FixtureCatalog(new string('a', 64)).Templates[3028]).IsReady);
         check("quantity zero, overflow and source excess rejected", Rejected(request with { Quantity = 0 })
             && Rejected(request with { Quantity = 11 }) && Rejected(request with { Quantity = uint.MaxValue }));
         check("request key and template key must match actual source", Rejected(request with { ItemKey = 101 })
@@ -115,9 +124,12 @@ public static class AuctionNativeEntrySelfTest
             == AuctionNativeMutationStatus.Unavailable
             && Normalize(request with { Slot = checked((ushort)(InventoryService.MainSlotEnd + 1)) }).Status
             == AuctionNativeMutationStatus.Unavailable);
-        foreach (byte space in new byte[] { 2, 3, 7, 38, 255 })
+        foreach (byte space in new byte[] { 2, 3, 255 })
             check("source " + space + " never aliases Main", Normalize(request with { Space = space }).Status
                 == AuctionNativeMutationStatus.Unavailable);
+        foreach (byte space in new byte[] { 7, 38 })
+            check("carried bag cannot alias an item from another kind " + space,
+                Normalize(request with { Space = space }).Status == AuctionNativeMutationStatus.Rejected);
 
         check("Source1 with a Main material core is rejected rather than aliased", Normalize(request with { Space = 1 }).Status == AuctionNativeMutationStatus.Rejected);
 
@@ -191,9 +203,12 @@ public static class AuctionNativeEntrySelfTest
             && Normalize(request with { Quantity = 0 }).Status == AuctionNativeMutationStatus.Rejected);
         check("Avatar cannot list through a same-slot Main source",
             Normalize(request with { Space = (byte)InventoryListType.Main, Slot = 13 }).Status == AuctionNativeMutationStatus.Rejected);
-        foreach (byte space in new byte[] { 2, 3, 7, 38, 255 })
+        foreach (byte space in new byte[] { 2, 3, 255 })
             check("Avatar source " + space + " cannot alias bag1 or Main",
                 Normalize(request with { Space = space, Slot = 13 }).Status == AuctionNativeMutationStatus.Unavailable);
+        foreach (byte space in new byte[] { 7, 38 })
+            check("Avatar cannot alias another carried bag " + space,
+                Normalize(request with { Space = space, Slot = 13 }).Status == AuctionNativeMutationStatus.Rejected);
         foreach (byte kind in new byte[] { ItemCore.KindEquipment, ItemCore.KindMaterial, ItemCore.KindCreature, ItemCore.KindUnknown, 255 })
         {
             var decoy = avatar.Copy(); decoy.ItemKind = kind;

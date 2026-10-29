@@ -55,6 +55,8 @@ namespace DfoServer.GameWorld.Auction
             HasSingleNativeWeaponDeclaration = nativeTags.SingleWeapon;
             HasSingleNativeWaistAvatarZeroDeclaration = nativeTags.SingleWaistAvatarZero;
             HasSingleNativeFreeAttachDeclaration = nativeTags.SingleFreeAttach;
+            HasUnambiguousTradeDeclarations = HasSingleDeclaration(model, "attach type", false)
+                && HasSingleDeclaration(model, model is EquipmentFile ? "equipment type" : "stackable type", true);
         }
 
         public int TemplateId { get; }
@@ -94,6 +96,26 @@ namespace DfoServer.GameWorld.Auction
         // M9 finite native7 profile: exactly one top-level raw waist/argument0.
         public bool HasSingleNativeWaistAvatarZeroDeclaration { get; }
         public bool HasSingleNativeFreeAttachDeclaration { get; }
+        public bool HasUnambiguousTradeDeclarations { get; }
+
+        private static bool HasSingleDeclaration(PvfModelBase model, string tag, bool argument)
+        {
+            var nodes = new List<ScriptNode>();
+            void Visit(ScriptNode node)
+            {
+                if (string.Equals(node.Tag?.Trim(), tag, StringComparison.OrdinalIgnoreCase)) nodes.Add(node);
+                foreach (var child in node.Children) Visit(child);
+            }
+            foreach (var child in model.Root.Children) Visit(child);
+            if (nodes.Count != 1) return false;
+            var value = nodes[0];
+            if (!model.Root.Children.Contains(value) || value.HasEndTag || value.Children.Count != 0 || value.DataItems.Count != 1)
+                return false;
+            var match = Regex.Match(value.DataItems[0].GetContent(model.Content).Trim(),
+                argument ? @"\A`\[[^\]]+\]`[ \t]+(?<argument>[+-]?[0-9]+)\z" : @"\A`\[[^\]]+\]`\z");
+            return match.Success && (!argument || int.TryParse(match.Groups["argument"].Value,
+                NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _));
+        }
 
         private static (AuctionPackagableGate Gate, int Count, bool TemporalTagsAbsent, int? MaterialArgument, bool SingleWeapon, bool SingleWaistAvatarZero, bool SingleFreeAttach) ReadNativeListingTags(PvfModelBase model)
         {

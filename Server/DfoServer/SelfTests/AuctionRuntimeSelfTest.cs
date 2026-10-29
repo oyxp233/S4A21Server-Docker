@@ -40,6 +40,8 @@ namespace DfoServer.SelfTests
             }
             try { VerifyEnabledCatalog(Check); }
             catch (Exception ex) { Console.WriteLine(ex); failed++; }
+            try { VerifyConfiguredPvfListing(Check); }
+            catch (Exception ex) { Console.WriteLine(ex); failed++; }
             try { VerifySendBoundary(Check); }
             catch (Exception ex) { Console.WriteLine(ex); failed++; }
             Console.WriteLine($"AuctionRuntimeSelfTest: passed={passed} failed={failed}; offline owners only, no server or clock started.");
@@ -242,6 +244,69 @@ namespace DfoServer.SelfTests
             {
                 InventoryContext.Unregister(sellerSession); InventoryContext.Unregister(buyerSession);
                 SqliteConnection.ClearAllPools(); Directory.Delete(root, true);
+            }
+        }
+
+        private static void VerifyConfiguredPvfListing(Action<string, bool> check)
+        {
+            if (AuctionRuntime.RecoveryOnlyBuild) return;
+            string root = Path.Combine(AppContext.BaseDirectory, ".scratch", "auction-current-pvf-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            var session = Guid.NewGuid();
+            try
+            {
+                const int seller = 80731;
+                var db = new GameDatabase(Path.Combine(root, "inventory.db"), ServerPaths.SchemaFilePath);
+                db.Write((c,t) => {
+                    using var command = c.CreateCommand(); command.Transaction=t;
+                    command.CommandText = "INSERT INTO accounts(account_id,m_id,password_hash) VALUES(80731,'auction-current-pvf','');"
+                        + "INSERT INTO characters(character_id,account_id,name,level) VALUES(80731,80731,'拍卖测试',85);";
+                    command.ExecuteNonQuery();
+                });
+                var lease = InventoryContext.Register(session, new InventoryService(seller,seller,db));
+                lease.Inventory.SetMainVirtualCount(0,50000);
+                using var runtime = new AuctionRuntime(db,Path.Combine(root,"auction.db"),ServerRuntimeBuilder.LoadAuctionCatalog,
+                    () => 1792700000,entryEnabled:true);
+                runtime.Start(new ClockService());
+                var actor = new AuctionParty(seller,seller,"拍卖测试");
+                // These are real current-PVF templates already used by transfer
+                // tests. The production gate is used without fixture authority.
+                foreach (int id in new[] { 27602,3028 })
+                {
+                    if (!InventoryRewardGrantService.TryCreateAndInsert(lease.Inventory,id,ItemCreateReason.Unknown,1,out var grant))
+                        throw new InvalidOperationException("Cannot create current-PVF listing fixture " + id);
+                    var core = lease.Inventory.GetItem(grant.ListType,grant.SlotIndex);
+                    if (runtime.Catalog.TryGet(id,out var template)
+                        && template.AttachType.Contains("seal",StringComparison.OrdinalIgnoreCase)) core.SealFlag=1;
+                    lease.Inventory.MarkDirty(grant.ListType,grant.SlotIndex);
+                    if (!InventoryPersistenceService.SaveDirty(lease)) throw new InvalidOperationException("Cannot save fixture baseline.");
+                    var source = runtime.Codec.Capture(lease.Inventory,grant.ListType,grant.SlotIndex);
+                    int wallet = lease.Inventory.GetMainVirtualCount(0).Count;
+                    var request = new AuctionMarketRequest(Guid.NewGuid(),AuctionOperationAction.List,0,0,actor,1,0,0,
+                        BuyoutGold:100,SourceList:grant.ListType,SourceSlot:grant.SlotIndex,DurationHours:24);
+                    var listed = runtime.Application.Execute(request,lease);
+                    check("current PVF production listing commits once " + id,listed.Status==AuctionMarketStatus.Committed);
+                    if (listed.Status!=AuctionMarketStatus.Committed)
+                        throw new InvalidOperationException("Production listing rejected: " + listed.Reason);
+                    var stored = runtime.Store.FindOrder(listed.Order.OrderId);
+                    check("escrow retains complete source for current PVF " + id,
+                        stored.SourceEnvelopeJson==runtime.Codec.Serialize(source)
+                        && runtime.Codec.DeserializeStrict(stored.EscrowEnvelopeJson).ContentHashHex==source.ContentHashHex
+                        && lease.Inventory.GetItem(grant.ListType,grant.SlotIndex)?.IsEmpty != false
+                        && lease.Inventory.GetMainVirtualCount(0).Count==wallet-10000);
+                    var replay = runtime.Application.Resume(listed.Operation.Intent.OperationId);
+                    check("replaying committed current-PVF listing does not debit again " + id,
+                        replay.Status==AuctionMarketStatus.Committed && lease.Inventory.GetMainVirtualCount(0).Count==wallet-10000);
+                    var cancel = runtime.Application.Execute(new(Guid.NewGuid(),AuctionOperationAction.Cancel,
+                        stored.OrderId,stored.Version,actor,0,0,0),lease);
+                    check("current-PVF cancellation keeps original item and existing deposit policy " + id,
+                        cancel.Status==AuctionMarketStatus.Committed && cancel.Order.State==AuctionOrderState.Cancelled
+                        && lease.Inventory.GetMainVirtualCount(0).Count==wallet-10000);
+                }
+            }
+            finally
+            {
+                InventoryContext.Unregister(session); SqliteConnection.ClearAllPools(); Directory.Delete(root,true);
             }
         }
 
